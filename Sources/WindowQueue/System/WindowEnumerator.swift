@@ -167,6 +167,7 @@ final class WindowEnumerator {
     private func refreshSpaceState() {
         model.currentSpaceID = SpacesBridge.shared.currentSpaceID
         model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
+        model.spaceOrder = SpacesBridge.shared.userSpaceIDs
     }
 
     private func scheduleRefresh() {

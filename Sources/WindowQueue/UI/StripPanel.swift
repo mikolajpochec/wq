@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import QuartzCore
 import SwiftUI
 
 /// A borderless, non-activating panel that floats above everything on every Space.
@@ -76,31 +75,31 @@ final class StripController {
         self.panel = panel
     }
 
+    /// The panel spans the full height of the screen and never resizes; the content centres itself
+    /// inside it, so adding or removing a window is a pure SwiftUI animation with no window resize.
+    /// Empty areas of an `NSHostingView` do not hit-test, so clicks there fall through to the app
+    /// underneath.
     private func layout() {
         guard let panel, let screen = NSScreen.main else { return }
         let prefs = store.prefs
-        let frame = screen.visibleFrame
-        let height = min(StripMetrics.height(itemCount: model.visibleWindows.count, prefs: prefs),
-                         frame.height)
+        let visible = screen.visibleFrame
         let width = prefs.stripWidth
-        let margin = StripMetrics.screenMargin
-        let x = prefs.stripSide == .left ? frame.minX + margin : frame.maxX - width - margin
-        let y = frame.midY - height / 2
-        let target = NSRect(x: x, y: y, width: width, height: height)
+        let x = prefs.stripSide == .left
+            ? visible.minX + StripMetrics.screenMargin
+            : visible.maxX - width - StripMetrics.screenMargin
+        let target = NSRect(x: x, y: visible.minY, width: width, height: visible.height)
         guard target != panel.frame else { return }
-
-        if panel.isVisible {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = StripMetrics.layoutDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(target, display: true)
-            }
-        } else {
-            panel.setFrame(target, display: true)
-        }
+        panel.setFrame(target, display: true)
     }
 
-    /// Frame of the strip in screen coordinates, used to place the title toast beside it.
-    var currentFrame: NSRect? { panel?.frame }
+    /// Frame of the strip content in screen coordinates, used to place the title toast beside it.
+    var currentFrame: NSRect? {
+        guard let panel else { return nil }
+        let height = StripMetrics.height(itemCount: model.visibleWindows.count, prefs: store.prefs)
+        return NSRect(x: panel.frame.minX,
+                      y: panel.frame.midY - height / 2,
+                      width: panel.frame.width,
+                      height: height)
+    }
     var side: StripSide { store.prefs.stripSide }
 }

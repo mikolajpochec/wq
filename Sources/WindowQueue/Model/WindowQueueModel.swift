@@ -12,6 +12,8 @@ final class WindowQueueModel: ObservableObject {
     @Published var scope: QueueScope = .global
     @Published var currentSpaceID: UInt64?
     @Published var currentSpaceIndex: Int?
+    /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
+    @Published var spaceOrder: [UInt64] = []
 
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
@@ -40,6 +42,12 @@ final class WindowQueueModel: ObservableObject {
     private var selectedVisiblePosition: Int? {
         guard let selectedID else { return nil }
         return visibleWindows.firstIndex { $0.id == selectedID }
+    }
+
+    /// 1-based workspace number a window sits on, or nil for a minimised or unplaced window.
+    func workspaceNumber(of window: ManagedWindow) -> Int? {
+        guard let space = window.spaceID, let index = spaceOrder.firstIndex(of: space) else { return nil }
+        return index + 1
     }
 
     // MARK: - Reconciliation

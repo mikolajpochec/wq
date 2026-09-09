@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.model.scope = prefs.scope
                 self.hotkeys.apply(prefs)
-                RectangleIntegration.apply(prefs: prefs)
+                RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs)
             }
             .store(in: &cancellables)
 
@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
         hotkeys.apply(store.prefs)
-        RectangleIntegration.apply(prefs: store.prefs)
+        RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
 
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .sink { [weak self] note in
@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshSpaceState() {
         model.currentSpaceID = SpacesBridge.shared.currentSpaceID
         model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
+        model.spaceOrder = SpacesBridge.shared.userSpaceIDs
     }
 
     // MARK: - Status item

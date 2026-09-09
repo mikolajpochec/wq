@@ -107,6 +107,11 @@ final class SpacesBridge {
         return display.userSpaces[position].id
     }
 
+    /// Space ids of the primary display's desktops, in Mission Control order.
+    var userSpaceIDs: [UInt64] {
+        primaryDisplay()?.userSpaces.map(\.id) ?? []
+    }
+
     var spaceCount: Int {
         primaryDisplay()?.userSpaces.count ?? 0
     }

@@ -105,7 +105,7 @@ struct Preferences: Codable, Equatable {
     var superModifier: SuperModifier = .option
     var spaceSwitchMethod: SpaceSwitchMethod = .focusWindow
     /// Ask Rectangle to keep its tiled windows clear of the strip.
-    var reserveScreenSpace: Bool = false
+    var reserveScreenSpace: Bool = true
     var bindings: [String: KeyCombo] = [:]
 
     var toastEnabled: Bool = true
@@ -115,12 +115,39 @@ struct Preferences: Codable, Equatable {
     var stripSide: StripSide = .left
     var stripWidth: Double = 46
     var iconSize: Double = 28
-    var showIndexNumbers: Bool = true
+    /// Draw each window's workspace number on its icon.
+    var showWorkspaceNumbers: Bool = true
     var showSpaceBadge: Bool = true
     var stripOpacity: Double = 0.9
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
+
+    /// Decoded field by field so that adding a setting never invalidates a stored blob.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? container.decodeIfPresent(T.self, forKey: key)) .flatMap { $0 } ?? fallback
+        }
+        let defaults = Preferences()
+        scope = value(.scope, defaults.scope)
+        superModifier = value(.superModifier, defaults.superModifier)
+        spaceSwitchMethod = value(.spaceSwitchMethod, defaults.spaceSwitchMethod)
+        reserveScreenSpace = value(.reserveScreenSpace, defaults.reserveScreenSpace)
+        bindings = value(.bindings, defaults.bindings)
+        toastEnabled = value(.toastEnabled, defaults.toastEnabled)
+        toastDuration = value(.toastDuration, defaults.toastDuration)
+        stripEnabled = value(.stripEnabled, defaults.stripEnabled)
+        stripSide = value(.stripSide, defaults.stripSide)
+        stripWidth = value(.stripWidth, defaults.stripWidth)
+        iconSize = value(.iconSize, defaults.iconSize)
+        showWorkspaceNumbers = value(.showWorkspaceNumbers, defaults.showWorkspaceNumbers)
+        showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
+        stripOpacity = value(.stripOpacity, defaults.stripOpacity)
+        includeMinimized = value(.includeMinimized, defaults.includeMinimized)
+    }
+
+    init() {}
 
     static func defaultBindings(superMask: UInt32) -> [String: KeyCombo] {
         var out: [String: KeyCombo] = [:]

@@ -10,12 +10,23 @@ struct StripView: View {
     private var prefs: Preferences { store.prefs }
 
     var body: some View {
+        // The panel keeps a fixed, full-height frame so nothing resizes while the queue changes;
+        // the spacers centre the strip and stay transparent to clicks.
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            strip
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var strip: some View {
         VStack(spacing: StripMetrics.spacing) {
             if prefs.showSpaceBadge {
                 spaceBadge
             }
-            ForEach(Array(model.visibleWindows.enumerated()), id: \.element.id) { index, window in
-                row(for: window, index: index + 1)
+            ForEach(model.visibleWindows) { window in
+                row(for: window)
                     .transition(.asymmetric(
                         insertion: .scale(scale: 0.4).combined(with: .opacity),
                         removal: .scale(scale: 0.6).combined(with: .opacity)
@@ -49,15 +60,15 @@ struct StripView: View {
             .help("Current workspace")
     }
 
-    private func row(for window: ManagedWindow, index: Int) -> some View {
+    private func row(for window: ManagedWindow) -> some View {
         let isSelected = window.id == model.selectedID
         return ZStack(alignment: .bottomTrailing) {
             icon(for: window)
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
                 .opacity(window.isMinimized ? 0.45 : 1)
 
-            if prefs.showIndexNumbers {
-                Text("\(index)")
+            if prefs.showWorkspaceNumbers, let workspace = model.workspaceNumber(of: window) {
+                Text("\(workspace)")
                     .font(.system(size: max(8, prefs.iconSize * 0.32), weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 3)

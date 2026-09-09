@@ -26,10 +26,19 @@ enum RectangleIntegration {
     }
 
     /// Writes the gap for the strip's side and clears the other one.
-    static func apply(prefs: Preferences) {
+    /// Returns true when a value actually changed, meaning Rectangle has to be restarted.
+    @discardableResult
+    static func apply(prefs: Preferences) -> Bool {
         let gap = prefs.reserveScreenSpace ? reservedWidth(for: prefs) : 0
-        write(key(for: prefs.stripSide), gap)
-        write(key(for: prefs.stripSide == .left ? .right : .left), 0)
+        let changed = write(key(for: prefs.stripSide), gap)
+        let cleared = write(key(for: prefs.stripSide == .left ? .right : .left), 0)
+        return changed || cleared
+    }
+
+    /// Writes the gaps and, if they changed while Rectangle is running, restarts it so they apply.
+    static func applyAndReloadIfNeeded(prefs: Preferences) {
+        guard isInstalled, apply(prefs: prefs), isRunning else { return }
+        restart { _ in }
     }
 
     static func clear() {
@@ -37,9 +46,13 @@ enum RectangleIntegration {
         write("screenEdgeGapRight", 0)
     }
 
-    private static func write(_ key: String, _ value: Int) {
+    @discardableResult
+    private static func write(_ key: String, _ value: Int) -> Bool {
+        let existing = CFPreferencesCopyAppValue(key as CFString, bundleID as CFString) as? Int
+        guard existing != value else { return false }
         CFPreferencesSetAppValue(key as CFString, value as CFNumber, bundleID as CFString)
         CFPreferencesAppSynchronize(bundleID as CFString)
+        return true
     }
 
     /// Rectangle reads its gaps at launch, so the new value only takes effect after a restart.
