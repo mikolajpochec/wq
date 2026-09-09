@@ -245,6 +245,14 @@ enum StripMetrics {
         return itemsHeight + CGFloat(rows - 1) * spacing + padding * 2
     }
 
+    /// The row a point falls on, given its distance from the top of the strip content.
+    static func rowIndex(atOffsetFromTop offset: CGFloat, itemCount: Int, prefs: Preferences) -> Int? {
+        var top = padding
+        if prefs.showSpaceBadge { top += prefs.iconSize + spacing }
+        let index = Int(floor((offset - top) / (rowHeight(prefs: prefs) + spacing)))
+        return (0..<itemCount).contains(index) ? index : nil
+    }
+
     /// Distance from the top of the strip to the centre of the row at `index`.
     static func rowCentreOffset(index: Int, prefs: Preferences) -> CGFloat {
         var offset = padding

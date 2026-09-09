@@ -24,6 +24,45 @@ final class OverlayPanel: NSPanel {
     }
 }
 
+/// Hosting view that reports the pointer position.
+///
+/// SwiftUI's `onHover` is driven by tracking areas that are only active in the key window, and the
+/// strip's panel is deliberately never key. Tracking the pointer here, with `.activeAlways`, is what
+/// makes hovering work at all.
+private final class HoverHostingView<Content: View>: NSHostingView<Content> {
+    /// Pointer position in this view's coordinates, or nil once it leaves.
+    var onPointerMoved: ((NSPoint?) -> Void)?
+
+    private var pointerTracking: NSTrackingArea?
+
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+    }
+
+    @MainActor @preconcurrency required dynamic init?(coder: NSCoder) {
+        fatalError("unsupported")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking { removeTrackingArea(pointerTracking) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseEnteredAndExited, .mouseMoved,
+                                            .activeAlways, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        pointerTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onPointerMoved?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onPointerMoved?(nil)
+    }
+}
+
 /// Owns the strip panel: builds it, keeps it positioned, and resizes it as the queue changes.
 final class StripController {
     private let model: WindowQueueModel
@@ -35,6 +74,7 @@ final class StripController {
     private var cancellables = Set<AnyCancellable>()
     /// Live position of an icon being dragged, which the queue order does not yet reflect.
     private var dragOffset: (id: CGWindowID, y: CGFloat)?
+    private var hoveredID: CGWindowID?
 
     init(model: WindowQueueModel,
          store: PreferencesStore,
@@ -79,8 +119,10 @@ final class StripController {
             self?.dragOffset = window.map { ($0.id, offset) }
             self?.onHold(window)
         }
-        let hosting = NSHostingView(rootView: view)
+        let hosting = HoverHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
+        hosting.onPointerMoved = { [weak self] point in self?.pointerMoved(to: point, in: hosting) }
+        panel.acceptsMouseMovedEvents = true
         panel.contentView = hosting
         self.panel = panel
     }
@@ -110,6 +152,27 @@ final class StripController {
                       y: panel.frame.midY - height / 2,
                       width: panel.frame.width,
                       height: height)
+    }
+
+    /// Shows the window's name as soon as its icon is hovered, and drops it on the way out.
+    private func pointerMoved(to point: NSPoint?, in view: NSView) {
+        // A drag already owns the popup; hovering must not fight it for position.
+        guard dragOffset == nil else { return }
+
+        let windows = model.visibleWindows
+        let hovered: ManagedWindow? = point.flatMap { point in
+            let contentHeight = StripMetrics.height(itemCount: windows.count, prefs: store.prefs)
+            let fromTop = view.isFlipped ? point.y : view.bounds.height - point.y
+            let withinContent = fromTop - (view.bounds.height - contentHeight) / 2
+            return StripMetrics.rowIndex(atOffsetFromTop: withinContent,
+                                         itemCount: windows.count,
+                                         prefs: store.prefs)
+                .map { windows[$0] }
+        }
+
+        guard hovered?.id != hoveredID else { return }
+        hoveredID = hovered?.id
+        onHold(hovered)
     }
 
     /// Screen-space rect of one window's row, so the toast can point at that icon.
