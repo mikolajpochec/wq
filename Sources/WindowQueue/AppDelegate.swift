@@ -42,8 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.focus(window)
         }
         self.strip = strip
-        toast.anchorProvider = { [weak strip] in
-            guard let strip, let frame = strip.currentFrame else { return nil }
+        toast.anchorProvider = { [weak strip] id in
+            guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
             return (frame, strip.side)
         }
 

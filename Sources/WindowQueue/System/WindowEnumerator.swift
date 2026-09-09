@@ -12,6 +12,8 @@ final class WindowEnumerator {
     private var timer: Timer?
     /// Apps we have already asked to expose their accessibility tree.
     private var accessibilityEnabledPIDs: Set<pid_t> = []
+    /// Apps that needed the second, more intrusive request before they exposed anything.
+    private var accessibilityRepairedPIDs: Set<pid_t> = []
 
     private static let observedNotifications = [
         kAXWindowCreatedNotification,
@@ -126,10 +128,40 @@ final class WindowEnumerator {
         let ordered = discovered.values.sorted {
             ($0.spaceID ?? .max, $0.id) < ($1.spaceID ?? .max, $1.id)
         }
+        repairUnreadableApps(discovered: discovered, apps: apps)
+
         model.reconcile(with: ordered)
         refreshWindowSpaces()
 
         if Diagnostics.isEnabled { Diagnostics.dump(model: model) }
+    }
+
+    /// Second-chance accessibility request for apps that still expose nothing.
+    ///
+    /// An app with a window on the *active* Space that AX cannot see is an app whose accessibility
+    /// tree is switched off — without it we can activate the app but never raise one specific
+    /// window of it. Chrome in particular refuses `AXManualAccessibility` and only responds to
+    /// `AXEnhancedUserInterface`, the attribute VoiceOver sets. That one is applied narrowly, to
+    /// apps showing this exact symptom, because some applications change their window behaviour
+    /// while it is set.
+    private func repairUnreadableApps(discovered: [CGWindowID: ManagedWindow],
+                                      apps: [pid_t: NSRunningApplication]) {
+        guard let current = model.currentSpaceID else { return }
+
+        var offenders: Set<pid_t> = []
+        for window in discovered.values where window.spaceID == current && window.element == nil {
+            offenders.insert(window.pid)
+        }
+
+        for pid in offenders where !accessibilityRepairedPIDs.contains(pid) {
+            accessibilityRepairedPIDs.insert(pid)
+            let element = AXUIElementCreateApplication(pid)
+            let ok = element.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue)
+            if Diagnostics.isEnabled {
+                let name = apps[pid]?.localizedName ?? "?"
+                Diagnostics.note("AXEnhancedUserInterface \(name) pid=\(pid) ok=\(ok)")
+            }
+        }
     }
 
     private struct ServerWindow {
@@ -172,7 +204,10 @@ final class WindowEnumerator {
     private func enableAccessibility(for pid: pid_t, appElement: AXUIElement) {
         guard !accessibilityEnabledPIDs.contains(pid) else { return }
         accessibilityEnabledPIDs.insert(pid)
-        appElement.setAttribute("AXManualAccessibility", value: kCFBooleanTrue)
+        let manual = appElement.setAttribute("AXManualAccessibility", value: kCFBooleanTrue)
+        if Diagnostics.isEnabled {
+            Diagnostics.note("AXManualAccessibility pid=\(pid) ok=\(manual)")
+        }
     }
 
     private func isStandardWindow(_ element: AXUIElement) -> Bool {
@@ -252,6 +287,7 @@ final class WindowEnumerator {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else { return }
         accessibilityEnabledPIDs.remove(app.processIdentifier)
+        accessibilityRepairedPIDs.remove(app.processIdentifier)
         unregisterObserver(for: app.processIdentifier)
         scheduleRefresh()
     }

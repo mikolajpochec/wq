@@ -111,13 +111,23 @@ enum StripMetrics {
     static let layoutAnimation: Animation = .spring(response: 0.32, dampingFraction: 0.82)
     static let layoutDuration: TimeInterval = 0.32
 
+    /// Height of one window row: the icon plus the row's own padding.
+    static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
+
     /// Height the strip needs for the given content, mirroring `StripView`'s layout.
     static func height(itemCount: Int, prefs: Preferences) -> CGFloat {
         let rows = itemCount + (prefs.showSpaceBadge ? 1 : 0)
         guard rows > 0 else { return padding * 2 }
-        let rowHeight = prefs.iconSize + 8 // icon plus the row's own padding
-        let badgeHeight = prefs.iconSize
-        let itemsHeight = CGFloat(itemCount) * rowHeight + (prefs.showSpaceBadge ? badgeHeight : 0)
+        let itemsHeight = CGFloat(itemCount) * rowHeight(prefs: prefs)
+            + (prefs.showSpaceBadge ? prefs.iconSize : 0)
         return itemsHeight + CGFloat(rows - 1) * spacing + padding * 2
+    }
+
+    /// Distance from the top of the strip to the centre of the row at `index`.
+    static func rowCentreOffset(index: Int, prefs: Preferences) -> CGFloat {
+        var offset = padding
+        if prefs.showSpaceBadge { offset += prefs.iconSize + spacing }
+        offset += CGFloat(index) * (rowHeight(prefs: prefs) + spacing)
+        return offset + rowHeight(prefs: prefs) / 2
     }
 }

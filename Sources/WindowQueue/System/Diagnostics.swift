@@ -9,17 +9,22 @@ import ApplicationServices
 enum Diagnostics {
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "diagnostics") }
 
-    static var logURL: URL {
-        let directory = FileManager.default.homeDirectoryForCurrentUser
+    private static var directory: URL {
+        let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/WindowQueue", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("diagnostics.txt")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
+
+    /// Snapshot of the current state, rewritten on every refresh.
+    static var logURL: URL { directory.appendingPathComponent("diagnostics.txt") }
+    /// Append-only breadcrumbs, kept separate so a snapshot never overwrites them.
+    static var eventsURL: URL { directory.appendingPathComponent("events.log") }
 
     /// Always-on breadcrumb so a launch that stalls on permissions leaves a trace.
     static func note(_ message: String) {
         let line = "[\(Date())] \(message)\n"
-        let url = logURL
+        let url = eventsURL
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
             handle.write(Data(line.utf8))

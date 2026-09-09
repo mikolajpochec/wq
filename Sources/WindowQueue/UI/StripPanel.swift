@@ -101,5 +101,18 @@ final class StripController {
                       width: panel.frame.width,
                       height: height)
     }
+
+    /// Screen-space rect of one window's row, so the toast can point at that icon.
+    func rowFrame(for id: CGWindowID) -> NSRect? {
+        guard let content = currentFrame,
+              let index = model.visibleWindows.firstIndex(where: { $0.id == id })
+        else { return nil }
+        let prefs = store.prefs
+        let rowHeight = StripMetrics.rowHeight(prefs: prefs)
+        let centreY = content.maxY - StripMetrics.rowCentreOffset(index: index, prefs: prefs)
+        return NSRect(x: content.minX, y: centreY - rowHeight / 2,
+                      width: content.width, height: rowHeight)
+    }
+
     var side: StripSide { store.prefs.stripSide }
 }
