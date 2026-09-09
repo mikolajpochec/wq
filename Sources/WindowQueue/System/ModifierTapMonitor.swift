@@ -17,6 +17,10 @@ final class ModifierTapMonitor {
 
     private var monitors: [Any] = []
     private var pressedAt: Date?
+    /// The super key is currently held on its own, having been pressed from nothing.
+    private var armed = false
+    /// Something during this press ruled it out as a tap. Cleared only by releasing everything.
+    private var invalidated = false
 
     func start() {
         let flags: NSEvent.EventTypeMask = [.flagsChanged]
@@ -53,26 +57,36 @@ final class ModifierTapMonitor {
     /// Abandons a tap in progress. Called when a shortcut fires, because Carbon swallows the key
     /// event that would otherwise have interrupted it.
     func cancel() {
-        pressedAt = nil
+        invalidated = true
     }
 
     private func handle(_ event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        if flags == modifiers {
+        if flags.isEmpty {
+            let held = pressedAt.map { Date().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+            let wasTap = armed && !invalidated && held <= Self.maxHold
+            armed = false
+            invalidated = false
+            pressedAt = nil
+            if wasTap { onTap?() }
+            return
+        }
+
+        // Arming happens only on the way up from nothing. Letting a return to the bare super key
+        // re-arm would turn the tail of every combination into a tap: releasing Shift while Option
+        // is still down for `⌥⇧]` leaves exactly the super key held, and the release that follows
+        // would look identical to a deliberate tap.
+        if flags == modifiers, !armed {
+            armed = true
+            invalidated = false
             pressedAt = Date()
             return
         }
 
-        guard flags.isEmpty, let pressedAt else {
-            // Another modifier joined in, so this is the start of a combination, not a tap.
-            self.pressedAt = nil
-            return
-        }
-
-        self.pressedAt = nil
-        if Date().timeIntervalSince(pressedAt) <= Self.maxHold {
-            onTap?()
+        if flags != modifiers {
+            // Another modifier joined in: this is a combination, not a tap.
+            invalidated = true
         }
     }
 }

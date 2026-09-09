@@ -73,8 +73,11 @@ Mission Control redraws. It remains selectable in Settings for completeness.
 
 - **A modifier-only shortcut is not expressible with Carbon hotkeys.** Aiming mode is opened by
   watching `flagsChanged` events instead, and a tap only counts when the super key was pressed and
-  released alone, quickly, with no key, click or scroll in between. Carbon swallows the key events of
-  our own shortcuts before a monitor sees them, so the hotkey dispatcher cancels a pending tap too.
+  released alone, quickly, with no key, click or scroll in between. Two details matter: Carbon
+  swallows the key events of our own shortcuts before a monitor sees them, so the hotkey dispatcher
+  cancels a pending tap as well; and a tap can only be armed on the way up from no modifiers at all,
+  because releasing Shift during `⌥⇧]` leaves exactly the super key held and the release that follows
+  is otherwise indistinguishable from a deliberate tap.
 - **An event monitor observes, it cannot consume**, and an accessory app that is not active cannot
   make even a `.nonactivatingPanel` key. So neither route delivers a bare `[` to aiming mode: a
   monitor would let it through to the app in front, and the panel receives nothing at all. Aiming
