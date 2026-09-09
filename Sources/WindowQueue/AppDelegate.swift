@@ -123,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginAiming() {
         guard !model.visibleWindows.isEmpty else { return }
         let aimed = model.beginAiming()
-        aimingKeys.begin(near: strip?.currentFrame)
+        aimingKeys.begin()
         if let aimed { toast?.show(aimed, pinned: true) }
     }
 
