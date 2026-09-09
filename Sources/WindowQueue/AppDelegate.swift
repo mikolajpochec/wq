@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let aimingKeys = AimingKeyCapture()
     private var dimOverlay: DimOverlay?
     private let orderStore = QueueOrderStore()
+    private var search: SearchController?
 
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
@@ -47,7 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { prefs in RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs) }
             .store(in: &cancellables)
 
-        dimOverlay = DimOverlay(store: store)
+        let dimOverlay = DimOverlay(store: store)
+        self.dimOverlay = dimOverlay
+        search = SearchController(model: model, store: store, dim: dimOverlay) { [weak self] window in
+            self?.model.select(id: window.id, announce: false)
+            self?.focus(window)
+        }
 
         let toast = ToastController(store: store)
         self.toast = toast
@@ -216,6 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sortByWorkspace()
         case .closeWindow:
             closeSelectedWindow()
+        case .search:
+            search?.toggle()
         default:
             break
         }
@@ -231,7 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.focus(window)
         }
         scrollFocusWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + store.prefs.scrollFocusDelay,
+                                      execute: work)
     }
 
     private func closeSelectedWindow() {
@@ -258,7 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let siblings = model.windows.count { $0.pid == window.pid }
         WindowFocuser.focus(window,
                             workspaceIndex: model.workspaceNumber(of: window),
-                            siblingCount: siblings)
+                            siblingCount: siblings,
+                            warpCursor: store.prefs.warpCursorToWindow)
     }
 
     /// Changes workspace using the configured strategy, falling back through the others.

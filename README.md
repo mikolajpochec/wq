@@ -16,6 +16,8 @@ always-on-top strip showing that list, and workspace switching by number.
 - Tapping the super key on its own opens **aiming mode**: the screens dim, the strip grows, the aimed icon is
   outlined in orange, `[`/`]` or the arrow keys move the aim without focusing anything, and tapping the
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
+- `⌥Space` opens a **window finder**: type to narrow the queue by application or title, arrows to
+  pick, Return to focus. Like aiming mode it takes the keyboard without taking focus.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.
@@ -106,6 +108,13 @@ Three behaviours shaped most of this code, and each is worth knowing before chan
   shortcut to reach a window it has no element for. Spotify goes further and answers neither, so
   focusing it can only activate the app: once it is frontmost the attempt is treated as done,
   because there is nothing left to verify or retry.
+
+## Searching
+
+Query words are matched one at a time, each as a substring first and only then as a gapped match
+with a couple of characters' slack. Scoring the whole query as one long subsequence — the usual
+fuzzy-finder trick — lets "google chrome" match a title that merely happens to contain those letters
+spread across it, which reads as noise.
 
 ## Responsiveness
 

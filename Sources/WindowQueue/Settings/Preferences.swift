@@ -64,6 +64,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case moveToStart, moveToEnd
     case sortByWorkspace
     case closeWindow
+    case search
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
 
     var id: String { rawValue }
@@ -78,6 +79,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .moveToEnd: return "Move window to end of queue"
         case .sortByWorkspace: return "Sort queue by workspace"
         case .closeWindow: return "Close selected window"
+        case .search: return "Search windows"
         default: return "Switch to workspace \(spaceIndex ?? 0)"
         }
     }
@@ -89,7 +91,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     }
 
     static var queueActions: [HotkeyAction] {
-        [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace, .closeWindow]
+        [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace, .closeWindow, .search]
     }
 
     static var spaceActions: [HotkeyAction] {
@@ -108,6 +110,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .moveToEnd: return KeyCombo(keyCode: kVK_End, modifiers: superMask | shift)
         case .sortByWorkspace: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask | shift)
         case .closeWindow: return KeyCombo(keyCode: kVK_ANSI_Q, modifiers: superMask)
+        case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -144,6 +147,12 @@ struct Preferences: Codable, Equatable {
     var aimingScale: Double = 1.2
     /// How far the screens are dimmed behind the strip while aiming. Zero turns dimming off.
     var aimingDimOpacity: Double = 0.45
+    /// How long scrolling over the strip has to stop before the selected window is focused, so
+    /// running through the queue does not focus everything on the way past.
+    var scrollFocusDelay: Double = 0.5
+    /// Move the pointer to the middle of a window when it is focused, so the cursor follows the
+    /// keyboard instead of being left behind on another screen.
+    var warpCursorToWindow: Bool = true
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -172,6 +181,8 @@ struct Preferences: Codable, Equatable {
         aimingEnabled = value(.aimingEnabled, defaults.aimingEnabled)
         aimingScale = value(.aimingScale, defaults.aimingScale)
         aimingDimOpacity = value(.aimingDimOpacity, defaults.aimingDimOpacity)
+        scrollFocusDelay = value(.scrollFocusDelay, defaults.scrollFocusDelay)
+        warpCursorToWindow = value(.warpCursorToWindow, defaults.warpCursorToWindow)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }
 

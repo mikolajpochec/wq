@@ -23,6 +23,8 @@ enum WindowFocuser {
 
     /// Identifies the current focus request; an older loop sees a stale token and gives up.
     private static var generation: UInt64 = 0
+    /// Whether the request in flight should bring the pointer along.
+    private static var warpCursor = false
     /// Remaining ⌘` presses allowed for the running request.
     private static var cyclePressBudget = 0
 
@@ -36,7 +38,9 @@ enum WindowFocuser {
     /// - Parameters:
     ///   - workspaceIndex: 1-based workspace the window sits on, when known.
     ///   - siblingCount: how many windows the same application has, which bounds the ⌘` fallback.
-    static func focus(_ window: ManagedWindow, workspaceIndex: Int? = nil, siblingCount: Int = 1) {
+    static func focus(_ window: ManagedWindow, workspaceIndex: Int? = nil, siblingCount: Int = 1,
+                      warpCursor: Bool = false) {
+        self.warpCursor = warpCursor
         generation &+= 1
         let token = generation
         pendingTargetID = window.id
@@ -78,10 +82,38 @@ enum WindowFocuser {
         appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue)
     }
 
-    private static func finish(token: UInt64) {
+    private static func finish(token: UInt64, window: ManagedWindow? = nil) {
         guard token == generation else { return }
         pendingTargetID = nil
         cyclePressBudget = 0
+
+        // Read the frame only once things have settled: a window that has just come forward from
+        // another Space is still on its way, and its position would be the old one.
+        if warpCursor, let window {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                warp(to: window)
+            }
+        }
+    }
+
+    /// Puts the pointer in the middle of the window, so the cursor ends up where the user is
+    /// looking rather than stranded on whatever screen they came from.
+    private static func warp(to window: ManagedWindow) {
+        guard let frame = serverFrame(of: window.id) else { return }
+        CGWarpMouseCursorPosition(CGPoint(x: frame.midX, y: frame.midY))
+        // Warping breaks the tie between the mouse and the cursor until this is called back.
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// The window's frame in global display coordinates, which is the space `CGWarpMouseCursorPosition`
+    /// works in — unlike the accessibility API, whose per-screen origins would need converting.
+    private static func serverFrame(of id: CGWindowID) -> CGRect? {
+        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id)
+            as? [[String: Any]])?.first,
+            let bounds = info[kCGWindowBounds as String] as? [String: Any],
+            let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary)
+        else { return nil }
+        return frame
     }
 
     private static func verify(_ window: ManagedWindow, workspaceIndex: Int?,
@@ -105,7 +137,7 @@ enum WindowFocuser {
                 Diagnostics.note("  verify #\(attempt) target=\(window.id) focused=\(focusedID.map(String.init) ?? "nil") axWindows=\(listed) front=\(front)")
             }
             if focusedID == window.id {
-                finish(token: token)
+                finish(token: token, window: window)
                 return
             }
 
@@ -116,7 +148,7 @@ enum WindowFocuser {
             let listedCount = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self)?.count ?? 0
             let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
             if focusedID == nil, listedCount == 0, isFrontmost, attempt >= forceSpaceSwitchAttempt {
-                finish(token: token)
+                finish(token: token, window: window)
                 return
             }
 

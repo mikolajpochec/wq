@@ -1,17 +1,10 @@
 import AppKit
 import CoreGraphics
 
-/// Grabs the keyboard while aiming mode is on.
+/// Keyboard handling for aiming mode: move the aim, confirm it, or back out.
 ///
-/// The obvious approach — a small panel that takes key focus — does not work here twice over. An
-/// accessory application that is not active cannot make a `.nonactivatingPanel` key, so the panel
-/// silently receives nothing; and activating the app to fix that would move focus, which is exactly
-/// what aiming mode exists to avoid.
-///
-/// So the keys are taken with an event tap instead. A tap placed at the session level with
-/// `.defaultTap` may return nil to swallow an event, which an `NSEvent` monitor cannot do — monitors
-/// observe only, so Return and the brackets would still reach whatever app is in front. Nothing is
-/// focused, nothing is activated, and the tap exists only for as long as the mode does.
+/// Focus must not move until the user confirms, so the keys are taken with a `KeyboardGrabber`
+/// rather than by giving a panel key focus.
 final class AimingKeyCapture {
     enum Key {
         case previous, next, commit, cancel
@@ -19,84 +12,31 @@ final class AimingKeyCapture {
 
     var onKey: ((Key) -> Void)?
     /// Fires when the mode should end without the user having confirmed anything.
-    var onDismiss: (() -> Void)?
+    var onDismiss: (() -> Void)? {
+        didSet { grabber.onDismiss = onDismiss }
+    }
 
-    /// The tap swallows every key press, so a mode left open by mistake would lock the keyboard out
-    /// of every other application. It closes itself if nothing happens.
-    private static let idleTimeout: TimeInterval = 15
+    private let grabber = KeyboardGrabber()
 
-    private var tap: CFMachPort?
-    private var source: CFRunLoopSource?
-    private var idleTimer: Timer?
+    init() {
+        grabber.onKeyDown = { [weak self] event in
+            self?.handle(event) ?? false
+        }
+    }
 
-    var isActive: Bool { tap != nil }
+    var isActive: Bool { grabber.isActive }
 
     func begin() {
-        guard tap == nil else { return }
-
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-        let callback: CGEventTapCallBack = { _, type, event, refcon in
-            guard let refcon else { return Unmanaged.passUnretained(event) }
-            let capture = Unmanaged<AimingKeyCapture>.fromOpaque(refcon).takeUnretainedValue()
-            return capture.handle(type: type, event: event)
-        }
-
-        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap,
-                                          place: .headInsertEventTap,
-                                          options: .defaultTap,
-                                          eventsOfInterest: mask,
-                                          callback: callback,
-                                          userInfo: Unmanaged.passUnretained(self).toOpaque()),
-              let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        else {
-            // Without the tap there is no way to run the mode without disturbing focus.
-            onDismiss?()
-            return
-        }
-
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-
-        self.tap = tap
-        self.source = source
-        restartIdleTimer()
+        grabber.begin()
     }
 
     func end() {
-        idleTimer?.invalidate()
-        idleTimer = nil
-
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            CFMachPortInvalidate(tap)
-        }
-        if let source {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-        }
-        tap = nil
-        source = nil
+        grabber.end()
     }
 
-    private func restartIdleTimer() {
-        idleTimer?.invalidate()
-        idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idleTimeout, repeats: false) {
-            [weak self] _ in
-            self?.onDismiss?()
-        }
-    }
-
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // The system disables a tap that takes too long or that the user interrupted; re-arming it
-        // is the documented recovery.
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return Unmanaged.passUnretained(event)
-        }
-        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-
-        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+    private func handle(_ event: CGEvent) -> Bool {
         let key: Key?
-        switch keyCode {
+        switch event.keyCode {
         case 36, 76, 49:            // Return, keypad Enter, Space
             key = .commit
         case 53:                    // Escape
@@ -109,10 +49,8 @@ final class AimingKeyCapture {
             key = nil
         }
 
-        restartIdleTimer()
-
         if Diagnostics.isEnabled {
-            Diagnostics.note("aiming key code=\(keyCode) mapped=\(key.map(String.init(describing:)) ?? "none")")
+            Diagnostics.note("aiming key code=\(event.keyCode) mapped=\(key.map(String.init(describing:)) ?? "none")")
         }
 
         // Acting inside the callback would hold up event delivery, and a slow tap gets disabled.
@@ -121,6 +59,6 @@ final class AimingKeyCapture {
         }
 
         // Every key press is swallowed: while aiming, none of them belong to the app in front.
-        return nil
+        return true
     }
 }

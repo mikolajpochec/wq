@@ -54,6 +54,7 @@ struct SettingsView: View {
                 }
                 .disabled(!store.prefs.aimingEnabled)
             }
+            Toggle("Move the pointer to the focused window", isOn: $store.prefs.warpCursorToWindow)
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {
                 Text("Popup duration")
@@ -173,6 +174,13 @@ struct SettingsView: View {
                 Text("Strip width")
                 Slider(value: $store.prefs.stripWidth, in: 30...90, step: 2)
                 Text("\(Int(store.prefs.stripWidth))").monospacedDigit().frame(width: 34, alignment: .trailing)
+            }
+            HStack {
+                Text("Focus after scrolling")
+                Slider(value: $store.prefs.scrollFocusDelay, in: 0.1...2.0, step: 0.1)
+                Text(String(format: "%.1f s", store.prefs.scrollFocusDelay))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
             }
             HStack {
                 Text("Opacity")
