@@ -11,7 +11,7 @@ always-on-top strip showing that list, and workspace switching by number.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
-- Tapping the super key on its own opens **aiming mode**: the strip grows, the aimed icon is
+- Tapping the super key on its own opens **aiming mode**: the screens dim, the strip grows, the aimed icon is
   outlined in orange, `[`/`]` or the arrow keys move the aim without focusing anything, and tapping the
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.

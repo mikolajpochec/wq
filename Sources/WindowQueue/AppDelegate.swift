@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeys = HotkeyManager()
     private let modifierTaps = ModifierTapMonitor()
     private let aimingKeys = AimingKeyCapture()
+    private var dimOverlay: DimOverlay?
 
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
@@ -44,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .debounce(for: .seconds(1.0), scheduler: RunLoop.main)
             .sink { prefs in RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs) }
             .store(in: &cancellables)
+
+        dimOverlay = DimOverlay(store: store)
 
         let toast = ToastController(store: store)
         self.toast = toast
@@ -124,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !model.visibleWindows.isEmpty else { return }
         let aimed = model.beginAiming()
         aimingKeys.begin()
+        dimOverlay?.show()
         if let aimed { toast?.show(aimed, pinned: true) }
     }
 
@@ -132,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aimed = model.aimedWindow
         model.endAiming()
         aimingKeys.end()
+        dimOverlay?.hide()
         toast?.endHold()
 
         guard commit, let aimed else { return }

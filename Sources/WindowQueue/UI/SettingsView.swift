@@ -40,9 +40,19 @@ struct SettingsView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
-                Text("Tap the super key on its own to pick a window without focusing it. The strip grows, the aimed icon turns orange, and ↑/↓ move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
+                Text("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                HStack {
+                    Text("Dim the screens")
+                    Slider(value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05)
+                    Text(store.prefs.aimingDimOpacity == 0
+                         ? "off"
+                         : String(format: "%.0f%%", store.prefs.aimingDimOpacity * 100))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .disabled(!store.prefs.aimingEnabled)
             }
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {

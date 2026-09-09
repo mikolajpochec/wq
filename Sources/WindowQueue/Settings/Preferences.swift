@@ -142,6 +142,8 @@ struct Preferences: Codable, Equatable {
     var aimingEnabled: Bool = true
     /// How much the strip grows while aiming, so it is obvious the mode is on.
     var aimingScale: Double = 1.2
+    /// How far the screens are dimmed behind the strip while aiming. Zero turns dimming off.
+    var aimingDimOpacity: Double = 0.45
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -169,6 +171,7 @@ struct Preferences: Codable, Equatable {
         stripOpacity = value(.stripOpacity, defaults.stripOpacity)
         aimingEnabled = value(.aimingEnabled, defaults.aimingEnabled)
         aimingScale = value(.aimingScale, defaults.aimingScale)
+        aimingDimOpacity = value(.aimingDimOpacity, defaults.aimingDimOpacity)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }
 
