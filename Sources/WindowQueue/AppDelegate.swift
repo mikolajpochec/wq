@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let window = note.object as? NSWindow,
                       window === self?.settingsWindow?.window else { return }
                 NSApp.setActivationPolicy(.accessory)
+                self?.enumerator?.refresh()
             }
             .store(in: &cancellables)
 
@@ -168,6 +169,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         settingsWindow?.present()
+        // Our own window is discovered like any other, just not instantly by the poll timer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.enumerator?.refresh()
+        }
     }
 
     @objc private func refreshWindows() {

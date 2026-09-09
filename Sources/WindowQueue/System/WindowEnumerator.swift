@@ -43,7 +43,7 @@ final class WindowEnumerator {
         center.addObserver(self, selector: #selector(appActivated(_:)),
                            name: NSWorkspace.didActivateApplicationNotification, object: nil)
 
-        for app in regularApplications() {
+        for app in candidateApplications() {
             registerObserver(for: app.processIdentifier)
         }
 
@@ -57,8 +57,16 @@ final class WindowEnumerator {
 
     // MARK: - Enumeration
 
-    private func regularApplications() -> [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+    /// Applications whose windows can belong in the queue.
+    ///
+    /// Accessory apps are included alongside regular ones: a menu-bar app has no Dock icon but its
+    /// settings window is a real window the user wants to reach — including WindowQueue's own. The
+    /// strip and the title popup are never picked up, because they sit above the normal window
+    /// level and the enumeration only considers layer 0.
+    private func candidateApplications() -> [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular || $0.activationPolicy == .accessory
+        }
     }
 
     /// Rebuilds the window set.
@@ -71,14 +79,13 @@ final class WindowEnumerator {
     func refresh() {
         // Cheap, and the Space a window reports has to be compared against a current value.
         refreshSpaceState()
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        let apps = Dictionary(regularApplications().map { ($0.processIdentifier, $0) },
+        let apps = Dictionary(candidateApplications().map { ($0.processIdentifier, $0) },
                               uniquingKeysWith: { first, _ in first })
 
         var discovered: [CGWindowID: ManagedWindow] = [:]
 
         // 1. Every real window, on every Space.
-        for candidate in serverWindows() where candidate.pid != ownPID {
+        for candidate in serverWindows() {
             guard let app = apps[candidate.pid] else { continue }
             discovered[candidate.id] = ManagedWindow(
                 id: candidate.id,
@@ -93,7 +100,7 @@ final class WindowEnumerator {
 
         // 2. Anything AX can see right now: real titles, elements and minimised state.
         var axCapablePIDs: Set<pid_t> = []
-        for (pid, app) in apps where pid != ownPID {
+        for (pid, app) in apps {
             let appElement = AXUIElementCreateApplication(pid)
             enableAccessibility(for: pid, appElement: appElement)
             guard var windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) else {

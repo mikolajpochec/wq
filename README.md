@@ -65,6 +65,9 @@ Mission Control redraws. It remains selectable in Settings for completeness.
 
 Three behaviours shaped most of this code, and each is worth knowing before changing it:
 
+- **Menu-bar apps own real windows too.** Accessory applications are enumerated alongside regular
+  ones so their settings windows — WindowQueue's included — appear in the queue. The strip and the
+  title popup never do: they sit above the normal window level, and only layer 0 is considered.
 - **`kAXWindowsAttribute` only lists windows on the active Space.** So the window set is seeded from
   `CGWindowListCopyWindowInfo`, which sees every Space, and enriched with AX data as Spaces are
   visited. Entries keep the element and title they were last seen with.
