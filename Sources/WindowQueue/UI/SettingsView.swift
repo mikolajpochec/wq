@@ -148,9 +148,6 @@ struct SettingsView: View {
                 ForEach(StripSide.allCases) { Text($0.title).tag($0) }
             }
             Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
-            Toggle("Group icons by workspace", isOn: $store.prefs.groupByWorkspace)
-            Toggle("Show workspace number on icons", isOn: $store.prefs.showWorkspaceNumbers)
-                .disabled(store.prefs.groupByWorkspace)
             HStack {
                 Text("Icon size")
                 Slider(value: $store.prefs.iconSize, in: 16...48, step: 2)

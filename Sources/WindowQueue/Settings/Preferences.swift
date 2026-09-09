@@ -121,11 +121,7 @@ struct Preferences: Codable, Equatable {
     var stripSide: StripSide = .left
     var stripWidth: Double = 46
     var iconSize: Double = 28
-    /// Draw each window's workspace number on its icon.
-    var showWorkspaceNumbers: Bool = true
     var showSpaceBadge: Bool = true
-    /// Split the strip into workspace groups, each under its own number.
-    var groupByWorkspace: Bool = true
     /// Keep the queue grouped by workspace without having to sort it by hand.
     var autoSortByWorkspace: Bool = true
     var stripOpacity: Double = 0.9
@@ -151,9 +147,7 @@ struct Preferences: Codable, Equatable {
         stripSide = value(.stripSide, defaults.stripSide)
         stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
-        showWorkspaceNumbers = value(.showWorkspaceNumbers, defaults.showWorkspaceNumbers)
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
-        groupByWorkspace = value(.groupByWorkspace, defaults.groupByWorkspace)
         autoSortByWorkspace = value(.autoSortByWorkspace, defaults.autoSortByWorkspace)
         stripOpacity = value(.stripOpacity, defaults.stripOpacity)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)

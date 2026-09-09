@@ -11,14 +11,11 @@ struct StripLayout {
     enum Element: Identifiable {
         /// The accent badge showing the workspace currently in view.
         case badge
-        /// A workspace number introducing the run of icons below it.
-        case header(workspace: Int)
         case window(ManagedWindow)
 
         var id: String {
             switch self {
             case .badge: return "badge"
-            case .header(let workspace): return "header-\(workspace)"
             case .window(let window): return "window-\(window.id)"
             }
         }
@@ -38,30 +35,14 @@ struct StripLayout {
 
     let totalHeight: CGFloat
 
-    init(windows: [ManagedWindow], prefs: Preferences, workspace: (ManagedWindow) -> Int?) {
+    init(windows: [ManagedWindow], prefs: Preferences) {
         var elements: [Element] = []
         if prefs.showSpaceBadge { elements.append(.badge) }
-
-        if prefs.groupByWorkspace {
-            // Runs of neighbouring windows, not a global bucketing: the queue is not necessarily
-            // sorted by workspace, and a workspace that appears twice simply gets two headers.
-            var previous: Int??
-            for window in windows {
-                let current = workspace(window)
-                if previous == nil || previous! != current {
-                    if let current { elements.append(.header(workspace: current)) }
-                    previous = .some(current)
-                }
-                elements.append(.window(window))
-            }
-        } else {
-            elements.append(contentsOf: windows.map { .window($0) })
-        }
+        elements.append(contentsOf: windows.map { .window($0) })
 
         let heights = elements.map { element -> CGFloat in
             switch element {
             case .badge: return prefs.iconSize
-            case .header: return StripMetrics.headerHeight(prefs: prefs)
             case .window: return StripMetrics.rowHeight(prefs: prefs)
             }
         }

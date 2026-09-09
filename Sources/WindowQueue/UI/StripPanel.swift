@@ -176,9 +176,7 @@ final class StripController {
     }
 
     private var contentLayout: StripLayout {
-        StripLayout(windows: model.visibleWindows, prefs: store.prefs) {
-            model.workspaceNumber(of: $0)
-        }
+        StripLayout(windows: model.visibleWindows, prefs: store.prefs)
     }
 
     /// Frame of the strip content in screen coordinates, used to place the title toast beside it.

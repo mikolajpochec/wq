@@ -50,8 +50,6 @@ struct StripView: View {
                 switch element {
                 case .badge:
                     spaceBadge
-                case .header(let workspace):
-                    header(workspace)
                 case .window(let window):
                     row(for: window)
                         // Kept in the layout, just not drawn: the floating copy stands in for it.
@@ -95,7 +93,7 @@ struct StripView: View {
     // MARK: - Layout
 
     private func layout(of windows: [ManagedWindow]) -> StripLayout {
-        StripLayout(windows: windows, prefs: prefs) { model.workspaceNumber(of: $0) }
+        StripLayout(windows: windows, prefs: prefs)
     }
 
     /// Geometry of the committed queue. Drag targeting measures against this rather than the preview
@@ -134,17 +132,6 @@ struct StripView: View {
         }
     }
 
-    private func header(_ workspace: Int) -> some View {
-        let height = StripMetrics.headerHeight(prefs: prefs)
-        return Text("\(workspace)")
-            .font(.system(size: height * 0.72, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.primary.opacity(0.7))
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
-            .background(Capsule().fill(Color.primary.opacity(0.13)))
-            .help("Workspace \(workspace)")
-    }
-
     private var spaceBadge: some View {
         Text(model.currentSpaceIndex.map(String.init) ?? "–")
             .font(.system(size: prefs.iconSize * 0.55, weight: .semibold, design: .rounded))
@@ -164,17 +151,6 @@ struct StripView: View {
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
                 .opacity(window.isMinimized ? 0.45 : 1)
 
-            // Redundant once the icons are grouped under a workspace header.
-            if prefs.showWorkspaceNumbers, !prefs.groupByWorkspace,
-               let workspace = model.workspaceNumber(of: window) {
-                Text("\(workspace)")
-                    .font(.system(size: max(8, prefs.iconSize * 0.32), weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.black.opacity(0.65)))
-                    .offset(x: 4, y: 3)
-            }
         }
         .padding(4)
         .background(
@@ -270,7 +246,5 @@ enum StripMetrics {
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
 
-    /// Height of a workspace group header.
-    static func headerHeight(prefs: Preferences) -> CGFloat { max(15, prefs.iconSize * 0.52) }
 
 }
