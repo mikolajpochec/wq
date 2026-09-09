@@ -66,9 +66,15 @@ final class WindowQueueModel: ObservableObject {
             next.append(updated)
         }
 
+        // New windows land directly after the current one, the way a tiling WM inserts next to the
+        // focused client, rather than at the far end of the queue.
         let known = Set(next.map(\.id))
-        for window in discovered where !known.contains(window.id) {
-            next.append(window)
+        let fresh = discovered.filter { !known.contains($0.id) }
+        if !fresh.isEmpty {
+            let insertionIndex = selectedID
+                .flatMap { id in next.firstIndex { $0.id == id } }
+                .map { $0 + 1 } ?? next.count
+            next.insert(contentsOf: fresh, at: insertionIndex)
         }
 
         guard next != windows else { return }

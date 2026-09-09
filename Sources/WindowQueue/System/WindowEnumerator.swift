@@ -10,6 +10,8 @@ final class WindowEnumerator {
     private var observers: [pid_t: AXObserver] = [:]
     private var refreshWorkItem: DispatchWorkItem?
     private var timer: Timer?
+    /// A window that took focus before we had it in the queue, adopted once it appears.
+    private var pendingExternalFocusID: CGWindowID?
     /// Apps we have already asked to expose their accessibility tree.
     private var accessibilityEnabledPIDs: Set<pid_t> = []
     /// Apps we have additionally switched into enhanced accessibility mode.
@@ -155,6 +157,7 @@ final class WindowEnumerator {
         noteUnreadableApps(discovered: discovered, apps: apps)
 
         model.reconcile(with: ordered)
+        adoptPendingFocus()
         refreshWindowSpaces()
 
         if Diagnostics.isEnabled { Diagnostics.dump(model: model) }
@@ -307,9 +310,25 @@ final class WindowEnumerator {
     /// Follows focus changes the user made themselves, but not the ones an application reports
     /// while we are still steering it towards a different window — otherwise an app that briefly
     /// re-focuses its previous window drags the selection back there.
+    ///
+    /// A brand new window takes focus before the enumeration has seen it, so an id we do not know
+    /// yet is remembered and adopted on the next refresh instead of being dropped.
     private func adoptExternalFocus(_ id: CGWindowID) {
-        guard model.windows.contains(where: { $0.id == id }) else { return }
         if let pending = WindowFocuser.pendingTargetID, pending != id { return }
+        guard model.windows.contains(where: { $0.id == id }) else {
+            pendingExternalFocusID = id
+            return
+        }
+        pendingExternalFocusID = nil
+        model.select(id: id, announce: false)
+    }
+
+    /// Picks up a focus change that arrived before its window was in the queue.
+    private func adoptPendingFocus() {
+        guard let id = pendingExternalFocusID else { return }
+        guard model.windows.contains(where: { $0.id == id }) else { return }
+        pendingExternalFocusID = nil
+        if let target = WindowFocuser.pendingTargetID, target != id { return }
         model.select(id: id, announce: false)
     }
 

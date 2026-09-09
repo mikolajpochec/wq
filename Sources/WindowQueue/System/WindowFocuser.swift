@@ -47,24 +47,34 @@ enum WindowFocuser {
         }
 
         let appElement = AXUIElementCreateApplication(window.pid)
-        if let element = window.element {
-            raise(element, appElement: appElement, wasMinimized: window.isMinimized)
+        if let element = window.element,
+           raise(element, appElement: appElement, wasMinimized: window.isMinimized) {
+            // Raised through the element; nothing else needed.
         } else {
-            NSRunningApplication(processIdentifier: window.pid)?.activate()
-            appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue)
+            activate(window, appElement: appElement)
         }
 
         verify(window, workspaceIndex: workspaceIndex, token: token, attempt: 0)
     }
 
-    private static func raise(_ element: AXUIElement, appElement: AXUIElement, wasMinimized: Bool) {
+    /// - Returns: whether the element still accepted the raise. A cached element goes stale when
+    ///   its window is recreated, and every call then fails silently.
+    @discardableResult
+    private static func raise(_ element: AXUIElement, appElement: AXUIElement,
+                              wasMinimized: Bool) -> Bool {
         if wasMinimized {
             element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
         }
         element.setAttribute(kAXMainAttribute, value: kCFBooleanTrue)
         element.setAttribute(kAXFocusedAttribute, value: kCFBooleanTrue)
-        element.perform(kAXRaiseAction)
+        let raised = element.perform(kAXRaiseAction)
         appElement.setAttribute(kAXFocusedWindowAttribute, value: element)
+        appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue)
+        return raised
+    }
+
+    private static func activate(_ window: ManagedWindow, appElement: AXUIElement) {
+        NSRunningApplication(processIdentifier: window.pid)?.activate()
         appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue)
     }
 
@@ -99,6 +109,17 @@ enum WindowFocuser {
                 return
             }
 
+            // Some applications — Spotify and other Chromium shells — expose neither a window list
+            // nor a focused window, so there is no way to confirm the result and nothing further to
+            // try. Once the app is frontmost and has had its chance to change Space, treat that as
+            // done rather than looping until the attempt budget runs out and fighting the user.
+            let listedCount = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self)?.count ?? 0
+            let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            if focusedID == nil, listedCount == 0, isFrontmost, attempt >= forceSpaceSwitchAttempt {
+                finish(token: token)
+                return
+            }
+
             // Activating an app usually makes macOS follow it to its Space, but not every app
             // cooperates. Fall back to the system's own ⌃N shortcut. (The private SkyLight call
             // does move Spaces, but leaves the WindowServer drawing several desktops at once.)
@@ -111,8 +132,11 @@ enum WindowFocuser {
 
             if let windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self),
                let match = windows.first(where: { AXPrivate.windowID(of: $0) == window.id }) {
-                raise(match, appElement: appElement, wasMinimized: window.isMinimized)
+                if !raise(match, appElement: appElement, wasMinimized: window.isMinimized) {
+                    activate(window, appElement: appElement)
+                }
             } else if attempt >= forceSpaceSwitchAttempt {
+                activate(window, appElement: appElement)
                 cycleWindows(of: window, appElement: appElement)
             }
 

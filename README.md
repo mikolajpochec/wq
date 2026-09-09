@@ -12,8 +12,8 @@ always-on-top strip showing that list, and workspace switching by number.
 - `⌥1` … `⌥9` switch workspace.
 - Option is the "super" key by default; the super key and every individual shortcut are remappable.
 
-Order is **stable**: new windows are appended, cycling never reorders, and only the move shortcuts
-change the order.
+Order is **stable**: a new window is inserted directly after the currently selected one, cycling
+never reorders, and only the move shortcuts change the order.
 
 ## Build and run
 
@@ -78,7 +78,9 @@ Three behaviours shaped most of this code, and each is worth knowing before chan
   (`kAXErrorAttributeUnsupported`) nor `AXEnhancedUserInterface` (`kAXErrorNotImplemented`) and
   reports an empty window list forever. It does answer `AXFocusedWindow`, so WindowQueue captures
   that element whenever it sees it, and falls back to driving the app's own `⌘\`` cycle-windows
-  shortcut to reach a window it has no element for.
+  shortcut to reach a window it has no element for. Spotify goes further and answers neither, so
+  focusing it can only activate the app: once it is frontmost the attempt is treated as done,
+  because there is nothing left to verify or retry.
 
 ## Troubleshooting
 
