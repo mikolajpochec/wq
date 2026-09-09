@@ -29,14 +29,21 @@ final class StripController {
     private let model: WindowQueueModel
     private let store: PreferencesStore
     private let onSelect: (ManagedWindow) -> Void
+    private let onHold: (ManagedWindow?) -> Void
 
     private var panel: OverlayPanel?
     private var cancellables = Set<AnyCancellable>()
+    /// Live position of an icon being dragged, which the queue order does not yet reflect.
+    private var dragOffset: (id: CGWindowID, y: CGFloat)?
 
-    init(model: WindowQueueModel, store: PreferencesStore, onSelect: @escaping (ManagedWindow) -> Void) {
+    init(model: WindowQueueModel,
+         store: PreferencesStore,
+         onSelect: @escaping (ManagedWindow) -> Void,
+         onHold: @escaping (ManagedWindow?) -> Void) {
         self.model = model
         self.store = store
         self.onSelect = onSelect
+        self.onHold = onHold
     }
 
     func start() {
@@ -68,7 +75,10 @@ final class StripController {
 
     private func build() {
         let panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: store.prefs.stripWidth, height: 100))
-        let view = StripView(model: model, store: store, onSelect: onSelect)
+        let view = StripView(model: model, store: store, onSelect: onSelect) { [weak self] window, offset in
+            self?.dragOffset = window.map { ($0.id, offset) }
+            self?.onHold(window)
+        }
         let hosting = NSHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
@@ -109,7 +119,10 @@ final class StripController {
         else { return nil }
         let prefs = store.prefs
         let rowHeight = StripMetrics.rowHeight(prefs: prefs)
-        let centreY = content.maxY - StripMetrics.rowCentreOffset(index: index, prefs: prefs)
+        // A dragged icon is drawn at the cursor while the queue order still has it in its old slot,
+        // so shift the anchor by the drag. Screen coordinates run upwards, the drag downwards.
+        let drag = dragOffset.flatMap { $0.id == id ? $0.y : nil } ?? 0
+        let centreY = content.maxY - StripMetrics.rowCentreOffset(index: index, prefs: prefs) - drag
         return NSRect(x: content.minX, y: centreY - rowHeight / 2,
                       width: content.width, height: rowHeight)
     }

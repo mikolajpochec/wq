@@ -43,10 +43,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { window in toast.show(window) }
             .store(in: &cancellables)
 
-        let strip = StripController(model: model, store: store) { [weak self] window in
-            self?.model.select(id: window.id, announce: false)
-            self?.focus(window)
-        }
+        let strip = StripController(
+            model: model,
+            store: store,
+            onSelect: { [weak self] window in
+                self?.model.select(id: window.id, announce: false)
+                self?.focus(window)
+            },
+            onHold: { window in
+                if let window {
+                    toast.show(window, pinned: true)
+                } else {
+                    toast.endHold()
+                }
+            }
+        )
         self.strip = strip
         toast.anchorProvider = { [weak strip] id in
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }

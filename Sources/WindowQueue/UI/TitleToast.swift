@@ -31,6 +31,9 @@ private struct ToastView: View {
 final class ToastController {
     private let store: PreferencesStore
     private var panel: OverlayPanel?
+    /// Built once and updated in place: while an icon is dragged this is refreshed on every slot
+    /// change, and rebuilding the hosting view each time is what makes a press feel sluggish.
+    private var hosting: NSHostingView<ToastView>?
     private var hideWorkItem: DispatchWorkItem?
 
     /// Supplies the on-screen rect of a window's row in the strip, so the toast appears right
@@ -41,31 +44,67 @@ final class ToastController {
         self.store = store
     }
 
-    func show(_ window: ManagedWindow) {
+    /// - Parameter pinned: keep the popup up instead of hiding it after the configured delay, for
+    ///   as long as the icon is held.
+    func show(_ window: ManagedWindow, pinned: Bool = false) {
         guard store.prefs.toastEnabled else { return }
 
         let view = ToastView(title: window.displayTitle, subtitle: window.appName)
-        let hosting = NSHostingView(rootView: view)
+        let hosting: NSHostingView<ToastView>
+        if let existing = self.hosting {
+            hosting = existing
+            hosting.rootView = view
+        } else {
+            hosting = NSHostingView(rootView: view)
+            self.hosting = hosting
+        }
+
         let size = hosting.fittingSize
         let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
 
-        let panel = self.panel ?? OverlayPanel(contentRect: NSRect(origin: .zero, size: clamped))
-        panel.contentView = hosting
-        self.panel = panel
+        let panel: OverlayPanel
+        if let existing = self.panel {
+            panel = existing
+        } else {
+            panel = OverlayPanel(contentRect: NSRect(origin: .zero, size: clamped))
+            panel.contentView = hosting
+            self.panel = panel
+        }
 
+        // Already on screen — while an icon is being dragged this is called on every slot change,
+        // so move it rather than fading it in again.
+        let wasVisible = panel.isVisible && panel.alphaValue > 0
         panel.setFrame(NSRect(origin: position(for: clamped, windowID: window.id), size: clamped),
                        display: true)
-        panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            panel.animator().alphaValue = 1
+
+        if wasVisible {
+            panel.orderFrontRegardless()
+        } else {
+            panel.alphaValue = 0
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                panel.animator().alphaValue = 1
+            }
         }
 
         hideWorkItem?.cancel()
+        hideWorkItem = nil
+        guard !pinned else { return }
+        scheduleHide(after: store.prefs.toastDuration)
+    }
+
+    /// Ends a pinned popup, leaving it up briefly so the final position is readable.
+    func endHold() {
+        guard panel != nil else { return }
+        scheduleHide(after: min(store.prefs.toastDuration, 0.6))
+    }
+
+    private func scheduleHide(after delay: TimeInterval) {
+        hideWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.hide() }
         hideWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + store.prefs.toastDuration, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     private func position(for size: NSSize, windowID: CGWindowID) -> NSPoint {

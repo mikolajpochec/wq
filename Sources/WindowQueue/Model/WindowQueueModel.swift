@@ -135,16 +135,20 @@ final class WindowQueueModel: ObservableObject {
     }
 
     func moveToStart() {
-        moveSelected(toVisiblePosition: 0)
+        guard let selectedID else { return }
+        move(id: selectedID, toVisiblePosition: 0)
     }
 
     func moveToEnd() {
-        moveSelected(toVisiblePosition: visibleIndices.count - 1)
+        guard let selectedID else { return }
+        move(id: selectedID, toVisiblePosition: visibleIndices.count - 1)
     }
 
-    private func moveSelected(toVisiblePosition target: Int) {
+    /// Moves one window to an absolute slot within the visible slice, leaving windows the current
+    /// scope hides where they are.
+    func move(id: CGWindowID, toVisiblePosition target: Int) {
         let indices = visibleIndices
-        guard let position = selectedVisiblePosition,
+        guard let position = visibleWindows.firstIndex(where: { $0.id == id }),
               indices.indices.contains(target),
               position != target
         else { return }

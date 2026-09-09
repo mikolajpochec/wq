@@ -2,10 +2,28 @@ import AppKit
 import SwiftUI
 
 /// The always-on-top vertical strip: workspace badge on top, then window icons in queue order.
+///
+/// Icons can be dragged to reorder the queue. While a drag is in progress the dragged icon leaves
+/// the layout and is drawn on top at the cursor, and a gap slides between the remaining icons to
+/// show where it will land. Keeping it out of the flow is what makes it track the pointer exactly:
+/// an icon that is both positioned by the layout and offset by the drag fights itself every time
+/// the two disagree. The queue itself is only reordered when the icon is dropped.
 struct StripView: View {
     @ObservedObject var model: WindowQueueModel
     @ObservedObject var store: PreferencesStore
     var onSelect: (ManagedWindow) -> Void
+    /// Called with the window being held and how far it has been dragged, and with nil when the
+    /// hold ends, so the popup can stay up and follow the icon.
+    var onHold: (ManagedWindow?, CGFloat) -> Void
+
+    /// Drags are measured in this space rather than against a row, because a row moves while it is
+    /// being dragged and a translation measured against a moving view lags behind the cursor.
+    private static let dragSpace = "WindowQueueStrip"
+
+    @State private var draggingID: CGWindowID?
+    @State private var dragOriginIndex = 0
+    @State private var dragTargetIndex = 0
+    @State private var dragTranslation: CGFloat = 0
 
     private var prefs: Preferences { store.prefs }
 
@@ -25,15 +43,19 @@ struct StripView: View {
             if prefs.showSpaceBadge {
                 spaceBadge
             }
-            ForEach(model.visibleWindows) { window in
-                row(for: window)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.4).combined(with: .opacity),
-                        removal: .scale(scale: 0.6).combined(with: .opacity)
-                    ))
+            ForEach(slots) { slot in
+                if let window = slot.window {
+                    row(for: window)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.4).combined(with: .opacity),
+                            removal: .scale(scale: 0.6).combined(with: .opacity)
+                        ))
+                } else {
+                    Color.clear.frame(height: StripMetrics.rowHeight(prefs: prefs))
+                }
             }
         }
-        .animation(StripMetrics.layoutAnimation, value: model.visibleWindows.map(\.id))
+        .animation(StripMetrics.layoutAnimation, value: slots.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
         .padding(StripMetrics.padding)
         .frame(width: prefs.stripWidth)
@@ -46,6 +68,71 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
+        .overlay(alignment: .top) { floatingRow }
+        .coordinateSpace(name: Self.dragSpace)
+        // One gesture for the whole strip: a per-row recogniser would be destroyed the moment its
+        // row is replaced by the gap, cancelling the drag halfway through.
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.dragSpace))
+                .onChanged { value in
+                    dragChanged(start: value.startLocation.y,
+                                offset: value.location.y - value.startLocation.y)
+                }
+                .onEnded { value in
+                    dragEnded(offset: value.location.y - value.startLocation.y)
+                }
+        )
+    }
+
+    // MARK: - Layout model
+
+    /// One position in the strip: either a window, or the gap left by the icon being dragged.
+    private struct Slot: Identifiable {
+        let id: String
+        let window: ManagedWindow?
+    }
+
+    private var slots: [Slot] {
+        let windows = model.visibleWindows
+        guard let draggingID,
+              let origin = windows.firstIndex(where: { $0.id == draggingID })
+        else {
+            return windows.map { Slot(id: "window-\($0.id)", window: $0) }
+        }
+
+        var remaining = windows.map { Slot(id: "window-\($0.id)", window: $0) }
+        remaining.remove(at: origin)
+        remaining.insert(Slot(id: "gap", window: nil),
+                         at: min(max(dragTargetIndex, 0), remaining.count))
+        return remaining
+    }
+
+    private var draggedWindow: ManagedWindow? {
+        guard let draggingID else { return nil }
+        return model.visibleWindows.first { $0.id == draggingID }
+    }
+
+    private var slotHeight: CGFloat {
+        StripMetrics.rowHeight(prefs: prefs) + StripMetrics.spacing
+    }
+
+    /// Distance from the top of the strip to the top edge of the row at `index`.
+    private func topOffset(of index: Int) -> CGFloat {
+        var offset = StripMetrics.padding
+        if prefs.showSpaceBadge { offset += prefs.iconSize + StripMetrics.spacing }
+        return offset + CGFloat(index) * slotHeight
+    }
+
+    // MARK: - Rows
+
+    @ViewBuilder
+    private var floatingRow: some View {
+        if let window = draggedWindow {
+            row(for: window)
+                .scaleEffect(1.12)
+                .shadow(color: .black.opacity(0.3), radius: 6)
+                .offset(y: topOffset(of: dragOriginIndex) + dragTranslation)
+        }
     }
 
     private var spaceBadge: some View {
@@ -87,7 +174,6 @@ struct StripView: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
         )
         .contentShape(Rectangle())
-        .onTapGesture { onSelect(window) }
         .help(window.displayTitle)
     }
 
@@ -97,6 +183,42 @@ struct StripView: View {
             Image(nsImage: image).resizable().interpolation(.high)
         } else {
             RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.3))
+        }
+    }
+
+    // MARK: - Dragging
+
+    /// Which row a point in strip coordinates falls on.
+    private func index(at y: CGFloat) -> Int? {
+        let position = Int(floor((y - topOffset(of: 0)) / slotHeight))
+        return model.visibleWindows.indices.contains(position) ? position : nil
+    }
+
+    private func dragChanged(start: CGFloat, offset: CGFloat) {
+        if draggingID == nil {
+            guard let origin = index(at: start) else { return }
+            draggingID = model.visibleWindows[origin].id
+            dragOriginIndex = origin
+            dragTargetIndex = origin
+        }
+        dragTranslation = offset
+        dragTargetIndex = min(max(dragOriginIndex + Int((offset / slotHeight).rounded()), 0),
+                              model.visibleWindows.count - 1)
+        if let window = draggedWindow { onHold(window, offset) }
+    }
+
+    private func dragEnded(offset: CGFloat) {
+        defer {
+            draggingID = nil
+            dragTranslation = 0
+            onHold(nil, 0)
+        }
+        guard let window = draggedWindow else { return }
+
+        if abs(offset) < 4, dragTargetIndex == dragOriginIndex {
+            onSelect(window)
+        } else {
+            model.move(id: window.id, toVisiblePosition: dragTargetIndex)
         }
     }
 }
