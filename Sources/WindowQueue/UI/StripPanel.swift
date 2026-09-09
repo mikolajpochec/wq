@@ -166,7 +166,9 @@ final class StripController {
         guard let panel, let screen = NSScreen.main else { return }
         let prefs = store.prefs
         let visible = screen.visibleFrame
-        let width = prefs.stripWidth
+        // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
+        // strip, so it is always as wide as the strip can ever get.
+        let width = prefs.stripWidth * max(1, prefs.aimingScale)
         let x = prefs.stripSide == .left
             ? visible.minX + StripMetrics.screenMargin
             : visible.maxX - width - StripMetrics.screenMargin
@@ -191,8 +193,9 @@ final class StripController {
 
     /// Shows the window's name as soon as its icon is hovered, and drops it on the way out.
     private func pointerMoved(to point: NSPoint?, in view: NSView) {
-        // A drag already owns the popup; hovering must not fight it for position.
-        guard dragOffset == nil else { return }
+        // A drag already owns the popup, and aiming is keyboard-driven and drawn scaled, so the
+        // unscaled hit-test would land on the wrong icon.
+        guard dragOffset == nil, model.aimingID == nil else { return }
 
         let hovered = point.flatMap { window(at: $0, in: view) }
 
@@ -231,9 +234,18 @@ final class StripController {
         // A dragged icon is drawn at the cursor while the queue order still has it in its old slot,
         // so shift the anchor by the drag. Screen coordinates run upwards, the drag downwards.
         let drag = dragOffset.flatMap { $0.id == id ? $0.y : nil } ?? 0
-        let centreY = content.maxY - contentLayout.centreOffset(ofWindowAt: index) - drag
-        return NSRect(x: content.minX, y: centreY - rowHeight / 2,
-                      width: content.width, height: rowHeight)
+        var centreY = content.maxY - contentLayout.centreOffset(ofWindowAt: index) - drag
+
+        // While aiming, the strip is drawn scaled about its vertical centre; the layout is not, so
+        // the anchor has to follow the same transform or the popup drifts from its icon.
+        if model.aimingID != nil {
+            let scale = store.prefs.aimingScale
+            centreY = content.midY + (centreY - content.midY) * scale
+        }
+
+        let scaledRowHeight = model.aimingID == nil ? rowHeight : rowHeight * store.prefs.aimingScale
+        return NSRect(x: content.minX, y: centreY - scaledRowHeight / 2,
+                      width: content.width, height: scaledRowHeight)
     }
 
     var side: StripSide { store.prefs.stripSide }

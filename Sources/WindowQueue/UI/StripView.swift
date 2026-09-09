@@ -41,7 +41,10 @@ struct StripView: View {
             strip
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The panel is wider than the strip to leave room for aiming mode to grow into, so the
+        // content is pinned to whichever screen edge the strip lives on rather than centred.
+        .frame(maxWidth: .infinity, maxHeight: .infinity,
+               alignment: prefs.stripSide == .left ? .leading : .trailing)
     }
 
     private var strip: some View {
@@ -63,8 +66,6 @@ struct StripView: View {
         }
         .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
-        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.aimingID == nil)
         .padding(StripMetrics.padding)
         .frame(width: prefs.stripWidth)
         .background(
@@ -90,6 +91,12 @@ struct StripView: View {
                     dragEnded(offset: value.location.y - value.startLocation.y)
                 }
         )
+        // Applied last so the background and border grow with the icons, and outside the named
+        // coordinate space so drag positions keep arriving in unscaled units. Growth is anchored to
+        // the screen edge, so the strip expands inwards instead of off the side of its panel.
+        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale,
+                     anchor: prefs.stripSide == .left ? .leading : .trailing)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.aimingID == nil)
     }
 
     // MARK: - Layout
