@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let modifierTaps = ModifierTapMonitor()
     private let aimingKeys = AimingKeyCapture()
     private var dimOverlay: DimOverlay?
+    private let orderStore = QueueOrderStore()
 
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
@@ -101,6 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissions.requestAndWait { [weak self] in
             guard let self else { return }
             Diagnostics.note("accessibility granted, starting enumeration")
+            // The saved order can only be applied once there is something to apply it to.
+            // `@Published` fires from `willSet`, so the model still holds the old value when a
+            // subscriber runs. Hopping to the next turn of the run loop is what makes the queue
+            // actually be there to reorder.
+            self.model.$windows
+                .filter { !$0.isEmpty }
+                .prefix(1)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.orderStore.restore(into: self.model)
+                    self.orderStore.startSaving(self.model)
+                }
+                .store(in: &self.cancellables)
+
             let enumerator = WindowEnumerator(model: self.model)
             self.enumerator = enumerator
             enumerator.start()

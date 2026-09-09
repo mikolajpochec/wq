@@ -214,6 +214,26 @@ final class WindowQueueModel: ObservableObject {
         return lower...upper
     }
 
+    /// Puts the queue back into a previously saved order.
+    ///
+    /// Greedy and forgiving: each saved key claims the first window still unplaced that matches it,
+    /// and anything the save does not mention keeps its discovered position at the end. A window
+    /// whose title has changed since simply fails to match, which costs nothing.
+    func applyOrder(keys: [String]) {
+        var remaining = windows
+        var ordered: [ManagedWindow] = []
+
+        for key in keys {
+            guard let index = remaining.firstIndex(where: { $0.orderKey == key }) else { continue }
+            ordered.append(remaining.remove(at: index))
+        }
+        ordered.append(contentsOf: remaining)
+
+        guard ordered.map(\.id) != windows.map(\.id) else { return }
+        windows = ordered
+        if autoSortByWorkspace { sortByWorkspace() }
+    }
+
     /// Groups the queue by workspace, in Mission Control order.
     ///
     /// The sort is stable, so the order the user arranged inside a workspace is kept; windows whose

@@ -93,7 +93,8 @@ final class WindowEnumerator {
 
         // Snapshot what the main thread owns, then do the slow accessibility work off it.
         let names = Dictionary(candidateApplications().map {
-            ($0.processIdentifier, $0.localizedName ?? "Unknown")
+            ($0.processIdentifier,
+             AppInfo(name: $0.localizedName ?? "Unknown", bundleID: $0.bundleIdentifier))
         }, uniquingKeysWith: { first, _ in first })
         let needsAccessibility = names.keys.filter { !accessibilityEnabledPIDs.contains($0) }
         accessibilityEnabledPIDs.formUnion(needsAccessibility)
@@ -116,6 +117,12 @@ final class WindowEnumerator {
         }
     }
 
+    /// What the main thread knows about an application, snapshotted for the enumeration queue.
+    private struct AppInfo {
+        let name: String
+        let bundleID: String?
+    }
+
     private struct EnumerationResult {
         let windows: [ManagedWindow]
         let escalated: Set<pid_t>
@@ -128,7 +135,7 @@ final class WindowEnumerator {
     /// but it only lists an app's windows while they are on the active Space. So: seed the set from
     /// the WindowServer, enrich whatever AX can currently see, and keep previously enriched entries
     /// until the WindowServer says the window is really gone.
-    private func enumerate(names: [pid_t: String],
+    private func enumerate(names: [pid_t: AppInfo],
                            enable: Set<pid_t>,
                            mayEscalate: Set<pid_t>,
                            currentSpaceID: UInt64?) -> EnumerationResult {
@@ -137,12 +144,13 @@ final class WindowEnumerator {
 
         // 1. Every real window, on every Space.
         for candidate in serverWindows() {
-            guard let name = names[candidate.pid] else { continue }
+            guard let app = names[candidate.pid] else { continue }
             discovered[candidate.id] = ManagedWindow(
                 id: candidate.id,
                 element: nil,
                 pid: candidate.pid,
-                appName: name,
+                appName: app.name,
+                bundleID: app.bundleID,
                 title: candidate.title,
                 isMinimized: false,
                 spaceID: candidate.spaceID
@@ -151,7 +159,7 @@ final class WindowEnumerator {
 
         // 2. Anything AX can see right now: real titles, elements and minimised state.
         var axCapablePIDs: Set<pid_t> = []
-        for (pid, name) in names {
+        for (pid, app) in names {
             let appElement = AXPrivate.application(pid)
             if enable.contains(pid) { enableAccessibility(pid: pid, appElement: appElement) }
 
@@ -185,7 +193,8 @@ final class WindowEnumerator {
                     id: id,
                     element: element,
                     pid: pid,
-                    appName: name,
+                    appName: app.name,
+                    bundleID: app.bundleID,
                     title: element.attribute(kAXTitleAttribute, as: String.self) ?? "",
                     isMinimized: minimized,
                     spaceID: discovered[id]?.spaceID
@@ -231,7 +240,7 @@ final class WindowEnumerator {
     /// Logs apps that have a window on the active Space which AX still cannot see; without an
     /// element we can activate such an app but not raise one specific window of it.
     private func noteUnreadableApps(discovered: [CGWindowID: ManagedWindow],
-                                    names: [pid_t: String],
+                                    names: [pid_t: AppInfo],
                                     currentSpaceID: UInt64?) {
         guard Diagnostics.isEnabled, let current = currentSpaceID else { return }
         var offenders: Set<pid_t> = []
@@ -239,7 +248,7 @@ final class WindowEnumerator {
             offenders.insert(window.pid)
         }
         for pid in offenders {
-            Diagnostics.note("AX blind on active space: \(names[pid] ?? "?") pid=\(pid)")
+            Diagnostics.note("AX blind on active space: \(names[pid]?.name ?? "?") pid=\(pid)")
         }
     }
 

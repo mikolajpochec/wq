@@ -6,7 +6,9 @@ always-on-top strip showing that list, and workspace switching by number.
 - Ordered queue of all windows — scope is either every window or only the current workspace.
 - `⌥[` / `⌥]` cycle the selection; the selected window is raised and focused.
 - `⌥⇧[` / `⌥⇧]` move the selected window earlier/later in the queue, `⌥⇧↖` / `⌥⇧↘` to the ends.
-- Icons can also be dragged in the strip to reorder. Hovering an icon shows the window's name
+- Icons can also be dragged in the strip to reorder. Scrolling over the strip walks the selection,
+  focusing the window shortly after the scrolling stops; a middle click closes a window.
+- The queue's order is remembered between runs. Hovering an icon shows the window's name
   straight away, and it stays up for as long as the icon is held.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
