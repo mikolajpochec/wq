@@ -26,8 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.model.scope = prefs.scope
                 self.hotkeys.apply(prefs)
-                RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs)
             }
+            .store(in: &cancellables)
+
+        // Restarting Rectangle is the only way it picks up a new gap, so it must not happen on
+        // every step of a slider drag: wait until the settings have been still for a moment.
+        store.$prefs
+            .debounce(for: .seconds(1.0), scheduler: RunLoop.main)
+            .sink { prefs in RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs) }
             .store(in: &cancellables)
 
         let toast = ToastController(store: store)

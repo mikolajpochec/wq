@@ -67,6 +67,9 @@ enum RectangleIntegration {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = false
+            // Rectangle opens its main window on a plain launch; start it hidden instead.
+            configuration.hides = true
+            configuration.addsToRecentItems = false
             NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
                 DispatchQueue.main.async { completion(error == nil) }
             }
