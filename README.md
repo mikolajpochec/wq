@@ -11,6 +11,9 @@ always-on-top strip showing that list, and workspace switching by number.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
+- Tapping the super key on its own opens **aiming mode**: the strip grows, the aimed icon is
+  outlined in orange, `[`/`]` or `↑`/`↓` move the aim without focusing anything, and tapping the
+  super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.
@@ -67,6 +70,15 @@ switches the desktop but leaves the WindowServer drawing several desktops on top
 Mission Control redraws. It remains selectable in Settings for completeness.
 
 ## What macOS makes difficult
+
+- **A modifier-only shortcut is not expressible with Carbon hotkeys.** Aiming mode is opened by
+  watching `flagsChanged` events instead, and a tap only counts when the super key was pressed and
+  released alone, quickly, with no key, click or scroll in between. Carbon swallows the key events of
+  our own shortcuts before a monitor sees them, so the hotkey dispatcher cancels a pending tap too.
+- **An event monitor observes, it cannot consume.** Aiming has to swallow Return, Space and the
+  arrows, so a one-pixel `.nonactivatingPanel` takes key focus for the duration — key focus without
+  activating the app or showing a Dock icon.
+
 
 Three behaviours shaped most of this code, and each is worth knowing before changing it:
 

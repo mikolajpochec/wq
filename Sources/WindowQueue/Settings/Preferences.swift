@@ -36,6 +36,17 @@ enum SuperModifier: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// The same combination as `NSEvent` reports it, for detecting a bare tap of the super key.
+    var eventFlags: NSEvent.ModifierFlags {
+        switch self {
+        case .option: return [.option]
+        case .control: return [.control]
+        case .command: return [.command]
+        case .controlOption: return [.control, .option]
+        case .commandOption: return [.command, .option]
+        }
+    }
+
     var title: String {
         switch self {
         case .option: return "⌥ Option"
@@ -126,6 +137,12 @@ struct Preferences: Codable, Equatable {
     var autoSortByWorkspace: Bool = true
     var stripOpacity: Double = 0.9
 
+    /// Tapping the super key on its own opens aiming mode: pick a window without focusing it, then
+    /// confirm with Return or Space.
+    var aimingEnabled: Bool = true
+    /// How much the strip grows while aiming, so it is obvious the mode is on.
+    var aimingScale: Double = 1.2
+
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
 
@@ -150,6 +167,8 @@ struct Preferences: Codable, Equatable {
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
         autoSortByWorkspace = value(.autoSortByWorkspace, defaults.autoSortByWorkspace)
         stripOpacity = value(.stripOpacity, defaults.stripOpacity)
+        aimingEnabled = value(.aimingEnabled, defaults.aimingEnabled)
+        aimingScale = value(.aimingScale, defaults.aimingScale)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }
 

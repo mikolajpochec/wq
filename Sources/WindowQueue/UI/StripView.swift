@@ -63,6 +63,8 @@ struct StripView: View {
         }
         .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
+        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.aimingID == nil)
         .padding(StripMetrics.padding)
         .frame(width: prefs.stripWidth)
         .background(
@@ -146,6 +148,10 @@ struct StripView: View {
 
     private func row(for window: ManagedWindow) -> some View {
         let isSelected = window.id == model.selectedID
+        // Aiming borrows the highlight and marks it in a different colour, so it is never mistaken
+        // for the window that actually has focus.
+        let isAimed = window.id == model.aimingID
+        let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
         return ZStack(alignment: .bottomTrailing) {
             icon(for: window)
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
@@ -155,11 +161,11 @@ struct StripView: View {
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.28) : Color.clear)
+                .fill(highlight?.opacity(0.28) ?? .clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                .strokeBorder(highlight ?? .clear, lineWidth: isAimed ? 2.5 : 1.5)
         )
         .contentShape(Rectangle())
         .help(window.displayTitle)

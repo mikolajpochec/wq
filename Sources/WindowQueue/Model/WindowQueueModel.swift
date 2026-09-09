@@ -9,6 +9,9 @@ import Combine
 final class WindowQueueModel: ObservableObject {
     @Published private(set) var windows: [ManagedWindow] = []
     @Published var selectedID: CGWindowID?
+    /// The window aiming mode is pointing at. Nil whenever the mode is off. Aiming deliberately
+    /// does not touch `selectedID`: nothing is focused until the user confirms.
+    @Published var aimingID: CGWindowID?
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
@@ -38,6 +41,33 @@ final class WindowQueueModel: ObservableObject {
         let filtered = windows.indices.filter { windows[$0].spaceID == current }
         // A workspace we cannot resolve should not blank the strip out entirely.
         return filtered.isEmpty ? Array(windows.indices) : filtered
+    }
+
+    var aimedWindow: ManagedWindow? {
+        guard let aimingID else { return nil }
+        return windows.first { $0.id == aimingID }
+    }
+
+    /// Starts aiming at whatever is selected, so the first step moves from where the user is.
+    @discardableResult
+    func beginAiming() -> ManagedWindow? {
+        aimingID = selectedID ?? visibleWindows.first?.id
+        return aimedWindow
+    }
+
+    func endAiming() {
+        aimingID = nil
+    }
+
+    /// Moves the aim within the visible slice, wrapping around, without focusing anything.
+    @discardableResult
+    func moveAim(by delta: Int) -> ManagedWindow? {
+        let visible = visibleWindows
+        guard !visible.isEmpty else { return nil }
+        let current = visible.firstIndex { $0.id == aimingID } ?? (delta > 0 ? -1 : 0)
+        let count = visible.count
+        aimingID = visible[((current + delta) % count + count) % count].id
+        return aimedWindow
     }
 
     var selectedWindow: ManagedWindow? {

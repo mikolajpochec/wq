@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = WindowQueueModel()
     private let permissions = Permissions()
     private let hotkeys = HotkeyManager()
+    private let modifierTaps = ModifierTapMonitor()
+    private let aimingKeys = AimingKeyCapture()
 
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
@@ -31,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.model.scope = prefs.scope
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
+                self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.hotkeys.apply(prefs)
             }
             .store(in: &cancellables)
@@ -72,6 +75,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (frame, strip.side)
         }
 
+        modifierTaps.modifiers = store.prefs.superModifier.eventFlags
+        modifierTaps.onTap = { [weak self] in self?.toggleAiming() }
+        modifierTaps.start()
+
+        aimingKeys.onKey = { [weak self] key in self?.handleAimingKey(key) }
+        aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }
+
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
         hotkeys.apply(store.prefs)
         RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
@@ -97,7 +107,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
+    // MARK: - Aiming
+
+    /// Aiming mode: move a highlight around the strip without focusing anything, then confirm.
+    private func toggleAiming() {
+        guard store.prefs.aimingEnabled else { return }
+        if model.aimingID != nil {
+            // The same tap that opened the mode confirms it, so a switch is one key, twice.
+            endAiming(commit: true)
+        } else {
+            beginAiming()
+        }
+    }
+
+    private func beginAiming() {
+        guard !model.visibleWindows.isEmpty else { return }
+        let aimed = model.beginAiming()
+        aimingKeys.begin(near: strip?.currentFrame)
+        if let aimed { toast?.show(aimed, pinned: true) }
+    }
+
+    private func endAiming(commit: Bool) {
+        guard model.aimingID != nil else { return }
+        let aimed = model.aimedWindow
+        model.endAiming()
+        aimingKeys.end()
+        toast?.endHold()
+
+        guard commit, let aimed else { return }
+        model.select(id: aimed.id, announce: false)
+        focus(aimed)
+    }
+
+    private func handleAimingKey(_ key: AimingKeyCapture.Key) {
+        switch key {
+        case .previous:
+            if let aimed = model.moveAim(by: -1) { toast?.show(aimed, pinned: true) }
+        case .next:
+            if let aimed = model.moveAim(by: 1) { toast?.show(aimed, pinned: true) }
+        case .commit:
+            endAiming(commit: true)
+        case .cancel:
+            endAiming(commit: false)
+        }
+    }
+
     private func perform(_ action: HotkeyAction) {
+        // Carbon consumes the key event, so the tap detector never sees what interrupted it.
+        modifierTaps.cancel()
+
+        // While aiming, the cycle shortcuts move the aim rather than the focus.
+        if model.aimingID != nil {
+            switch action {
+            case .cyclePrevious:
+                handleAimingKey(.previous)
+                return
+            case .cycleNext:
+                handleAimingKey(.next)
+                return
+            default:
+                endAiming(commit: false)
+            }
+        }
+
         if let space = action.spaceIndex {
             switchToSpace(space)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
