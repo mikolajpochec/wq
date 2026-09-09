@@ -113,8 +113,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.moveToEnd()
         case .sortByWorkspace:
             model.sortByWorkspace()
+        case .closeWindow:
+            closeSelectedWindow()
         default:
             break
+        }
+    }
+
+    private func closeSelectedWindow() {
+        guard let window = model.selectedWindow else { return }
+        // Hand the selection to a neighbour up front: the window is about to stop existing, and
+        // otherwise the selection would fall back to the top of the queue when it does.
+        let successor = model.neighbour(after: window.id)
+
+        WindowCloser.close(window,
+                           workspaceIndex: model.workspaceNumber(of: window),
+                           siblingCount: model.windows.count { $0.pid == window.pid })
+
+        if let successor { model.select(id: successor.id, announce: false) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.enumerator?.refresh()
         }
     }
 

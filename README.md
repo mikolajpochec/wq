@@ -11,6 +11,7 @@ always-on-top strip showing that list, and workspace switching by number.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
+- `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.
 - `⌥1` … `⌥9` switch workspace.

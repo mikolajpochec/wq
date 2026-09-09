@@ -144,6 +144,15 @@ final class WindowQueueModel: ObservableObject {
         move(id: selectedID, toVisiblePosition: visibleIndices.count - 1)
     }
 
+    /// The window the selection should fall to once `id` is gone.
+    func neighbour(after id: CGWindowID) -> ManagedWindow? {
+        let visible = visibleWindows
+        guard let position = visible.firstIndex(where: { $0.id == id }), visible.count > 1 else {
+            return nil
+        }
+        return visible[position + 1 < visible.count ? position + 1 : position - 1]
+    }
+
     /// Groups the queue by workspace, in Mission Control order.
     ///
     /// The sort is stable, so the order the user arranged inside a workspace is kept; windows whose
