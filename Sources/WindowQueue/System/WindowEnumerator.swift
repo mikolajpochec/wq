@@ -291,11 +291,19 @@ final class WindowEnumerator {
 
     private func handle(notification: String, element: AXUIElement) {
         if notification == kAXFocusedWindowChangedNotification,
-           let id = AXPrivate.windowID(of: element),
-           model.windows.contains(where: { $0.id == id }) {
-            model.select(id: id, announce: false)
+           let id = AXPrivate.windowID(of: element) {
+            adoptExternalFocus(id)
         }
         scheduleRefresh()
+    }
+
+    /// Follows focus changes the user made themselves, but not the ones an application reports
+    /// while we are still steering it towards a different window — otherwise an app that briefly
+    /// re-focuses its previous window drags the selection back there.
+    private func adoptExternalFocus(_ id: CGWindowID) {
+        guard model.windows.contains(where: { $0.id == id }) else { return }
+        if let pending = WindowFocuser.pendingTargetID, pending != id { return }
+        model.select(id: id, announce: false)
     }
 
     // MARK: - Workspace notifications
@@ -326,9 +334,8 @@ final class WindowEnumerator {
         accessibilityEnabledPIDs.remove(app.processIdentifier)
         enableAccessibility(for: app.processIdentifier, appElement: appElement)
         if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self),
-           let id = AXPrivate.windowID(of: focused),
-           model.windows.contains(where: { $0.id == id }) {
-            model.select(id: id, announce: false)
+           let id = AXPrivate.windowID(of: focused) {
+            adoptExternalFocus(id)
         }
         scheduleRefresh()
     }
