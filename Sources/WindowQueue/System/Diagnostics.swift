@@ -102,7 +102,7 @@ enum Diagnostics {
         }
 
         for app in apps {
-            let element = AXUIElementCreateApplication(app.processIdentifier)
+            let element = AXPrivate.application(app.processIdentifier)
             var value: CFTypeRef?
             let error = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value)
             let windows = value as? [AXUIElement]

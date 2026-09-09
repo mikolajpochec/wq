@@ -10,6 +10,11 @@ final class WindowEnumerator {
     private var observers: [pid_t: AXObserver] = [:]
     private var refreshWorkItem: DispatchWorkItem?
     private var timer: Timer?
+    /// Enumeration runs here rather than on the main thread: an accessibility call to a busy or
+    /// wedged application blocks until it times out, which on the main thread freezes the strip.
+    private let enumerationQueue = DispatchQueue(label: "com.mpochec.windowqueue.enumeration")
+    private var isRefreshing = false
+
     /// A window that took focus before we had it in the queue, adopted once it appears.
     private var pendingExternalFocusID: CGWindowID?
     /// Apps we have already asked to expose their accessibility tree.
@@ -79,21 +84,65 @@ final class WindowEnumerator {
     /// the WindowServer, enrich whatever AX can currently see, and keep previously enriched entries
     /// until the WindowServer says the window is really gone.
     func refresh() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+
         // Cheap, and the Space a window reports has to be compared against a current value.
         refreshSpaceState()
-        let apps = Dictionary(candidateApplications().map { ($0.processIdentifier, $0) },
-                              uniquingKeysWith: { first, _ in first })
+        let currentSpaceID = model.currentSpaceID
 
+        // Snapshot what the main thread owns, then do the slow accessibility work off it.
+        let names = Dictionary(candidateApplications().map {
+            ($0.processIdentifier, $0.localizedName ?? "Unknown")
+        }, uniquingKeysWith: { first, _ in first })
+        let needsAccessibility = names.keys.filter { !accessibilityEnabledPIDs.contains($0) }
+        accessibilityEnabledPIDs.formUnion(needsAccessibility)
+        let needsEscalation = names.keys.filter { !accessibilityEscalatedPIDs.contains($0) }
+
+        enumerationQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.enumerate(names: names,
+                                        enable: Set(needsAccessibility),
+                                        mayEscalate: Set(needsEscalation),
+                                        currentSpaceID: currentSpaceID)
+
+            DispatchQueue.main.async {
+                self.isRefreshing = false
+                self.accessibilityEscalatedPIDs.formUnion(result.escalated)
+                self.model.reconcile(with: result.windows)
+                self.adoptPendingFocus()
+                if Diagnostics.isEnabled { Diagnostics.dump(model: self.model) }
+            }
+        }
+    }
+
+    private struct EnumerationResult {
+        let windows: [ManagedWindow]
+        let escalated: Set<pid_t>
+    }
+
+    /// Rebuilds the window set.
+    ///
+    /// The WindowServer is the only source that sees every Space, but it exposes no titles without
+    /// Screen Recording access. The Accessibility API has titles and is what we need for focusing,
+    /// but it only lists an app's windows while they are on the active Space. So: seed the set from
+    /// the WindowServer, enrich whatever AX can currently see, and keep previously enriched entries
+    /// until the WindowServer says the window is really gone.
+    private func enumerate(names: [pid_t: String],
+                           enable: Set<pid_t>,
+                           mayEscalate: Set<pid_t>,
+                           currentSpaceID: UInt64?) -> EnumerationResult {
         var discovered: [CGWindowID: ManagedWindow] = [:]
+        var escalated: Set<pid_t> = []
 
         // 1. Every real window, on every Space.
         for candidate in serverWindows() {
-            guard let app = apps[candidate.pid] else { continue }
+            guard let name = names[candidate.pid] else { continue }
             discovered[candidate.id] = ManagedWindow(
                 id: candidate.id,
                 element: nil,
                 pid: candidate.pid,
-                appName: app.localizedName ?? "Unknown",
+                appName: name,
                 title: candidate.title,
                 isMinimized: false,
                 spaceID: candidate.spaceID
@@ -102,14 +151,18 @@ final class WindowEnumerator {
 
         // 2. Anything AX can see right now: real titles, elements and minimised state.
         var axCapablePIDs: Set<pid_t> = []
-        for (pid, app) in apps {
-            let appElement = AXUIElementCreateApplication(pid)
-            enableAccessibility(for: pid, appElement: appElement)
+        for (pid, name) in names {
+            let appElement = AXPrivate.application(pid)
+            if enable.contains(pid) { enableAccessibility(pid: pid, appElement: appElement) }
+
             guard var windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) else {
                 continue
             }
-            if windows.isEmpty, escalateAccessibility(for: pid, appElement: appElement) {
-                windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+            if windows.isEmpty, mayEscalate.contains(pid) {
+                escalated.insert(pid)
+                if escalateAccessibility(pid: pid, appElement: appElement) {
+                    windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+                }
             }
             axCapablePIDs.insert(pid)
 
@@ -132,7 +185,7 @@ final class WindowEnumerator {
                     id: id,
                     element: element,
                     pid: pid,
-                    appName: app.localizedName ?? "Unknown",
+                    appName: name,
                     title: element.attribute(kAXTitleAttribute, as: String.self) ?? "",
                     isMinimized: minimized,
                     spaceID: discovered[id]?.spaceID
@@ -143,7 +196,7 @@ final class WindowEnumerator {
         // 3. Fallback ghost filter for systems where the WindowServer cannot be asked whether a
         // window is ordered in: on the active Space the Accessibility API is authoritative, so
         // anything an AX-capable app did not list there is not a window the user can see.
-        if SpacesBridge.shared.isOrderedIn(CGWindowID(1)) == nil, let current = model.currentSpaceID {
+        if SpacesBridge.shared.isOrderedIn(CGWindowID(1)) == nil, let current = currentSpaceID {
             for (id, window) in discovered
             where window.element == nil && window.spaceID == current && axCapablePIDs.contains(window.pid) {
                 discovered.removeValue(forKey: id)
@@ -154,13 +207,8 @@ final class WindowEnumerator {
         let ordered = discovered.values.sorted {
             ($0.spaceID ?? .max, $0.id) < ($1.spaceID ?? .max, $1.id)
         }
-        noteUnreadableApps(discovered: discovered, apps: apps)
-
-        model.reconcile(with: ordered)
-        adoptPendingFocus()
-        refreshWindowSpaces()
-
-        if Diagnostics.isEnabled { Diagnostics.dump(model: model) }
+        noteUnreadableApps(discovered: discovered, names: names, currentSpaceID: currentSpaceID)
+        return EnumerationResult(windows: ordered, escalated: escalated)
     }
 
     /// Turns on enhanced accessibility for an app that reports no windows at all.
@@ -172,10 +220,7 @@ final class WindowEnumerator {
     /// applications change how their windows animate and resize while it is on.
     ///
     /// - Returns: true when the request was accepted and the window list is worth re-reading.
-    @discardableResult
-    private func escalateAccessibility(for pid: pid_t, appElement: AXUIElement) -> Bool {
-        guard !accessibilityEscalatedPIDs.contains(pid) else { return false }
-        accessibilityEscalatedPIDs.insert(pid)
+    private func escalateAccessibility(pid: pid_t, appElement: AXUIElement) -> Bool {
         let ok = appElement.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue)
         if Diagnostics.isEnabled {
             Diagnostics.note("AXEnhancedUserInterface pid=\(pid) ok=\(ok)")
@@ -186,16 +231,15 @@ final class WindowEnumerator {
     /// Logs apps that have a window on the active Space which AX still cannot see; without an
     /// element we can activate such an app but not raise one specific window of it.
     private func noteUnreadableApps(discovered: [CGWindowID: ManagedWindow],
-                                    apps: [pid_t: NSRunningApplication]) {
-        guard Diagnostics.isEnabled, let current = model.currentSpaceID else { return }
+                                    names: [pid_t: String],
+                                    currentSpaceID: UInt64?) {
+        guard Diagnostics.isEnabled, let current = currentSpaceID else { return }
         var offenders: Set<pid_t> = []
         for window in discovered.values where window.spaceID == current && window.element == nil {
             offenders.insert(window.pid)
         }
         for pid in offenders {
-            let name = apps[pid]?.localizedName ?? "?"
-            let frontmost = apps[pid]?.isActive == true
-            Diagnostics.note("AX blind on active space: \(name) pid=\(pid) frontmost=\(frontmost)")
+            Diagnostics.note("AX blind on active space: \(names[pid] ?? "?") pid=\(pid)")
         }
     }
 
@@ -236,9 +280,7 @@ final class WindowEnumerator {
     /// Chromium and Electron applications keep their accessibility tree switched off until a client
     /// asks for it, which is why Chrome, Slack and friends otherwise report zero windows — and why
     /// focusing one of them could only ever raise whichever window happened to be in front.
-    private func enableAccessibility(for pid: pid_t, appElement: AXUIElement) {
-        guard !accessibilityEnabledPIDs.contains(pid) else { return }
-        accessibilityEnabledPIDs.insert(pid)
+    private func enableAccessibility(pid: pid_t, appElement: AXUIElement) {
         let manual = appElement.setAttribute("AXManualAccessibility", value: kCFBooleanTrue)
         if Diagnostics.isEnabled {
             Diagnostics.note("AXManualAccessibility pid=\(pid) ok=\(manual)")
@@ -285,7 +327,7 @@ final class WindowEnumerator {
         }
         guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
 
-        let appElement = AXUIElementCreateApplication(pid)
+        let appElement = AXPrivate.application(pid)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         for notification in Self.observedNotifications {
             AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
@@ -355,10 +397,10 @@ final class WindowEnumerator {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else { return }
         registerObserver(for: app.processIdentifier)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        // Some applications only honour the request while they are frontmost, so ask again.
+        let appElement = AXPrivate.application(app.processIdentifier)
+        // Some applications only honour the request while they are frontmost; the next refresh
+        // asks again, off the main thread.
         accessibilityEnabledPIDs.remove(app.processIdentifier)
-        enableAccessibility(for: app.processIdentifier, appElement: appElement)
         if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self),
            let id = AXPrivate.windowID(of: focused) {
             adoptExternalFocus(id)

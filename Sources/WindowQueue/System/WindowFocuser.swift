@@ -46,7 +46,7 @@ enum WindowFocuser {
             Diagnostics.note("focus \(window.appName) id=\(window.id) element=\(window.element != nil) siblings=\(siblingCount)")
         }
 
-        let appElement = AXUIElementCreateApplication(window.pid)
+        let appElement = AXPrivate.application(window.pid)
         if let element = window.element,
            raise(element, appElement: appElement, wasMinimized: window.isMinimized) {
             // Raised through the element; nothing else needed.
@@ -95,7 +95,7 @@ enum WindowFocuser {
             // A newer request has taken over; stop competing with it.
             guard token == generation else { return }
 
-            let appElement = AXUIElementCreateApplication(window.pid)
+            let appElement = AXPrivate.application(window.pid)
             let focusedID = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                 .flatMap { AXPrivate.windowID(of: $0) }
 

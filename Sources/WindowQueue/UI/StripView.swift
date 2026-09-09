@@ -3,11 +3,13 @@ import SwiftUI
 
 /// The always-on-top vertical strip: workspace badge on top, then window icons in queue order.
 ///
-/// Icons can be dragged to reorder the queue. While a drag is in progress the dragged icon leaves
-/// the layout and is drawn on top at the cursor, and a gap slides between the remaining icons to
-/// show where it will land. Keeping it out of the flow is what makes it track the pointer exactly:
-/// an icon that is both positioned by the layout and offset by the drag fights itself every time
-/// the two disagree. The queue itself is only reordered when the icon is dropped.
+/// Icons can be dragged to reorder the queue. While a drag is in progress the dragged icon is drawn
+/// on top at the cursor and its row is left empty, and the other icons slide around that gap to show
+/// where it will land. Drawing it outside the flow is what makes it track the pointer exactly: an
+/// icon that is both positioned by the layout and offset by the drag fights itself every time the
+/// two disagree. Its row keeps its place in the list all the same — replacing it with a separate
+/// placeholder would make the icon re-appear from nothing on drop instead of settling into its
+/// slot. The queue itself is only reordered when the icon is dropped.
 struct StripView: View {
     @ObservedObject var model: WindowQueueModel
     @ObservedObject var store: PreferencesStore
@@ -43,19 +45,17 @@ struct StripView: View {
             if prefs.showSpaceBadge {
                 spaceBadge
             }
-            ForEach(slots) { slot in
-                if let window = slot.window {
-                    row(for: window)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.4).combined(with: .opacity),
-                            removal: .scale(scale: 0.6).combined(with: .opacity)
-                        ))
-                } else {
-                    Color.clear.frame(height: StripMetrics.rowHeight(prefs: prefs))
-                }
+            ForEach(orderedWindows) { window in
+                row(for: window)
+                    // Kept in the layout, just not drawn: the floating copy stands in for it.
+                    .opacity(window.id == draggingID ? 0 : 1)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.4).combined(with: .opacity),
+                        removal: .scale(scale: 0.6).combined(with: .opacity)
+                    ))
             }
         }
-        .animation(StripMetrics.layoutAnimation, value: slots.map(\.id))
+        .animation(StripMetrics.layoutAnimation, value: orderedWindows.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
         .padding(StripMetrics.padding)
         .frame(width: prefs.stripWidth)
@@ -86,25 +86,17 @@ struct StripView: View {
 
     // MARK: - Layout model
 
-    /// One position in the strip: either a window, or the gap left by the icon being dragged.
-    private struct Slot: Identifiable {
-        let id: String
-        let window: ManagedWindow?
-    }
-
-    private var slots: [Slot] {
-        let windows = model.visibleWindows
+    /// The queue as the strip currently shows it: the committed order, with a drag in progress
+    /// previewed by moving the dragged window to the slot it would land in.
+    private var orderedWindows: [ManagedWindow] {
+        var windows = model.visibleWindows
         guard let draggingID,
               let origin = windows.firstIndex(where: { $0.id == draggingID })
-        else {
-            return windows.map { Slot(id: "window-\($0.id)", window: $0) }
-        }
+        else { return windows }
 
-        var remaining = windows.map { Slot(id: "window-\($0.id)", window: $0) }
-        remaining.remove(at: origin)
-        remaining.insert(Slot(id: "gap", window: nil),
-                         at: min(max(dragTargetIndex, 0), remaining.count))
-        return remaining
+        let window = windows.remove(at: origin)
+        windows.insert(window, at: min(max(dragTargetIndex, 0), windows.count))
+        return windows
     }
 
     private var draggedWindow: ManagedWindow? {
@@ -208,18 +200,36 @@ struct StripView: View {
     }
 
     private func dragEnded(offset: CGFloat) {
-        defer {
-            draggingID = nil
-            dragTranslation = 0
-            onHold(nil, 0)
+        guard let window = draggedWindow else {
+            endDrag()
+            return
         }
-        guard let window = draggedWindow else { return }
 
         if abs(offset) < 4, dragTargetIndex == dragOriginIndex {
             onSelect(window)
-        } else {
-            model.move(id: window.id, toVisiblePosition: dragTargetIndex)
+            endDrag()
+            return
         }
+
+        model.move(id: window.id, toVisiblePosition: dragTargetIndex)
+
+        // Let the floating icon travel from the cursor to the slot it was dropped on, then hand
+        // over to the row underneath, which has been holding that place all along.
+        withAnimation(Self.settleAnimation) {
+            dragTranslation = CGFloat(dragTargetIndex - dragOriginIndex) * slotHeight
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDuration) {
+            endDrag()
+        }
+    }
+
+    private static let settleAnimation: Animation = .spring(response: 0.22, dampingFraction: 0.9)
+    private static let settleDuration: TimeInterval = 0.22
+
+    private func endDrag() {
+        draggingID = nil
+        dragTranslation = 0
+        onHold(nil, 0)
     }
 }
 

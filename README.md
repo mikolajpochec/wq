@@ -84,6 +84,13 @@ Three behaviours shaped most of this code, and each is worth knowing before chan
   focusing it can only activate the app: once it is frontmost the attempt is treated as done,
   because there is nothing left to verify or retry.
 
+## Responsiveness
+
+An accessibility call to a busy application blocks until it times out, and the default timeout is
+long enough to be felt. Two things keep that off the interface: every application element is created
+through `AXPrivate.application(_:)`, which caps a single call at 0.25s, and the whole enumeration
+runs on its own queue, touching the model only once it is done.
+
 ## Troubleshooting
 
 `defaults write com.mpochec.windowqueue diagnostics -bool true` and restart the app. It then writes

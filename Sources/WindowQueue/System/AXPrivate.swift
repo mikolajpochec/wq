@@ -17,6 +17,18 @@ enum AXPrivate {
 
     static var supportsWindowNumbers: Bool { getWindow != nil }
 
+    /// How long any single accessibility call may block. The default is measured in seconds, long
+    /// enough that one busy application stalls whatever thread asked it something.
+    static let messagingTimeout: Float = 0.25
+
+    /// Application element with a bounded messaging timeout. Always prefer this over
+    /// `AXUIElementCreateApplication` directly.
+    static func application(_ pid: pid_t) -> AXUIElement {
+        let element = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
+    }
+
     static func windowID(of element: AXUIElement) -> CGWindowID? {
         guard let getWindow else { return nil }
         var id: CGWindowID = 0
