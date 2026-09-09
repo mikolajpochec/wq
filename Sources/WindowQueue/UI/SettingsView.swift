@@ -164,6 +164,7 @@ struct SettingsView: View {
             Picker("Side", selection: $store.prefs.stripSide) {
                 ForEach(StripSide.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Hide over fullscreen windows", isOn: $store.prefs.hideInFullscreen)
             Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
             HStack {
                 Text("Icon size")

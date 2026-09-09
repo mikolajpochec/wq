@@ -298,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshSpaceState() {
         model.currentSpaceID = SpacesBridge.shared.currentSpaceID
         model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
+        model.currentSpaceIsFullscreen = SpacesBridge.shared.isCurrentSpaceFullscreen
         model.spaceOrder = SpacesBridge.shared.userSpaceIDs
     }
 

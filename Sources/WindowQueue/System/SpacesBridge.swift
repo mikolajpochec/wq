@@ -128,6 +128,18 @@ final class SpacesBridge {
         allUserSpaces().map(\.id)
     }
 
+    /// Whether the display the strip is on is showing a fullscreen window rather than a desktop.
+    ///
+    /// Fullscreen spaces are a different type from user desktops, so a current space that is not in
+    /// the desktop list is a fullscreen one. Returns false when the topology cannot be read, so an
+    /// unknown state never hides the strip.
+    var isCurrentSpaceFullscreen: Bool {
+        guard let current = currentSpaceID else { return false }
+        let desktops = allUserSpaces()
+        guard !desktops.isEmpty else { return false }
+        return !desktops.contains { $0.id == current }
+    }
+
     var spaceCount: Int {
         primaryDisplay()?.userSpaces.count ?? 0
     }

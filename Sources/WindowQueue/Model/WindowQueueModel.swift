@@ -17,6 +17,8 @@ final class WindowQueueModel: ObservableObject {
     @Published var autoSortByWorkspace = true
     @Published var currentSpaceID: UInt64?
     @Published var currentSpaceIndex: Int?
+    /// The display the strip is on is showing a fullscreen window.
+    @Published var currentSpaceIsFullscreen = false
     /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
     @Published var spaceOrder: [UInt64] = []
 

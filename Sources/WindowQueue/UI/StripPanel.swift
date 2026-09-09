@@ -129,7 +129,9 @@ final class StripController {
     }
 
     private func sync() {
-        guard store.prefs.stripEnabled else {
+        // A fullscreen window is the one case where floating above everything is unwelcome.
+        let hiddenByFullscreen = store.prefs.hideInFullscreen && model.currentSpaceIsFullscreen
+        guard store.prefs.stripEnabled, !hiddenByFullscreen else {
             panel?.orderOut(nil)
             panel = nil
             return

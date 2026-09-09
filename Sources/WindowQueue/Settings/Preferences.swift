@@ -139,6 +139,8 @@ struct Preferences: Codable, Equatable {
     /// Keep the queue grouped by workspace without having to sort it by hand.
     var autoSortByWorkspace: Bool = true
     var stripOpacity: Double = 0.9
+    /// Get out of the way of a fullscreen window, where an always-on-top strip is an intrusion.
+    var hideInFullscreen: Bool = true
 
     /// Tapping the super key on its own opens aiming mode: pick a window without focusing it, then
     /// confirm with Return or Space.
@@ -178,6 +180,7 @@ struct Preferences: Codable, Equatable {
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
         autoSortByWorkspace = value(.autoSortByWorkspace, defaults.autoSortByWorkspace)
         stripOpacity = value(.stripOpacity, defaults.stripOpacity)
+        hideInFullscreen = value(.hideInFullscreen, defaults.hideInFullscreen)
         aimingEnabled = value(.aimingEnabled, defaults.aimingEnabled)
         aimingScale = value(.aimingScale, defaults.aimingScale)
         aimingDimOpacity = value(.aimingDimOpacity, defaults.aimingDimOpacity)
