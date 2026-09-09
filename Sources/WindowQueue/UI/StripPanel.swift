@@ -32,6 +32,10 @@ final class OverlayPanel: NSPanel {
 private final class HoverHostingView<Content: View>: NSHostingView<Content> {
     /// Pointer position in this view's coordinates, or nil once it leaves.
     var onPointerMoved: ((NSPoint?) -> Void)?
+    /// Raw wheel travel, positive downwards.
+    var onScroll: ((CGFloat) -> Void)?
+    /// Middle click at a position in this view's coordinates.
+    var onMiddleClick: ((NSPoint) -> Void)?
 
     private var pointerTracking: NSTrackingArea?
 
@@ -61,6 +65,19 @@ private final class HoverHostingView<Content: View>: NSHostingView<Content> {
     override func mouseExited(with event: NSEvent) {
         onPointerMoved?(nil)
     }
+
+    override func scrollWheel(with event: NSEvent) {
+        // A wheel notch pushes content up, so invert it: scrolling down walks down the queue.
+        onScroll?(-event.scrollingDeltaY)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        onMiddleClick?(convert(event.locationInWindow, from: nil))
+    }
 }
 
 /// Owns the strip panel: builds it, keeps it positioned, and resizes it as the queue changes.
@@ -69,21 +86,30 @@ final class StripController {
     private let store: PreferencesStore
     private let onSelect: (ManagedWindow) -> Void
     private let onHold: (ManagedWindow?) -> Void
+    private let onClose: (ManagedWindow) -> Void
+    /// Steps the selection by whole rows as the wheel turns.
+    private let onScroll: (Int) -> Void
 
     private var panel: OverlayPanel?
     private var cancellables = Set<AnyCancellable>()
     /// Live position of an icon being dragged, which the queue order does not yet reflect.
     private var dragOffset: (id: CGWindowID, y: CGFloat)?
     private var hoveredID: CGWindowID?
+    /// Wheel travel not yet worth a whole step.
+    private var scrollTravel: CGFloat = 0
 
     init(model: WindowQueueModel,
          store: PreferencesStore,
          onSelect: @escaping (ManagedWindow) -> Void,
-         onHold: @escaping (ManagedWindow?) -> Void) {
+         onHold: @escaping (ManagedWindow?) -> Void,
+         onClose: @escaping (ManagedWindow) -> Void,
+         onScroll: @escaping (Int) -> Void) {
         self.model = model
         self.store = store
         self.onSelect = onSelect
         self.onHold = onHold
+        self.onClose = onClose
+        self.onScroll = onScroll
     }
 
     func start() {
@@ -122,6 +148,11 @@ final class StripController {
         let hosting = HoverHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         hosting.onPointerMoved = { [weak self] point in self?.pointerMoved(to: point, in: hosting) }
+        hosting.onScroll = { [weak self] delta in self?.scrolled(by: delta) }
+        hosting.onMiddleClick = { [weak self] point in
+            guard let self, let window = self.window(at: point, in: hosting) else { return }
+            self.onClose(window)
+        }
         panel.acceptsMouseMovedEvents = true
         panel.contentView = hosting
         self.panel = panel
@@ -144,10 +175,16 @@ final class StripController {
         panel.setFrame(target, display: true)
     }
 
+    private var contentLayout: StripLayout {
+        StripLayout(windows: model.visibleWindows, prefs: store.prefs) {
+            model.workspaceNumber(of: $0)
+        }
+    }
+
     /// Frame of the strip content in screen coordinates, used to place the title toast beside it.
     var currentFrame: NSRect? {
         guard let panel else { return nil }
-        let height = StripMetrics.height(itemCount: model.visibleWindows.count, prefs: store.prefs)
+        let height = contentLayout.totalHeight
         return NSRect(x: panel.frame.minX,
                       y: panel.frame.midY - height / 2,
                       width: panel.frame.width,
@@ -159,20 +196,32 @@ final class StripController {
         // A drag already owns the popup; hovering must not fight it for position.
         guard dragOffset == nil else { return }
 
-        let windows = model.visibleWindows
-        let hovered: ManagedWindow? = point.flatMap { point in
-            let contentHeight = StripMetrics.height(itemCount: windows.count, prefs: store.prefs)
-            let fromTop = view.isFlipped ? point.y : view.bounds.height - point.y
-            let withinContent = fromTop - (view.bounds.height - contentHeight) / 2
-            return StripMetrics.rowIndex(atOffsetFromTop: withinContent,
-                                         itemCount: windows.count,
-                                         prefs: store.prefs)
-                .map { windows[$0] }
-        }
+        let hovered = point.flatMap { window(at: $0, in: view) }
 
         guard hovered?.id != hoveredID else { return }
         hoveredID = hovered?.id
         onHold(hovered)
+    }
+
+    /// Turns wheel travel into whole steps through the queue: one icon per row of movement, so the
+    /// selection keeps pace with what the strip actually looks like.
+    private func scrolled(by delta: CGFloat) {
+        let step = StripMetrics.rowHeight(prefs: store.prefs)
+        scrollTravel += delta
+        let steps = Int(scrollTravel / step)
+        guard steps != 0 else { return }
+        scrollTravel -= CGFloat(steps) * step
+        onScroll(steps)
+    }
+
+    /// The window under a point in the hosting view, which spans the whole screen height while the
+    /// strip content is centred inside it.
+    private func window(at point: NSPoint, in view: NSView) -> ManagedWindow? {
+        let layout = contentLayout
+        let fromTop = view.isFlipped ? point.y : view.bounds.height - point.y
+        let withinContent = fromTop - (view.bounds.height - layout.totalHeight) / 2
+        return layout.windowIndex(atOffsetFromTop: withinContent)
+            .map { model.visibleWindows[$0] }
     }
 
     /// Screen-space rect of one window's row, so the toast can point at that icon.
@@ -180,12 +229,11 @@ final class StripController {
         guard let content = currentFrame,
               let index = model.visibleWindows.firstIndex(where: { $0.id == id })
         else { return nil }
-        let prefs = store.prefs
-        let rowHeight = StripMetrics.rowHeight(prefs: prefs)
+        let rowHeight = StripMetrics.rowHeight(prefs: store.prefs)
         // A dragged icon is drawn at the cursor while the queue order still has it in its old slot,
         // so shift the anchor by the drag. Screen coordinates run upwards, the drag downwards.
         let drag = dragOffset.flatMap { $0.id == id ? $0.y : nil } ?? 0
-        let centreY = content.maxY - StripMetrics.rowCentreOffset(index: index, prefs: prefs) - drag
+        let centreY = content.maxY - contentLayout.centreOffset(ofWindowAt: index) - drag
         return NSRect(x: content.minX, y: centreY - rowHeight / 2,
                       width: content.width, height: rowHeight)
     }

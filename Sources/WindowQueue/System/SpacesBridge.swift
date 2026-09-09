@@ -74,6 +74,17 @@ final class SpacesBridge {
         }
     }
 
+    /// Every user desktop across every display, in the order the WindowServer reports them.
+    ///
+    /// Each display owns its own set of Spaces, so numbering only the current display's would leave
+    /// every window on a second monitor without a workspace number at all. Mission Control counts
+    /// desktops across displays, and so does this.
+    private func allUserSpaces() -> [(id: UInt64, display: String)] {
+        displays().flatMap { display in
+            display.userSpaces.map { (id: $0.id, display: display.identifier) }
+        }
+    }
+
     /// The display the strip lives on: the one matching the main screen, else the first.
     private func primaryDisplay() -> DisplaySpaces? {
         let all = displays()
@@ -95,10 +106,12 @@ final class SpacesBridge {
         primaryDisplay()?.currentSpaceID
     }
 
-    /// 1-based index of the active desktop, or nil when a fullscreen space is active.
+    /// 1-based index of the desktop showing on the display the strip is on, or nil when that
+    /// display is showing a fullscreen space.
     var currentSpaceIndex: Int? {
-        guard let display = primaryDisplay(), let current = display.currentSpaceID else { return nil }
-        guard let index = display.userSpaces.firstIndex(where: { $0.id == current }) else { return nil }
+        guard let current = currentSpaceID,
+              let index = allUserSpaces().firstIndex(where: { $0.id == current })
+        else { return nil }
         return index + 1
     }
 
@@ -110,9 +123,9 @@ final class SpacesBridge {
         return display.userSpaces[position].id
     }
 
-    /// Space ids of the primary display's desktops, in Mission Control order.
+    /// Space ids of every desktop, in Mission Control order.
     var userSpaceIDs: [UInt64] {
-        primaryDisplay()?.userSpaces.map(\.id) ?? []
+        allUserSpaces().map(\.id)
     }
 
     var spaceCount: Int {
@@ -150,17 +163,16 @@ final class SpacesBridge {
 
     @discardableResult
     func switchToSpace(index: Int) -> Bool {
-        guard let display = primaryDisplay() else { return false }
-        let position = index - 1
-        guard display.userSpaces.indices.contains(position) else { return false }
-        return switchToSpace(id: display.userSpaces[position].id)
+        guard let id = spaceID(atIndex: index) else { return false }
+        return switchToSpace(id: id)
     }
 
     @discardableResult
     func switchToSpace(id: UInt64) -> Bool {
-        guard let setCurrentSpace, let display = primaryDisplay() else { return false }
-        guard display.userSpaces.contains(where: { $0.id == id }) else { return false }
-        setCurrentSpace(connectionID, display.identifier as CFString, id)
+        guard let setCurrentSpace,
+              let space = allUserSpaces().first(where: { $0.id == id })
+        else { return false }
+        setCurrentSpace(connectionID, space.display as CFString, id)
         return true
     }
 }

@@ -124,6 +124,10 @@ struct Preferences: Codable, Equatable {
     /// Draw each window's workspace number on its icon.
     var showWorkspaceNumbers: Bool = true
     var showSpaceBadge: Bool = true
+    /// Split the strip into workspace groups, each under its own number.
+    var groupByWorkspace: Bool = true
+    /// Keep the queue grouped by workspace without having to sort it by hand.
+    var autoSortByWorkspace: Bool = true
     var stripOpacity: Double = 0.9
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
@@ -149,6 +153,8 @@ struct Preferences: Codable, Equatable {
         iconSize = value(.iconSize, defaults.iconSize)
         showWorkspaceNumbers = value(.showWorkspaceNumbers, defaults.showWorkspaceNumbers)
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
+        groupByWorkspace = value(.groupByWorkspace, defaults.groupByWorkspace)
+        autoSortByWorkspace = value(.autoSortByWorkspace, defaults.autoSortByWorkspace)
         stripOpacity = value(.stripOpacity, defaults.stripOpacity)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }

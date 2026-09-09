@@ -10,6 +10,8 @@ final class WindowQueueModel: ObservableObject {
     @Published private(set) var windows: [ManagedWindow] = []
     @Published var selectedID: CGWindowID?
     @Published var scope: QueueScope = .global
+    /// Keeps the queue grouped by workspace as windows come and go.
+    @Published var autoSortByWorkspace = true
     @Published var currentSpaceID: UInt64?
     @Published var currentSpaceIndex: Int?
     /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
@@ -17,6 +19,10 @@ final class WindowQueueModel: ObservableObject {
 
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
+
+    /// Called when the user reorders the queue by hand. Automatic sorting gives way to a manual
+    /// arrangement rather than undoing it a moment later; the sort shortcut turns it back on.
+    var onManualReorder: (() -> Void)?
 
     // MARK: - Visible slice
 
@@ -79,6 +85,7 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        if autoSortByWorkspace { sortByWorkspace() }
         clampSelection()
     }
 
@@ -91,7 +98,9 @@ final class WindowQueueModel: ObservableObject {
                 changed = true
             }
         }
-        if changed { objectWillChange.send() }
+        guard changed else { return }
+        if autoSortByWorkspace { sortByWorkspace() }
+        objectWillChange.send()
     }
 
     private func clampSelection() {
@@ -131,7 +140,14 @@ final class WindowQueueModel: ObservableObject {
         guard let position = selectedVisiblePosition else { return }
         let target = position + delta
         guard indices.indices.contains(target) else { return }
+        noteManualReorder()
         windows.swapAt(indices[position], indices[target])
+    }
+
+    private func noteManualReorder() {
+        guard autoSortByWorkspace else { return }
+        autoSortByWorkspace = false
+        onManualReorder?()
     }
 
     func moveToStart() {
@@ -151,6 +167,21 @@ final class WindowQueueModel: ObservableObject {
             return nil
         }
         return visible[position + 1 < visible.count ? position + 1 : position - 1]
+    }
+
+    /// First and last visible position of the run of windows sharing `id`'s workspace.
+    func groupBounds(of id: CGWindowID) -> ClosedRange<Int>? {
+        let visible = visibleWindows
+        guard let position = visible.firstIndex(where: { $0.id == id }) else { return nil }
+        let workspace = workspaceNumber(of: visible[position])
+
+        var lower = position
+        while lower > 0, workspaceNumber(of: visible[lower - 1]) == workspace { lower -= 1 }
+        var upper = position
+        while upper < visible.count - 1, workspaceNumber(of: visible[upper + 1]) == workspace {
+            upper += 1
+        }
+        return lower...upper
     }
 
     /// Groups the queue by workspace, in Mission Control order.
@@ -186,6 +217,7 @@ final class WindowQueueModel: ObservableObject {
               indices.indices.contains(target),
               position != target
         else { return }
+        noteManualReorder()
 
         let sourceIndex = indices[position]
         let window = windows.remove(at: sourceIndex)

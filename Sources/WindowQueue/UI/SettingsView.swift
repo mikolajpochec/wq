@@ -32,6 +32,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
+                Text("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {
                 Text("Popup duration")
@@ -142,7 +148,9 @@ struct SettingsView: View {
                 ForEach(StripSide.allCases) { Text($0.title).tag($0) }
             }
             Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
+            Toggle("Group icons by workspace", isOn: $store.prefs.groupByWorkspace)
             Toggle("Show workspace number on icons", isOn: $store.prefs.showWorkspaceNumbers)
+                .disabled(store.prefs.groupByWorkspace)
             HStack {
                 Text("Icon size")
                 Slider(value: $store.prefs.iconSize, in: 16...48, step: 2)

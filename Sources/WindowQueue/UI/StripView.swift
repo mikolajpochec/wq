@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The always-on-top vertical strip: workspace badge on top, then window icons in queue order.
+/// The always-on-top vertical strip: current-workspace badge on top, then window icons in queue
+/// order, each carrying the number of the workspace it lives on.
 ///
 /// Icons can be dragged to reorder the queue. While a drag is in progress the dragged icon is drawn
 /// on top at the cursor and its row is left empty, and the other icons slide around that gap to show
@@ -26,6 +27,9 @@ struct StripView: View {
     @State private var dragOriginIndex = 0
     @State private var dragTargetIndex = 0
     @State private var dragTranslation: CGFloat = 0
+    /// Where the dragged icon started, captured once: headers come and go as the preview reorders,
+    /// so recomputing this mid-drag would shift the icon out from under the cursor.
+    @State private var dragOriginTop: CGFloat = 0
 
     private var prefs: Preferences { store.prefs }
 
@@ -42,20 +46,24 @@ struct StripView: View {
 
     private var strip: some View {
         VStack(spacing: StripMetrics.spacing) {
-            if prefs.showSpaceBadge {
-                spaceBadge
-            }
-            ForEach(orderedWindows) { window in
-                row(for: window)
-                    // Kept in the layout, just not drawn: the floating copy stands in for it.
-                    .opacity(window.id == draggingID ? 0 : 1)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.4).combined(with: .opacity),
-                        removal: .scale(scale: 0.6).combined(with: .opacity)
-                    ))
+            ForEach(previewLayout.elements) { element in
+                switch element {
+                case .badge:
+                    spaceBadge
+                case .header(let workspace):
+                    header(workspace)
+                case .window(let window):
+                    row(for: window)
+                        // Kept in the layout, just not drawn: the floating copy stands in for it.
+                        .opacity(window.id == draggingID ? 0 : 1)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.4).combined(with: .opacity),
+                            removal: .scale(scale: 0.6).combined(with: .opacity)
+                        ))
+                }
             }
         }
-        .animation(StripMetrics.layoutAnimation, value: orderedWindows.map(\.id))
+        .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
         .padding(StripMetrics.padding)
         .frame(width: prefs.stripWidth)
@@ -71,7 +79,7 @@ struct StripView: View {
         .overlay(alignment: .top) { floatingRow }
         .coordinateSpace(name: Self.dragSpace)
         // One gesture for the whole strip: a per-row recogniser would be destroyed the moment its
-        // row is replaced by the gap, cancelling the drag halfway through.
+        // row moves, cancelling the drag halfway through.
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.dragSpace))
                 .onChanged { value in
@@ -84,7 +92,17 @@ struct StripView: View {
         )
     }
 
-    // MARK: - Layout model
+    // MARK: - Layout
+
+    private func layout(of windows: [ManagedWindow]) -> StripLayout {
+        StripLayout(windows: windows, prefs: prefs) { model.workspaceNumber(of: $0) }
+    }
+
+    /// Geometry of the committed queue. Drag targeting measures against this rather than the preview
+    /// so that the answer cannot oscillate as the preview rearranges itself underneath the cursor.
+    private var committedLayout: StripLayout { layout(of: model.visibleWindows) }
+
+    private var previewLayout: StripLayout { layout(of: orderedWindows) }
 
     /// The queue as the strip currently shows it: the committed order, with a drag in progress
     /// previewed by moving the dragged window to the slot it would land in.
@@ -104,17 +122,6 @@ struct StripView: View {
         return model.visibleWindows.first { $0.id == draggingID }
     }
 
-    private var slotHeight: CGFloat {
-        StripMetrics.rowHeight(prefs: prefs) + StripMetrics.spacing
-    }
-
-    /// Distance from the top of the strip to the top edge of the row at `index`.
-    private func topOffset(of index: Int) -> CGFloat {
-        var offset = StripMetrics.padding
-        if prefs.showSpaceBadge { offset += prefs.iconSize + StripMetrics.spacing }
-        return offset + CGFloat(index) * slotHeight
-    }
-
     // MARK: - Rows
 
     @ViewBuilder
@@ -123,8 +130,19 @@ struct StripView: View {
             row(for: window)
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
-                .offset(y: topOffset(of: dragOriginIndex) + dragTranslation)
+                .offset(y: dragOriginTop + dragTranslation)
         }
+    }
+
+    private func header(_ workspace: Int) -> some View {
+        let height = StripMetrics.headerHeight(prefs: prefs)
+        return Text("\(workspace)")
+            .font(.system(size: height * 0.72, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.primary.opacity(0.7))
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background(Capsule().fill(Color.primary.opacity(0.13)))
+            .help("Workspace \(workspace)")
     }
 
     private var spaceBadge: some View {
@@ -146,7 +164,9 @@ struct StripView: View {
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
                 .opacity(window.isMinimized ? 0.45 : 1)
 
-            if prefs.showWorkspaceNumbers, let workspace = model.workspaceNumber(of: window) {
+            // Redundant once the icons are grouped under a workspace header.
+            if prefs.showWorkspaceNumbers, !prefs.groupByWorkspace,
+               let workspace = model.workspaceNumber(of: window) {
                 Text("\(workspace)")
                     .font(.system(size: max(8, prefs.iconSize * 0.32), weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
@@ -180,22 +200,23 @@ struct StripView: View {
 
     // MARK: - Dragging
 
-    /// Which row a point in strip coordinates falls on.
-    private func index(at y: CGFloat) -> Int? {
-        let position = Int(floor((y - topOffset(of: 0)) / slotHeight))
-        return model.visibleWindows.indices.contains(position) ? position : nil
-    }
-
     private func dragChanged(start: CGFloat, offset: CGFloat) {
+        let layout = committedLayout
+
         if draggingID == nil {
-            guard let origin = index(at: start) else { return }
+            guard let origin = layout.windowIndex(atOffsetFromTop: start),
+                  model.visibleWindows.indices.contains(origin)
+            else { return }
             draggingID = model.visibleWindows[origin].id
             dragOriginIndex = origin
             dragTargetIndex = origin
+            dragOriginTop = layout.topOffset(ofWindowAt: origin)
+            onHold(model.visibleWindows[origin], 0)
         }
         dragTranslation = offset
-        dragTargetIndex = min(max(dragOriginIndex + Int((offset / slotHeight).rounded()), 0),
-                              model.visibleWindows.count - 1)
+
+        guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
+        dragTargetIndex = target
         if let window = draggedWindow { onHold(window, offset) }
     }
 
@@ -214,9 +235,11 @@ struct StripView: View {
         model.move(id: window.id, toVisiblePosition: dragTargetIndex)
 
         // Let the floating icon travel from the cursor to the slot it was dropped on, then hand
-        // over to the row underneath, which has been holding that place all along.
+        // over to the row underneath, which has been holding that place all along. The destination
+        // is read from the layout the move has just produced, headers included.
+        let destination = committedLayout.topOffset(ofWindowAt: dragTargetIndex)
         withAnimation(Self.settleAnimation) {
-            dragTranslation = CGFloat(dragTargetIndex - dragOriginIndex) * slotHeight
+            dragTranslation = destination - dragOriginTop
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDuration) {
             endDrag()
@@ -229,6 +252,7 @@ struct StripView: View {
     private func endDrag() {
         draggingID = nil
         dragTranslation = 0
+        dragOriginTop = 0
         onHold(nil, 0)
     }
 }
@@ -246,28 +270,7 @@ enum StripMetrics {
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
 
-    /// Height the strip needs for the given content, mirroring `StripView`'s layout.
-    static func height(itemCount: Int, prefs: Preferences) -> CGFloat {
-        let rows = itemCount + (prefs.showSpaceBadge ? 1 : 0)
-        guard rows > 0 else { return padding * 2 }
-        let itemsHeight = CGFloat(itemCount) * rowHeight(prefs: prefs)
-            + (prefs.showSpaceBadge ? prefs.iconSize : 0)
-        return itemsHeight + CGFloat(rows - 1) * spacing + padding * 2
-    }
+    /// Height of a workspace group header.
+    static func headerHeight(prefs: Preferences) -> CGFloat { max(15, prefs.iconSize * 0.52) }
 
-    /// The row a point falls on, given its distance from the top of the strip content.
-    static func rowIndex(atOffsetFromTop offset: CGFloat, itemCount: Int, prefs: Preferences) -> Int? {
-        var top = padding
-        if prefs.showSpaceBadge { top += prefs.iconSize + spacing }
-        let index = Int(floor((offset - top) / (rowHeight(prefs: prefs) + spacing)))
-        return (0..<itemCount).contains(index) ? index : nil
-    }
-
-    /// Distance from the top of the strip to the centre of the row at `index`.
-    static func rowCentreOffset(index: Int, prefs: Preferences) -> CGFloat {
-        var offset = padding
-        if prefs.showSpaceBadge { offset += prefs.iconSize + spacing }
-        offset += CGFloat(index) * (rowHeight(prefs: prefs) + spacing)
-        return offset + rowHeight(prefs: prefs) / 2
-    }
 }

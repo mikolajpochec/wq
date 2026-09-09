@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var strip: StripController?
     private var toast: ToastController?
     private var settingsWindow: SettingsWindowController?
+    private var scrollFocusWork: DispatchWorkItem?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
 
@@ -20,11 +21,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpStatusItem()
 
         model.scope = store.prefs.scope
+        model.autoSortByWorkspace = store.prefs.autoSortByWorkspace
+        model.onManualReorder = { [weak self] in
+            self?.store.prefs.autoSortByWorkspace = false
+        }
         store.$prefs
             .receive(on: RunLoop.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
                 self.model.scope = prefs.scope
+                self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.hotkeys.apply(prefs)
             }
             .store(in: &cancellables)
@@ -56,7 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     toast.endHold()
                 }
-            }
+            },
+            onClose: { [weak self] window in self?.close(window) },
+            onScroll: { [weak self] steps in self?.scrolled(by: steps) }
         )
         self.strip = strip
         toast.anchorProvider = { [weak strip] id in
@@ -112,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .moveToEnd:
             model.moveToEnd()
         case .sortByWorkspace:
-            model.sortByWorkspace()
+            sortByWorkspace()
         case .closeWindow:
             closeSelectedWindow()
         default:
@@ -120,8 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Scrolling moves the selection immediately but defers focusing: spinning through the queue
+    /// would otherwise fire a burst of app activations and workspace switches on the way past.
+    private func scrolled(by steps: Int) {
+        guard model.cycle(by: steps) != nil else { return }
+        scrollFocusWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let window = self.model.selectedWindow else { return }
+            self.focus(window)
+        }
+        scrollFocusWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
     private func closeSelectedWindow() {
         guard let window = model.selectedWindow else { return }
+        close(window)
+    }
+
+    private func close(_ window: ManagedWindow) {
         // Hand the selection to a neighbour up front: the window is about to stop existing, and
         // otherwise the selection would fall back to the top of the queue when it does.
         let successor = model.neighbour(after: window.id)
@@ -209,7 +234,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Sorting by hand also re-arms automatic sorting, which a manual reorder had switched off.
     @objc private func sortByWorkspace() {
+        store.prefs.autoSortByWorkspace = true
+        model.autoSortByWorkspace = true
         model.sortByWorkspace()
     }
 
