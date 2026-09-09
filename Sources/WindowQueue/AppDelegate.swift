@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let strip = StripController(model: model, store: store) { [weak self] window in
             self?.model.select(id: window.id, announce: false)
-            WindowFocuser.focus(window)
+            self?.focus(window)
         }
         self.strip = strip
         toast.anchorProvider = { [weak strip] in
@@ -82,9 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch action {
         case .cyclePrevious:
-            if let window = model.cycle(by: -1) { WindowFocuser.focus(window) }
+            if let window = model.cycle(by: -1) { focus(window) }
         case .cycleNext:
-            if let window = model.cycle(by: 1) { WindowFocuser.focus(window) }
+            if let window = model.cycle(by: 1) { focus(window) }
         case .moveLeft:
             model.move(by: -1)
         case .moveRight:
@@ -98,13 +98,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func focus(_ window: ManagedWindow) {
+        WindowFocuser.focus(window, workspaceIndex: model.workspaceNumber(of: window))
+    }
+
     /// Changes workspace using the configured strategy, falling back through the others.
     private func switchToSpace(_ index: Int) {
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
             if focusWindow(onSpaceIndex: index) { return }
-            if SpaceSwitcher.sendSystemShortcut(index: index) { return }
-            SpacesBridge.shared.switchToSpace(index: index)
+            SpaceSwitcher.sendSystemShortcut(index: index)
         case .systemShortcut:
             SpaceSwitcher.sendSystemShortcut(index: index)
         case .privateAPI:
@@ -119,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = candidates.first(where: { $0.id == model.selectedID }) ?? candidates.first
         else { return false }
         model.select(id: window.id, announce: false)
-        WindowFocuser.focus(window)
+        focus(window)
         return true
     }
 

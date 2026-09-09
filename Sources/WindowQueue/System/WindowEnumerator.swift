@@ -10,7 +10,8 @@ final class WindowEnumerator {
     private var observers: [pid_t: AXObserver] = [:]
     private var refreshWorkItem: DispatchWorkItem?
     private var timer: Timer?
-    private var spaceRefreshCounter = 0
+    /// Apps we have already asked to expose their accessibility tree.
+    private var accessibilityEnabledPIDs: Set<pid_t> = []
 
     private static let observedNotifications = [
         kAXWindowCreatedNotification,
@@ -87,11 +88,14 @@ final class WindowEnumerator {
         }
 
         // 2. Anything AX can see right now: real titles, elements and minimised state.
+        var axCapablePIDs: Set<pid_t> = []
         for (pid, app) in apps where pid != ownPID {
             let appElement = AXUIElementCreateApplication(pid)
+            enableAccessibility(for: pid, appElement: appElement)
             guard let windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) else {
                 continue
             }
+            axCapablePIDs.insert(pid)
             for element in windows {
                 guard isStandardWindow(element), let id = AXPrivate.windowID(of: element) else { continue }
                 let minimized = element.boolAttribute(kAXMinimizedAttribute) ?? false
@@ -105,6 +109,16 @@ final class WindowEnumerator {
                     isMinimized: minimized,
                     spaceID: discovered[id]?.spaceID
                 )
+            }
+        }
+
+        // 3. Drop the WindowServer's ghosts. Apps keep real-looking windows around that are closed
+        // or never shown; on the active Space the Accessibility API is authoritative, so anything
+        // an AX-capable app did not list there is not a window the user can actually see.
+        if let current = model.currentSpaceID {
+            for (id, window) in discovered
+            where window.element == nil && window.spaceID == current && axCapablePIDs.contains(window.pid) {
+                discovered.removeValue(forKey: id)
             }
         }
 
@@ -148,6 +162,15 @@ final class WindowEnumerator {
             guard let space = spaces[candidate.id] else { return nil }
             return ServerWindow(id: candidate.id, pid: candidate.pid, spaceID: space, title: candidate.title)
         }
+    }
+
+    /// Chromium and Electron applications keep their accessibility tree switched off until a client
+    /// asks for it, which is why Chrome, Slack and friends otherwise report zero windows — and why
+    /// focusing one of them could only ever raise whichever window happened to be in front.
+    private func enableAccessibility(for pid: pid_t, appElement: AXUIElement) {
+        guard !accessibilityEnabledPIDs.contains(pid) else { return }
+        accessibilityEnabledPIDs.insert(pid)
+        appElement.setAttribute("AXManualAccessibility", value: kCFBooleanTrue)
     }
 
     private func isStandardWindow(_ element: AXUIElement) -> Bool {
@@ -226,6 +249,7 @@ final class WindowEnumerator {
     @objc private func appTerminated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else { return }
+        accessibilityEnabledPIDs.remove(app.processIdentifier)
         unregisterObserver(for: app.processIdentifier)
         scheduleRefresh()
     }

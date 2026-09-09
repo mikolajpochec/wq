@@ -135,10 +135,17 @@ final class SpacesBridge {
 
     @discardableResult
     func switchToSpace(index: Int) -> Bool {
-        guard let setCurrentSpace, let display = primaryDisplay() else { return false }
+        guard let display = primaryDisplay() else { return false }
         let position = index - 1
         guard display.userSpaces.indices.contains(position) else { return false }
-        setCurrentSpace(connectionID, display.identifier as CFString, display.userSpaces[position].id)
+        return switchToSpace(id: display.userSpaces[position].id)
+    }
+
+    @discardableResult
+    func switchToSpace(id: UInt64) -> Bool {
+        guard let setCurrentSpace, let display = primaryDisplay() else { return false }
+        guard display.userSpaces.contains(where: { $0.id == id }) else { return false }
+        setCurrentSpace(connectionID, display.identifier as CFString, id)
         return true
     }
 }

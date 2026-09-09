@@ -23,11 +23,11 @@ enum SpaceSwitchMethod: String, Codable, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .focusWindow:
-            return "Activates the first queued window on the target workspace, which makes macOS animate to it. Falls back to the ⌃N shortcut, then the private API, for empty workspaces."
+            return "Activates the first queued window on the target workspace, which makes macOS animate to it. Falls back to the ⌃N shortcut for workspaces with no windows."
         case .systemShortcut:
             return "Requires “Switch to Desktop N” to be enabled in System Settings › Keyboard › Keyboard Shortcuts › Mission Control."
         case .privateAPI:
-            return "Switches instantly with no animation. Undocumented, and some macOS versions leave the desktop in an odd state."
+            return "Switches instantly with no animation. Not recommended: on current macOS the WindowServer is left drawing several desktops at once until Mission Control redraws them."
         }
     }
 }

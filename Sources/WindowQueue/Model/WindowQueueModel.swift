@@ -97,6 +97,9 @@ final class WindowQueueModel: ObservableObject {
 
     func select(id: CGWindowID, announce: Bool) {
         guard let window = windows.first(where: { $0.id == id }) else { return }
+        if Diagnostics.isEnabled, selectedID != id {
+            Diagnostics.note("select \(window.appName) id=\(id) announce=\(announce)")
+        }
         selectedID = id
         if announce { announcement.send(window) }
     }
