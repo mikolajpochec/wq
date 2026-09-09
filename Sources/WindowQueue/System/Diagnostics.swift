@@ -79,7 +79,8 @@ enum Diagnostics {
         }
         let spaces = SpacesBridge.shared.spaces(forWindows: candidates.map(\.0))
         return candidates.map { id, owner, width, height in
-            "id=\(id) \(width)x\(height) space=\(spaces[id].map(String.init) ?? "nil") \(owner)"
+            let ordered = SpacesBridge.shared.isOrderedIn(id).map { $0 ? "yes" : "no" } ?? "?"
+            return "id=\(id) \(width)x\(height) space=\(spaces[id].map(String.init) ?? "nil") ordered=\(ordered) \(owner)"
         }
     }
 

@@ -112,10 +112,10 @@ final class WindowEnumerator {
             }
         }
 
-        // 3. Drop the WindowServer's ghosts. Apps keep real-looking windows around that are closed
-        // or never shown; on the active Space the Accessibility API is authoritative, so anything
-        // an AX-capable app did not list there is not a window the user can actually see.
-        if let current = model.currentSpaceID {
+        // 3. Fallback ghost filter for systems where the WindowServer cannot be asked whether a
+        // window is ordered in: on the active Space the Accessibility API is authoritative, so
+        // anything an AX-capable app did not list there is not a window the user can see.
+        if SpacesBridge.shared.isOrderedIn(CGWindowID(1)) == nil, let current = model.currentSpaceID {
             for (id, window) in discovered
             where window.element == nil && window.spaceID == current && axCapablePIDs.contains(window.pid) {
                 discovered.removeValue(forKey: id)
@@ -155,11 +155,13 @@ final class WindowEnumerator {
             return (id, pid, (info[kCGWindowName as String] as? String) ?? "")
         }
 
-        // Only windows the WindowServer has actually placed on a Space are real, on-screen windows;
-        // the rest are off-screen scratch windows apps keep around.
+        // A real window is placed on a Space *and* ordered into the WindowServer's display list.
+        // Applications keep plenty of full-size windows around that satisfy neither: closed
+        // documents they have not released, off-screen scratch windows, and so on.
         let spaces = SpacesBridge.shared.spaces(forWindows: candidates.map(\.id))
         return candidates.compactMap { candidate in
             guard let space = spaces[candidate.id] else { return nil }
+            guard SpacesBridge.shared.isOrderedIn(candidate.id) != false else { return nil }
             return ServerWindow(id: candidate.id, pid: candidate.pid, spaceID: space, title: candidate.title)
         }
     }

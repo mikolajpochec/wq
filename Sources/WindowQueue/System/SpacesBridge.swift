@@ -12,6 +12,7 @@ final class SpacesBridge {
     private typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
     private typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
     private typealias SetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
+    private typealias WindowBoolQueryFn = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Bool>) -> Int32
 
     /// `kCGSSpaceIncludesCurrent | kCGSSpaceIncludesOthers | kCGSSpaceIncludesUser`
     private static let allSpacesMask: Int32 = 7
@@ -22,6 +23,7 @@ final class SpacesBridge {
     private let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn?
     private let copySpacesForWindows: CopySpacesForWindowsFn?
     private let setCurrentSpace: SetCurrentSpaceFn?
+    private let windowIsOrderedIn: WindowBoolQueryFn?
 
     private init() {
         let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
@@ -36,6 +38,7 @@ final class SpacesBridge {
         copyManagedDisplaySpaces = symbol("CGSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpacesFn.self)
         copySpacesForWindows = symbol("CGSCopySpacesForWindows", as: CopySpacesForWindowsFn.self)
         setCurrentSpace = symbol("CGSManagedDisplaySetCurrentSpace", as: SetCurrentSpaceFn.self)
+        windowIsOrderedIn = symbol("SLSWindowIsOrderedIn", as: WindowBoolQueryFn.self)
     }
 
     var isAvailable: Bool {
@@ -128,6 +131,18 @@ final class SpacesBridge {
             else { continue }
             result[id] = first.uint64Value
         }
+        return result
+    }
+
+    /// Whether the WindowServer actually has the window ordered into its display list.
+    ///
+    /// This is what separates a window the user can see from one an application merely keeps
+    /// around after it was closed — and unlike the Accessibility API it answers for windows on
+    /// every Space, not just the active one. Returns nil when the symbol is unavailable.
+    func isOrderedIn(_ windowID: CGWindowID) -> Bool? {
+        guard let windowIsOrderedIn else { return nil }
+        var result = false
+        guard windowIsOrderedIn(connectionID, windowID, &result) == 0 else { return nil }
         return result
     }
 
