@@ -117,7 +117,10 @@ enum Diagnostics {
             let name = app.localizedName ?? "?"
             let server = serverCounts[app.processIdentifier] ?? 0
             let hidden = element.boolAttribute(kAXHiddenAttribute) ?? false
-            lines.append("\(name) pid=\(app.processIdentifier) axError=\(error.rawValue) ax=\(windows?.count ?? -1) count=\(count) ranged=\(rangedCount)/\(rangedError.rawValue) server=\(server) hidden=\(hidden)")
+            let focusedID = element.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+                .flatMap { AXPrivate.windowID(of: $0) }
+                .map(String.init) ?? "nil"
+            lines.append("\(name) pid=\(app.processIdentifier) axError=\(error.rawValue) ax=\(windows?.count ?? -1) count=\(count) ranged=\(rangedCount)/\(rangedError.rawValue) server=\(server) hidden=\(hidden) focusedWindow=\(focusedID)")
             guard let windows else { continue }
             for window in windows {
                 let id = AXPrivate.windowID(of: window).map(String.init) ?? "nil"

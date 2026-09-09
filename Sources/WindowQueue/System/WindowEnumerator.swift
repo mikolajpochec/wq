@@ -12,8 +12,8 @@ final class WindowEnumerator {
     private var timer: Timer?
     /// Apps we have already asked to expose their accessibility tree.
     private var accessibilityEnabledPIDs: Set<pid_t> = []
-    /// Apps that needed the second, more intrusive request before they exposed anything.
-    private var accessibilityRepairedPIDs: Set<pid_t> = []
+    /// Apps we have additionally switched into enhanced accessibility mode.
+    private var accessibilityEscalatedPIDs: Set<pid_t> = []
 
     private static let observedNotifications = [
         kAXWindowCreatedNotification,
@@ -69,6 +69,8 @@ final class WindowEnumerator {
     /// the WindowServer, enrich whatever AX can currently see, and keep previously enriched entries
     /// until the WindowServer says the window is really gone.
     func refresh() {
+        // Cheap, and the Space a window reports has to be compared against a current value.
+        refreshSpaceState()
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let apps = Dictionary(regularApplications().map { ($0.processIdentifier, $0) },
                               uniquingKeysWith: { first, _ in first })
@@ -94,10 +96,25 @@ final class WindowEnumerator {
         for (pid, app) in apps where pid != ownPID {
             let appElement = AXUIElementCreateApplication(pid)
             enableAccessibility(for: pid, appElement: appElement)
-            guard let windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) else {
+            guard var windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) else {
                 continue
             }
+            if windows.isEmpty, escalateAccessibility(for: pid, appElement: appElement) {
+                windows = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+            }
             axCapablePIDs.insert(pid)
+
+            // Some applications (Chrome among them) never populate AXWindows but still answer
+            // AXFocusedWindow, so grab that element while we can: it is the only handle we will
+            // ever get on that window.
+            if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self),
+               let focusedID = AXPrivate.windowID(of: focused),
+               discovered[focusedID] != nil {
+                discovered[focusedID]?.element = focused
+                if let title = focused.attribute(kAXTitleAttribute, as: String.self), !title.isEmpty {
+                    discovered[focusedID]?.title = title
+                }
+            }
             for element in windows {
                 guard isStandardWindow(element), let id = AXPrivate.windowID(of: element) else { continue }
                 let minimized = element.boolAttribute(kAXMinimizedAttribute) ?? false
@@ -128,7 +145,7 @@ final class WindowEnumerator {
         let ordered = discovered.values.sorted {
             ($0.spaceID ?? .max, $0.id) < ($1.spaceID ?? .max, $1.id)
         }
-        repairUnreadableApps(discovered: discovered, apps: apps)
+        noteUnreadableApps(discovered: discovered, apps: apps)
 
         model.reconcile(with: ordered)
         refreshWindowSpaces()
@@ -136,31 +153,39 @@ final class WindowEnumerator {
         if Diagnostics.isEnabled { Diagnostics.dump(model: model) }
     }
 
-    /// Second-chance accessibility request for apps that still expose nothing.
+    /// Turns on enhanced accessibility for an app that reports no windows at all.
     ///
-    /// An app with a window on the *active* Space that AX cannot see is an app whose accessibility
-    /// tree is switched off — without it we can activate the app but never raise one specific
-    /// window of it. Chrome in particular refuses `AXManualAccessibility` and only responds to
-    /// `AXEnhancedUserInterface`, the attribute VoiceOver sets. That one is applied narrowly, to
-    /// apps showing this exact symptom, because some applications change their window behaviour
-    /// while it is set.
-    private func repairUnreadableApps(discovered: [CGWindowID: ManagedWindow],
-                                      apps: [pid_t: NSRunningApplication]) {
-        guard let current = model.currentSpaceID else { return }
+    /// Chrome is the case that needs this: it answers `AXFocusedWindow` but keeps `AXWindows`
+    /// empty, so only the window that already has focus can ever be raised. It does advertise
+    /// `AXEnhancedUserInterface` — the attribute VoiceOver sets — and switches its full tree on
+    /// when that is set. It is applied only to apps showing this symptom, because some
+    /// applications change how their windows animate and resize while it is on.
+    ///
+    /// - Returns: true when the request was accepted and the window list is worth re-reading.
+    @discardableResult
+    private func escalateAccessibility(for pid: pid_t, appElement: AXUIElement) -> Bool {
+        guard !accessibilityEscalatedPIDs.contains(pid) else { return false }
+        accessibilityEscalatedPIDs.insert(pid)
+        let ok = appElement.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue)
+        if Diagnostics.isEnabled {
+            Diagnostics.note("AXEnhancedUserInterface pid=\(pid) ok=\(ok)")
+        }
+        return ok
+    }
 
+    /// Logs apps that have a window on the active Space which AX still cannot see; without an
+    /// element we can activate such an app but not raise one specific window of it.
+    private func noteUnreadableApps(discovered: [CGWindowID: ManagedWindow],
+                                    apps: [pid_t: NSRunningApplication]) {
+        guard Diagnostics.isEnabled, let current = model.currentSpaceID else { return }
         var offenders: Set<pid_t> = []
         for window in discovered.values where window.spaceID == current && window.element == nil {
             offenders.insert(window.pid)
         }
-
-        for pid in offenders where !accessibilityRepairedPIDs.contains(pid) {
-            accessibilityRepairedPIDs.insert(pid)
-            let element = AXUIElementCreateApplication(pid)
-            let ok = element.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue)
-            if Diagnostics.isEnabled {
-                let name = apps[pid]?.localizedName ?? "?"
-                Diagnostics.note("AXEnhancedUserInterface \(name) pid=\(pid) ok=\(ok)")
-            }
+        for pid in offenders {
+            let name = apps[pid]?.localizedName ?? "?"
+            let frontmost = apps[pid]?.isActive == true
+            Diagnostics.note("AX blind on active space: \(name) pid=\(pid) frontmost=\(frontmost)")
         }
     }
 
@@ -287,7 +312,7 @@ final class WindowEnumerator {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else { return }
         accessibilityEnabledPIDs.remove(app.processIdentifier)
-        accessibilityRepairedPIDs.remove(app.processIdentifier)
+        accessibilityEscalatedPIDs.remove(app.processIdentifier)
         unregisterObserver(for: app.processIdentifier)
         scheduleRefresh()
     }
@@ -297,6 +322,9 @@ final class WindowEnumerator {
         else { return }
         registerObserver(for: app.processIdentifier)
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        // Some applications only honour the request while they are frontmost, so ask again.
+        accessibilityEnabledPIDs.remove(app.processIdentifier)
+        enableAccessibility(for: app.processIdentifier, appElement: appElement)
         if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self),
            let id = AXPrivate.windowID(of: focused),
            model.windows.contains(where: { $0.id == id }) {

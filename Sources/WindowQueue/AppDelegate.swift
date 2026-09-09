@@ -99,7 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func focus(_ window: ManagedWindow) {
-        WindowFocuser.focus(window, workspaceIndex: model.workspaceNumber(of: window))
+        let siblings = model.windows.count { $0.pid == window.pid }
+        WindowFocuser.focus(window,
+                            workspaceIndex: model.workspaceNumber(of: window),
+                            siblingCount: siblings)
     }
 
     /// Changes workspace using the configured strategy, falling back through the others.
