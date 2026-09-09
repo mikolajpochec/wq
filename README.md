@@ -11,6 +11,8 @@ always-on-top strip showing that list, and workspace switching by number.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
+- `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
+  Mission Control order, keeping the order you arranged inside each one.
 - `⌥1` … `⌥9` switch workspace.
 - Option is the "super" key by default; the super key and every individual shortcut are remappable.
 

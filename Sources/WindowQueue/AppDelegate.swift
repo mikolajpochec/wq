@@ -111,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.moveToStart()
         case .moveToEnd:
             model.moveToEnd()
+        case .sortByWorkspace:
+            model.sortByWorkspace()
         default:
             break
         }
@@ -162,6 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
             .target = self
+        menu.addItem(withTitle: "Sort queue by workspace", action: #selector(sortByWorkspace),
+                     keyEquivalent: "s")
+            .target = self
         menu.addItem(withTitle: "Refresh windows", action: #selector(refreshWindows), keyEquivalent: "r")
             .target = self
         menu.addItem(.separator())
@@ -184,6 +189,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.enumerator?.refresh()
         }
+    }
+
+    @objc private func sortByWorkspace() {
+        model.sortByWorkspace()
     }
 
     @objc private func refreshWindows() {

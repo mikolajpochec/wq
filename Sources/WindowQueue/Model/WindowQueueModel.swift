@@ -144,6 +144,31 @@ final class WindowQueueModel: ObservableObject {
         move(id: selectedID, toVisiblePosition: visibleIndices.count - 1)
     }
 
+    /// Groups the queue by workspace, in Mission Control order.
+    ///
+    /// The sort is stable, so the order the user arranged inside a workspace is kept; windows whose
+    /// workspace cannot be resolved (a minimised window has none) collect at the end.
+    func sortByWorkspace() {
+        let order = spaceOrder
+        func rank(_ window: ManagedWindow) -> Int {
+            guard let space = window.spaceID,
+                  let index = order.firstIndex(of: space)
+            else { return Int.max }
+            return index
+        }
+
+        let sorted = windows.enumerated()
+            .sorted { left, right in
+                let leftRank = rank(left.element)
+                let rightRank = rank(right.element)
+                return leftRank == rightRank ? left.offset < right.offset : leftRank < rightRank
+            }
+            .map(\.element)
+
+        guard sorted.map(\.id) != windows.map(\.id) else { return }
+        windows = sorted
+    }
+
     /// Moves one window to an absolute slot within the visible slice, leaving windows the current
     /// scope hides where they are.
     func move(id: CGWindowID, toVisiblePosition target: Int) {

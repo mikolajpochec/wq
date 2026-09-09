@@ -51,6 +51,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case cyclePrevious, cycleNext
     case moveLeft, moveRight
     case moveToStart, moveToEnd
+    case sortByWorkspace
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
 
     var id: String { rawValue }
@@ -63,6 +64,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .moveRight: return "Move window later in queue"
         case .moveToStart: return "Move window to start of queue"
         case .moveToEnd: return "Move window to end of queue"
+        case .sortByWorkspace: return "Sort queue by workspace"
         default: return "Switch to workspace \(spaceIndex ?? 0)"
         }
     }
@@ -74,7 +76,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     }
 
     static var queueActions: [HotkeyAction] {
-        [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd]
+        [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace]
     }
 
     static var spaceActions: [HotkeyAction] {
@@ -91,6 +93,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .moveRight: return KeyCombo(keyCode: kVK_ANSI_RightBracket, modifiers: superMask | shift)
         case .moveToStart: return KeyCombo(keyCode: kVK_Home, modifiers: superMask | shift)
         case .moveToEnd: return KeyCombo(keyCode: kVK_End, modifiers: superMask | shift)
+        case .sortByWorkspace: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask | shift)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
