@@ -155,6 +155,8 @@ struct Preferences: Codable, Equatable {
     /// Move the pointer to the middle of a window when it is focused, so the cursor follows the
     /// keyboard instead of being left behind on another screen.
     var warpCursorToWindow: Bool = true
+    /// Start automatically at login. Only takes effect for the copy in the Applications folder.
+    var launchAtLogin: Bool = true
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -186,6 +188,7 @@ struct Preferences: Codable, Equatable {
         aimingDimOpacity = value(.aimingDimOpacity, defaults.aimingDimOpacity)
         scrollFocusDelay = value(.scrollFocusDelay, defaults.scrollFocusDelay)
         warpCursorToWindow = value(.warpCursorToWindow, defaults.warpCursorToWindow)
+        launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }
 

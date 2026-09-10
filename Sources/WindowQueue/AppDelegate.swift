@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.hotkeys.apply(prefs)
+                LoginItem.apply(enabled: prefs.launchAtLogin)
             }
             .store(in: &cancellables)
 

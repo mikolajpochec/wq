@@ -54,6 +54,21 @@ struct SettingsView: View {
                 }
                 .disabled(!store.prefs.aimingEnabled)
             }
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Launch at login", isOn: $store.prefs.launchAtLogin)
+                    .disabled(!LoginItem.isInstalled)
+                if let note = loginItemNote {
+                    HStack(spacing: 8) {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if LoginItem.state == .needsApproval {
+                            Button("Open Login Items") { LoginItem.openSystemSettings() }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+            }
             Toggle("Move the pointer to the focused window", isOn: $store.prefs.warpCursorToWindow)
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {
@@ -88,6 +103,17 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private var loginItemNote: String? {
+        switch LoginItem.state {
+        case .notInstalled:
+            return "Available once WindowQueue is in the Applications folder (make install)."
+        case .needsApproval:
+            return "Waiting for approval in the system's login item settings."
+        case .enabled, .disabled:
+            return nil
+        }
     }
 
     private var titlesExplanation: String {

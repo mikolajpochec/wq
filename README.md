@@ -32,8 +32,13 @@ never reorders, and only the move shortcuts change the order.
 ```sh
 make bundle          # builds WindowQueue.app and ad-hoc signs it
 make run             # builds and launches
-make install         # copies to /Applications
+make install         # stops any running copy and installs to /Applications
 ```
+
+Run the installed copy from then on — it is the one Launchpad and Spotlight find, and the only one
+that can register to **launch at login** (on by default, switchable in Settings › General). A copy
+started from the build directory refuses to register, since it would start a stale build at login
+and break on the next rebuild.
 
 Requires Swift 6 / Xcode command line tools and macOS 14+.
 

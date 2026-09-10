@@ -33,7 +33,10 @@ run: bundle
 	-pkill -x $(APP) || true
 	open $(BUNDLE)
 
+# Stops whichever copy is running first: two instances would each draw a strip and fight over the
+# same hotkeys. The installed copy is the one to launch from now on.
 install: bundle
+	-pkill -x $(APP) || true
 	rm -rf /Applications/$(BUNDLE)
 	cp -R $(BUNDLE) /Applications/
 	echo "installed to /Applications/$(BUNDLE)"
