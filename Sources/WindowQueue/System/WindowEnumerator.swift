@@ -143,7 +143,9 @@ final class WindowEnumerator {
         var escalated: Set<pid_t> = []
 
         // 1. Every real window, on every Space.
-        for candidate in serverWindows() {
+        let server = serverWindows()
+        var suspectedPopups = Self.popupSuspects(in: server)
+        for candidate in server {
             guard let app = names[candidate.pid] else { continue }
             discovered[candidate.id] = ManagedWindow(
                 id: candidate.id,
@@ -187,6 +189,8 @@ final class WindowEnumerator {
             }
             for element in windows {
                 guard isStandardWindow(element), let id = AXPrivate.windowID(of: element) else { continue }
+                // The accessibility API vouches for this one as a real, standard window.
+                suspectedPopups.remove(id)
                 let minimized = element.boolAttribute(kAXMinimizedAttribute) ?? false
                 if !minimized && discovered[id] == nil { continue }
                 discovered[id] = ManagedWindow(
@@ -202,7 +206,10 @@ final class WindowEnumerator {
             }
         }
 
-        // 3. Fallback ghost filter for systems where the WindowServer cannot be asked whether a
+        // 3. Whatever still looks like a popup and nothing vouched for is one.
+        for id in suspectedPopups { discovered.removeValue(forKey: id) }
+
+        // 4. Fallback ghost filter for systems where the WindowServer cannot be asked whether a
         // window is ordered in: on the active Space the Accessibility API is authoritative, so
         // anything an AX-capable app did not list there is not a window the user can see.
         if SpacesBridge.shared.isOrderedIn(CGWindowID(1)) == nil, let current = currentSpaceID {
@@ -252,10 +259,42 @@ final class WindowEnumerator {
         }
     }
 
+    /// Windows that sit almost entirely inside a much larger window of the same application.
+    ///
+    /// Tab hover cards, menus, download bubbles and tooltips are ordinary layer-0 windows as far as
+    /// the WindowServer is concerned, and for an application that hides its accessibility tree —
+    /// Chrome, precisely the one that draws most of them — there is nothing else to tell them apart
+    /// from real windows. Geometry does: a popup belongs to the window it pops out of. These are
+    /// only suspects; the accessibility API gets the final word where it can see the window.
+    private static func popupSuspects(in windows: [ServerWindow]) -> Set<CGWindowID> {
+        let byApp = Dictionary(grouping: windows, by: \.pid)
+        var suspects: Set<CGWindowID> = []
+
+        for siblings in byApp.values where siblings.count > 1 {
+            for child in siblings {
+                let childArea = child.frame.width * child.frame.height
+                let isInsideSibling = siblings.contains { parent in
+                    // Two windows on different workspaces can occupy the same coordinates without
+                    // having anything to do with each other.
+                    guard parent.id != child.id, parent.spaceID == child.spaceID else { return false }
+                    let parentArea = parent.frame.width * parent.frame.height
+                    guard childArea * 2 <= parentArea else { return false }
+                    let overlap = parent.frame.intersection(child.frame)
+                    guard !overlap.isNull else { return false }
+                    // Mostly inside, not strictly: a tooltip near the edge can poke out a little.
+                    return overlap.width * overlap.height >= childArea * 0.85
+                }
+                if isInsideSibling { suspects.insert(child.id) }
+            }
+        }
+        return suspects
+    }
+
     private struct ServerWindow {
         let id: CGWindowID
         let pid: pid_t
         let spaceID: UInt64?
+        let frame: CGRect
         /// Only populated when Screen Recording access has been granted.
         let title: String
     }
@@ -264,15 +303,15 @@ final class WindowEnumerator {
     /// shadow windows every application also owns.
     private func serverWindows() -> [ServerWindow] {
         let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let candidates: [(id: CGWindowID, pid: pid_t, title: String)] = raw.compactMap { info in
+        let candidates: [(id: CGWindowID, pid: pid_t, frame: CGRect, title: String)] = raw.compactMap { info in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   let id = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
                   let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
                   let bounds = info[kCGWindowBounds as String] as? [String: Any],
-                  let width = bounds["Width"] as? Double, let height = bounds["Height"] as? Double,
-                  width >= 120, height >= 80
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  frame.width >= 120, frame.height >= 80
             else { return nil }
-            return (id, pid, (info[kCGWindowName as String] as? String) ?? "")
+            return (id, pid, frame, (info[kCGWindowName as String] as? String) ?? "")
         }
 
         // A real window is placed on a Space *and* ordered into the WindowServer's display list.
@@ -282,7 +321,8 @@ final class WindowEnumerator {
         return candidates.compactMap { candidate in
             guard let space = spaces[candidate.id] else { return nil }
             guard SpacesBridge.shared.isOrderedIn(candidate.id) != false else { return nil }
-            return ServerWindow(id: candidate.id, pid: candidate.pid, spaceID: space, title: candidate.title)
+            return ServerWindow(id: candidate.id, pid: candidate.pid, spaceID: space,
+                                frame: candidate.frame, title: candidate.title)
         }
     }
 

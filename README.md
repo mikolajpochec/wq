@@ -105,6 +105,11 @@ Three behaviours shaped most of this code, and each is worth knowing before chan
   visited. Entries keep the element and title they were last seen with.
 - **The WindowServer lists windows that no longer exist for the user** — closed documents an app has
   not released, off-screen scratch windows. `SLSWindowIsOrderedIn` separates them from real ones.
+- **Popups are windows too.** A tab hover card, a menu or a download bubble is an ordinary
+  layer-0 window to the WindowServer, and for an app that hides its accessibility tree there is no
+  role to check. They are recognised by geometry instead — a window lying almost entirely inside a
+  window at least twice its size, from the same app, on the same workspace — unless the
+  accessibility API vouches for it as a standard window.
 - **Chromium and Electron apps keep their accessibility tree switched off.** Slack, Obsidian and
   VS Code turn it on when `AXManualAccessibility` is set; Chrome implements neither that
   (`kAXErrorAttributeUnsupported`) nor `AXEnhancedUserInterface` (`kAXErrorNotImplemented`) and
