@@ -42,7 +42,7 @@ struct StripView: View {
         // is also thicker than the strip, leaving room for aiming mode to grow into, so the strip
         // is pinned to the screen edge it lives on.
         strip
-            .padding(side.isVertical ? .vertical : .horizontal, StripMetrics.screenMargin)
+            .padding(side.isVertical ? .vertical : .horizontal, prefs.stripMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Self.placement(of: prefs))
     }
 
@@ -179,13 +179,32 @@ struct StripView: View {
     private var spaceBadge: some View {
         Text((screen.spaceIndex ?? model.currentSpaceIndex).map(String.init) ?? "–")
             .font(.system(size: prefs.iconSize * 0.55, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(badgeForeground)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.16))
+                    .fill(badgeFill)
             )
+            .animation(.easeOut(duration: 0.25), value: screen.backdropIsLight)
             .help("Current workspace")
+    }
+
+    /// The number follows what is behind the strip: dark over a light screen, light over a dark
+    /// one. Until that is known it keeps the accent colour.
+    private var badgeForeground: Color {
+        switch screen.backdropIsLight {
+        case .some(true): return Color.black.opacity(0.85)
+        case .some(false): return .white
+        case .none: return .accentColor
+        }
+    }
+
+    private var badgeFill: Color {
+        switch screen.backdropIsLight {
+        case .some(true): return Color.white.opacity(0.55)
+        case .some(false): return Color.black.opacity(0.35)
+        case .none: return Color.accentColor.opacity(0.16)
+        }
     }
 
     private func row(for window: ManagedWindow) -> some View {
@@ -285,8 +304,6 @@ enum StripMetrics {
     static let spacing: CGFloat = 6
     static let padding: CGFloat = 6
     static let corner: CGFloat = 12
-    /// Gap between the strip and the screen edge.
-    static let screenMargin: CGFloat = 8
     /// Shared timing so the panel resize and the SwiftUI content move together.
     static let layoutAnimation: Animation = .spring(response: 0.32, dampingFraction: 0.82)
     static let layoutDuration: TimeInterval = 0.32

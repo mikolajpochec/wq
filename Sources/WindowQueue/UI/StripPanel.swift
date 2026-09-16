@@ -89,6 +89,8 @@ final class StripScreenState: ObservableObject {
     @Published var isActive = true
     /// Desktop number showing on this screen.
     @Published var spaceIndex: Int?
+    /// Whether the screen behind the workspace number is light, or nil while unknown.
+    @Published var backdropIsLight: Bool?
 }
 
 /// Owns the strip panels, one per screen that should show the strip, and keeps them positioned.
@@ -122,6 +124,8 @@ final class StripController {
     /// screen's strip.
     private weak var pointerStrip: ScreenStrip?
     private var cancellables = Set<AnyCancellable>()
+    private let backdrop = BackdropSampler()
+    private var backdropTimer: Timer?
     /// Live position of an icon being dragged, which the queue order does not yet reflect.
     private var dragOffset: (id: CGWindowID, y: CGFloat)?
     private var hoveredID: CGWindowID?
@@ -159,10 +163,56 @@ final class StripController {
         workspace.publisher(for: NSWorkspace.didActivateApplicationNotification)
             .merge(with: workspace.publisher(for: NSWorkspace.activeSpaceDidChangeNotification))
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.sync() }
+            .sink { [weak self] _ in
+                self?.sync()
+                // Give the Space switch or the newly active app a moment to finish drawing.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self?.sampleBackdrops() }
+            }
             .store(in: &cancellables)
 
+        // What is behind the strip changes with every window moved over or away from it; there is
+        // no notification for that, so look now and then.
+        backdropTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.sampleBackdrops()
+        }
         sync()
+        sampleBackdrops()
+    }
+
+    /// Reads how light the screen is behind each strip's workspace number, so the number can
+    /// switch between dark and light to stay readable.
+    private func sampleBackdrops() {
+        guard store.prefs.showSpaceBadge else { return }
+        for strip in strips.values where strip.panel.isVisible {
+            guard let rect = badgeFrame(of: strip) else { continue }
+            backdrop.luminance(behind: rect, on: strip.screen) { [weak strip] luminance in
+                guard let strip, let luminance else { return }
+                // A little hysteresis, so a backdrop near the middle does not flicker between the two.
+                let current = strip.state.backdropIsLight
+                let isLight = current == true ? luminance > 0.45 : luminance > 0.55
+                if current != isLight { strip.state.backdropIsLight = isLight }
+            }
+        }
+    }
+
+    /// Screen rect of the workspace number, which is the first element of the strip.
+    private func badgeFrame(of strip: ScreenStrip) -> NSRect? {
+        let panel = strip.panel.frame
+        let prefs = store.prefs
+        let start = contentStart(inPanelLength: mainLength(of: panel)) + StripMetrics.padding
+        let size = prefs.iconSize
+        let thickness = prefs.stripWidth
+        let crossInset = (thickness - size) / 2
+        switch prefs.stripSide {
+        case .left:
+            return NSRect(x: panel.minX + crossInset, y: panel.maxY - start - size, width: size, height: size)
+        case .right:
+            return NSRect(x: panel.maxX - thickness + crossInset, y: panel.maxY - start - size, width: size, height: size)
+        case .top:
+            return NSRect(x: panel.minX + start, y: panel.maxY - thickness + crossInset, width: size, height: size)
+        case .bottom:
+            return NSRect(x: panel.minX + start, y: panel.minY + crossInset, width: size, height: size)
+        }
     }
 
     private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
@@ -253,7 +303,7 @@ final class StripController {
     private func layout(_ strip: ScreenStrip) {
         let prefs = store.prefs
         let visible = strip.screen.visibleFrame
-        let margin = StripMetrics.screenMargin
+        let margin = store.prefs.stripMargin
         // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
         // strip, so it is always as thick as the strip can ever get.
         let thickness = prefs.stripWidth * max(1, prefs.aimingScale)
@@ -290,7 +340,7 @@ final class StripController {
     /// Distance from the start of the panel — its top for a vertical strip, its left for a
     /// horizontal one — to the start of the strip content, which alignment places along the edge.
     private func contentStart(inPanelLength length: CGFloat) -> CGFloat {
-        let margin = StripMetrics.screenMargin
+        let margin = store.prefs.stripMargin
         let free = max(0, length - margin * 2 - contentLayout.totalHeight)
         return margin + free * store.prefs.stripAlignment.fraction
     }

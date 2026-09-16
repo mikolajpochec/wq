@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toast: ToastController?
     private var settingsWindow: SettingsWindowController?
     private var scrollFocusWork: DispatchWorkItem?
-    private var cycleFocusWork: DispatchWorkItem?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
 
@@ -258,9 +257,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch action {
         case .cyclePrevious:
-            if model.cycle(by: -1) != nil { focusSelectionSoon() }
+            if let window = model.cycle(by: -1) { focus(window) }
         case .cycleNext:
-            if model.cycle(by: 1) != nil { focusSelectionSoon() }
+            if let window = model.cycle(by: 1) { focus(window) }
         case .moveLeft:
             model.move(by: -1)
         case .moveRight:
@@ -278,19 +277,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             break
         }
-    }
-
-    /// A burst of cycle presses moves the selection at once but focuses only where it stops. Each
-    /// activation takes the target app a moment, and a run of them lands out of order, leaving an
-    /// earlier window in front.
-    private func focusSelectionSoon() {
-        cycleFocusWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, let window = self.model.selectedWindow else { return }
-            self.focus(window)
-        }
-        cycleFocusWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
     /// Scrolling moves the selection immediately but defers focusing: spinning through the queue

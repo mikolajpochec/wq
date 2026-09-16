@@ -22,7 +22,7 @@ enum RectangleIntegration {
 
     /// Total width the strip occupies, including the margin it is inset by.
     static func reservedWidth(for prefs: Preferences) -> Int {
-        Int((prefs.stripWidth + StripMetrics.screenMargin * 2).rounded(.up))
+        Int((prefs.stripWidth + prefs.stripMargin * 2).rounded(.up))
     }
 
     /// Writes the gap for the strip's side and clears the other one.

@@ -179,6 +179,8 @@ struct Preferences: Codable, Equatable {
     var inactiveStripOpacity: Double = 0.65
     var stripSide: StripSide = .left
     var stripAlignment: StripAlignment = .center
+    /// Gap between the strip and the screen edges around it.
+    var stripMargin: Double = 8
     var stripWidth: Double = 36
     var iconSize: Double = 26
     var showSpaceBadge: Bool = true
@@ -237,6 +239,7 @@ struct Preferences: Codable, Equatable {
         inactiveStripOpacity = value(.inactiveStripOpacity, defaults.inactiveStripOpacity)
         stripSide = value(.stripSide, defaults.stripSide)
         stripAlignment = value(.stripAlignment, defaults.stripAlignment)
+        stripMargin = value(.stripMargin, defaults.stripMargin)
         stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)

@@ -222,6 +222,11 @@ struct SettingsView: View {
                 Text("\(Int(store.prefs.iconSize))").monospacedDigit().frame(width: 34, alignment: .trailing)
             }
             HStack {
+                Text("Margin")
+                Slider(value: $store.prefs.stripMargin, in: 0...40, step: 1)
+                Text("\(Int(store.prefs.stripMargin))").monospacedDigit().frame(width: 34, alignment: .trailing)
+            }
+            HStack {
                 Text("Strip thickness")
                 Slider(value: $store.prefs.stripWidth, in: 30...90, step: 2)
                 Text("\(Int(store.prefs.stripWidth))").monospacedDigit().frame(width: 34, alignment: .trailing)
