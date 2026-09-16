@@ -61,6 +61,70 @@ enum WindowFocuser {
         verify(window, workspaceIndex: workspaceIndex, token: token, attempt: 0)
     }
 
+    // MARK: - Focus without raising
+
+    private typealias SetFrontFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> Int32
+    private typealias PostRecordFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> Int32
+    private typealias PSNForPIDFn = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> Int32
+
+    private static let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    private static let setFrontProcess = skyLight.flatMap { dlsym($0, "_SLPSSetFrontProcessWithOptions") }
+        .map { unsafeBitCast($0, to: SetFrontFn.self) }
+    private static let postEventRecord = skyLight.flatMap { dlsym($0, "SLPSPostEventRecordTo") }
+        .map { unsafeBitCast($0, to: PostRecordFn.self) }
+    private static let processForPID = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "GetProcessForPID")
+        .map { unsafeBitCast($0, to: PSNForPIDFn.self) }
+
+    /// `kCPSNoWindows`: make the process frontmost without ordering any of its windows forward.
+    private static let noWindowsMode: UInt32 = 0x400
+
+    /// Gives a window keyboard focus where it lies, without bringing it in front of anything.
+    ///
+    /// There is no public way to do this: activating an app raises its windows. The WindowServer
+    /// can make a process frontmost with no windows, and then be told which window is key through
+    /// the same synthesized event records it uses internally — the technique yabai and AutoRaise
+    /// use. The previously focused window gets the matching "resign key" record so it stops
+    /// drawing itself as active.
+    ///
+    /// - Returns: false when the private symbols are missing, so the caller can fall back to an
+    ///   ordinary raise.
+    @discardableResult
+    static func focusWithoutRaising(_ window: ManagedWindow) -> Bool {
+        guard let setFrontProcess, let postEventRecord, let processForPID else { return false }
+        var target = ProcessSerialNumber()
+        guard processForPID(window.pid, &target) == 0 else { return false }
+
+        if let front = NSWorkspace.shared.frontmostApplication,
+           let focused = AXPrivate.application(front.processIdentifier)
+               .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+               .flatMap(AXPrivate.windowID(of:)),
+           focused != window.id {
+            var previous = ProcessSerialNumber()
+            if processForPID(front.processIdentifier, &previous) == 0 {
+                var record = eventRecord(windowID: focused, kind: 0x02)
+                _ = postEventRecord(&previous, &record)
+            }
+        }
+
+        guard setFrontProcess(&target, window.id, noWindowsMode) == 0 else { return false }
+        var record = eventRecord(windowID: window.id, kind: 0x01)
+        _ = postEventRecord(&target, &record)
+        Diagnostics.note("focus without raise \(window.appName) id=\(window.id)")
+        return true
+    }
+
+    /// 0x01 makes the window key, 0x02 makes it resign.
+    private static func eventRecord(windowID: CGWindowID, kind: UInt8) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 0xf8)
+        bytes[0x04] = 0xf8
+        bytes[0x08] = 0x0d
+        bytes[0x8a] = kind
+        withUnsafeBytes(of: windowID) { raw in
+            for offset in 0..<4 { bytes[0x3c + offset] = raw[offset] }
+        }
+        return bytes
+    }
+
     /// - Returns: whether the element still accepted the raise. A cached element goes stale when
     ///   its window is recreated, and every call then fails silently.
     @discardableResult

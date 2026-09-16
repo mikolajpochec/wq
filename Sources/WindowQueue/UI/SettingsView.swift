@@ -79,6 +79,7 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .frame(width: 52, alignment: .trailing)
                 }
+                Toggle("Bring the hovered window to the front", isOn: $store.prefs.focusFollowsMouseRaises)
             }
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {
@@ -237,6 +238,8 @@ struct SettingsView: View {
 
             Section("Reserve screen space") {
                 Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
+                Toggle("Also trim windows in apps that miss the reservation", isOn: $store.prefs.trimWindowsAfterZoom)
+                    .disabled(!store.prefs.reserveScreenSpace)
                 Text(reservationExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)

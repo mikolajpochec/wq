@@ -32,7 +32,8 @@ final class ScreenEdgeGuard {
     }
 
     private var isEnabled: Bool {
-        store.prefs.reserveScreenSpace && store.prefs.stripDisplay != .hidden
+        store.prefs.reserveScreenSpace && store.prefs.trimWindowsAfterZoom
+            && store.prefs.stripDisplay != .hidden
     }
 
     private func correct(_ element: AXUIElement, id: CGWindowID) {

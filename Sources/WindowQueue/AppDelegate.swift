@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: store,
             onSelect: { [weak self] window in
                 self?.model.select(id: window.id, announce: false)
-                self?.focus(window)
+                self?.focus(window, warpCursor: false)
             },
             onHold: { window in
                 if let window {
@@ -102,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hover focus never moves the pointer: the pointer is already where the user wants it.
         let hoverFocus = FocusFollowsMouse(model: model, store: store) { [weak self] window in
             guard let self else { return }
+            if !self.store.prefs.focusFollowsMouseRaises, WindowFocuser.focusWithoutRaising(window) { return }
             WindowFocuser.focus(window, siblingCount: self.model.windows.count { $0.pid == window.pid })
         }
         hoverFocus.isSuspended = { [weak self] in
@@ -284,7 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scrollFocusWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, let window = self.model.selectedWindow else { return }
-            self.focus(window)
+            // The pointer is on the strip because the user is using it there; leave it be.
+            self.focus(window, warpCursor: false)
         }
         scrollFocusWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + store.prefs.scrollFocusDelay,
@@ -311,12 +313,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func focus(_ window: ManagedWindow) {
+    /// - Parameter warpCursor: false when the focus came from the mouse, which is already where the
+    ///   user wants it; the pointer only follows focus changes made from the keyboard.
+    private func focus(_ window: ManagedWindow, warpCursor: Bool = true) {
         let siblings = model.windows.count { $0.pid == window.pid }
         WindowFocuser.focus(window,
                             workspaceIndex: model.workspaceNumber(of: window),
                             siblingCount: siblings,
-                            warpCursor: store.prefs.warpCursorToWindow)
+                            warpCursor: warpCursor && store.prefs.warpCursorToWindow)
     }
 
     /// Changes workspace using the configured strategy, falling back through the others.

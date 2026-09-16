@@ -179,6 +179,11 @@ struct Preferences: Codable, Equatable {
     var focusFollowsMouse: Bool = true
     /// How long the pointer has to rest before the window under it is focused.
     var focusFollowsMouseDelay: Double = 0.2
+    /// Bring the hovered window to the front as well. Off, it takes keyboard focus where it lies.
+    var focusFollowsMouseRaises: Bool = false
+    /// Trim windows that zoom or tile under the strip after the fact, for apps that do not see the
+    /// Dock reservation. It breaks zooming back out and animates twice, so it is opt-in.
+    var trimWindowsAfterZoom: Bool = false
     /// Start automatically at login. Only takes effect for the copy in the Applications folder.
     var launchAtLogin: Bool = true
 
@@ -218,6 +223,8 @@ struct Preferences: Codable, Equatable {
         warpCursorToWindow = value(.warpCursorToWindow, defaults.warpCursorToWindow)
         focusFollowsMouse = value(.focusFollowsMouse, defaults.focusFollowsMouse)
         focusFollowsMouseDelay = value(.focusFollowsMouseDelay, defaults.focusFollowsMouseDelay)
+        focusFollowsMouseRaises = value(.focusFollowsMouseRaises, defaults.focusFollowsMouseRaises)
+        trimWindowsAfterZoom = value(.trimWindowsAfterZoom, defaults.trimWindowsAfterZoom)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }
