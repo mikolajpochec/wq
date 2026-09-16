@@ -19,8 +19,11 @@ final class WindowQueueModel: ObservableObject {
     @Published var autoSortByWorkspace = true
     @Published var currentSpaceID: UInt64? {
         didSet {
-            // The marker belongs to one workspace; leaving it takes the marker away.
+            guard currentSpaceID != oldValue else { return }
+            // The marker belongs to one workspace; leaving it takes the marker away, and arriving
+            // on another empty one puts it back there.
             if let emptySlot, currentSpaceID != emptySlot.spaceID { self.emptySlot = nil }
+            updateEmptySlot(clearingSelection: true)
         }
     }
 
@@ -39,7 +42,9 @@ final class WindowQueueModel: ObservableObject {
     /// The display the strip is on is showing a fullscreen window.
     @Published var currentSpaceIsFullscreen = false
     /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
-    @Published var spaceOrder: [UInt64] = []
+    @Published var spaceOrder: [UInt64] = [] {
+        didSet { if spaceOrder != oldValue { updateEmptySlot() } }
+    }
 
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
@@ -200,6 +205,7 @@ final class WindowQueueModel: ObservableObject {
         if let vanished = vanishedSelection {
             followVanishedSelection(vanished, previousOrder: previousOrder)
         }
+        updateEmptySlot()
         clampSelection()
     }
 
@@ -214,6 +220,7 @@ final class WindowQueueModel: ObservableObject {
         }
         guard changed else { return }
         if autoSortByWorkspace { sortByWorkspace() }
+        updateEmptySlot()
         objectWillChange.send()
     }
 
@@ -351,16 +358,43 @@ final class WindowQueueModel: ObservableObject {
             }
     }
 
+    /// Keeps the empty slot true to the workspace in view: shown whenever it has no windows, in the
+    /// place a new window would go, and gone as soon as a window is there.
+    /// - Parameter clearingSelection: also drop a selection left on another workspace. Only right
+    ///   for arriving on the workspace: during a switch already under way, the selection is the
+    ///   window being travelled to.
+    func updateEmptySlot(clearingSelection: Bool = false) {
+        // Before the first enumeration, or on a fullscreen space, there is nothing to say.
+        guard let current = currentSpaceID, spaceOrder.contains(current), !windows.isEmpty else { return }
+        let occupied = windows.contains { $0.spaceID == current && !$0.isMinimized }
+
+        if occupied {
+            guard emptySlot?.spaceID == current else { return }
+            emptySlot = nil
+            if selectedID == nil {
+                selectedID = visibleWindows.first { $0.spaceID == current && !$0.isMinimized }?.id
+            }
+        } else if emptySlot?.spaceID != current || emptySlot?.beforeID != slotAnchor(for: current) {
+            let keep = clearingSelection ? nil : selectedID
+            showEmptySlot(for: current)
+            if let keep { selectedID = keep }
+        }
+    }
+
+    /// The first window of a later workspace, which a new window on `space` would go in front of.
+    private func slotAnchor(for space: UInt64) -> CGWindowID? {
+        guard let rank = spaceOrder.firstIndex(of: space) else { return nil }
+        return windows.first { window in
+            guard let other = window.spaceID.flatMap({ spaceOrder.firstIndex(of: $0) }) else { return false }
+            return other > rank
+        }?.id
+    }
+
     /// Leaves the user on a workspace with no windows: nothing selected, and a marker where that
     /// workspace's windows would sit in the queue.
     func showEmptySlot(for space: UInt64) {
-        let rank = spaceOrder.firstIndex(of: space)
-        let before = windows.first { window in
-            guard let rank, let other = window.spaceID.flatMap({ spaceOrder.firstIndex(of: $0) }) else { return false }
-            return other > rank
-        }
         selectedID = nil
-        emptySlot = EmptySlot(spaceID: space, beforeID: before?.id)
+        emptySlot = EmptySlot(spaceID: space, beforeID: slotAnchor(for: space))
     }
 
     /// The marker's place among the windows the strip shows.
@@ -395,6 +429,7 @@ final class WindowQueueModel: ObservableObject {
         }
         rest.insert(contentsOf: moved, at: insertion)
         windows = rest
+        updateEmptySlot()
     }
 
     /// The sort is stable, so the order the user arranged inside a workspace is kept; windows whose
