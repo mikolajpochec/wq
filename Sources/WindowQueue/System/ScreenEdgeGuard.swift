@@ -13,18 +13,51 @@ import ApplicationServices
 final class ScreenEdgeGuard {
     private let store: PreferencesStore
     private var pending: [CGWindowID: DispatchWorkItem] = [:]
+    /// The last settled frame of each window we have heard from, so a zoom can be undone.
+    private var knownFrames: [CGWindowID: CGRect] = [:]
+    /// Windows we trimmed after a zoom: the frame we gave them and the one they had before.
+    private var trimmed: [CGWindowID: (applied: CGRect, previous: CGRect?)] = [:]
+    private var settling: [CGWindowID: DispatchWorkItem] = [:]
+    /// While our own frame changes land, the move notifications they cause are not the user's.
+    private var applyingUntil: [CGWindowID: Date] = [:]
 
     /// How close to the screen edge counts as laid against it.
     private static let tolerance: CGFloat = 2
     /// Waits for a resize to settle, since zoom animations report several sizes on the way.
-    private static let settleDelay: TimeInterval = 0.2
+    private static let settleDelay: TimeInterval = 0.3
 
     init(store: PreferencesStore) {
         self.store = store
     }
 
+    /// A window moved or took focus: remember where it is, so zooming it can be reversed later.
+    ///
+    /// Recorded only once the window has been still for a moment. A zoom animation moves the window
+    /// before it reports a resize, and its halfway frames are not somewhere to go back to.
+    func windowSettled(_ element: AXUIElement) {
+        guard isEnabled, let id = AXPrivate.windowID(of: element),
+              pending[id] == nil, !isApplying(id)
+        else { return }
+        settling[id]?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.pending[id] == nil, !self.isApplying(id),
+                  let frame = Self.frame(of: element)
+            else { return }
+            self.settling[id] = nil
+            self.settle(id, at: frame)
+        }
+        settling[id] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+    }
+
+    private func isApplying(_ id: CGWindowID) -> Bool {
+        (applyingUntil[id] ?? .distantPast) > Date()
+    }
+
     func windowResized(_ element: AXUIElement) {
         guard isEnabled, let id = AXPrivate.windowID(of: element) else { return }
+        settling[id]?.cancel()
+        settling[id] = nil
         pending[id]?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.correct(element, id: id) }
         pending[id] = item
@@ -32,7 +65,7 @@ final class ScreenEdgeGuard {
     }
 
     private var isEnabled: Bool {
-        store.prefs.reserveScreenSpace && store.prefs.trimWindowsAfterZoom
+        store.prefs.reserveScreenSpace && store.prefs.trimWindowsOutsideReservation
             && store.prefs.stripDisplay != .hidden
     }
 
@@ -46,10 +79,12 @@ final class ScreenEdgeGuard {
             return
         }
 
+        // `AXFullScreen` cannot tell the two apart: a zoomed window reports it too. A window in real
+        // fullscreen covers the whole screen, menu bar included; a zoomed one stops below it.
         guard element.attribute(kAXSubroleAttribute, as: String.self) == kAXStandardWindowSubrole,
-              element.boolAttribute("AXFullScreen") != true,
               let frame = Self.frame(of: element),
-              let screen = Self.screen(containing: frame)
+              let screen = Self.screen(containing: frame),
+              !Self.approximatelyEqual(frame, Self.axRect(fromCocoa: screen.frame))
         else { return }
 
         let visible = Self.axRect(fromCocoa: screen.visibleFrame)
@@ -59,17 +94,47 @@ final class ScreenEdgeGuard {
         switch store.prefs.stripSide {
         case .left:
             let edge = visible.minX + gap
-            guard abs(frame.minX - visible.minX) <= Self.tolerance, frame.maxX > edge + gap else { return }
+            guard abs(frame.minX - visible.minX) <= Self.tolerance, frame.maxX > edge + gap else {
+                return settle(id, at: frame)
+            }
             target.origin.x = edge
             target.size.width = frame.maxX - edge
         case .right:
             let edge = visible.maxX - gap
-            guard abs(frame.maxX - visible.maxX) <= Self.tolerance, frame.minX < edge - gap else { return }
+            guard abs(frame.maxX - visible.maxX) <= Self.tolerance, frame.minX < edge - gap else {
+                return settle(id, at: frame)
+            }
             target.size.width = edge - frame.minX
         }
 
+        // The app does not know its zoomed frame was trimmed, so zooming again — to get back out —
+        // makes it zoom in once more. A zoom straight from the frame we trimmed it to is that
+        // second zoom: put back the frame it had before the first one.
+        if let record = trimmed[id], let previous = record.previous,
+           let known = knownFrames[id], Self.approximatelyEqual(known, record.applied) {
+            Diagnostics.note("edge guard: \(id) zoomed back out to \(previous)")
+            trimmed[id] = nil
+            knownFrames[id] = previous
+            apply(previous, to: element, id: id, attemptsLeft: Self.maxAttempts)
+            return
+        }
+
         Diagnostics.note("edge guard: \(id) \(frame) -> \(target)")
+        trimmed[id] = (applied: target, previous: knownFrames[id])
+        knownFrames[id] = target
         apply(target, to: element, id: id, attemptsLeft: Self.maxAttempts)
+    }
+
+    private func settle(_ id: CGWindowID, at frame: CGRect) {
+        knownFrames[id] = frame
+        if let record = trimmed[id], !Self.approximatelyEqual(record.applied, frame) {
+            trimmed[id] = nil
+        }
+    }
+
+    private static func approximatelyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= tolerance && abs(a.minY - b.minY) <= tolerance
+            && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
     }
 
     private static let maxAttempts = 4
@@ -85,12 +150,13 @@ final class ScreenEdgeGuard {
         guard let sizeValue = AXValueCreate(.cgSize, &size),
               let originValue = AXValueCreate(.cgPoint, &origin)
         else { return }
+        applyingUntil[id] = Date().addingTimeInterval(0.6)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
         _ = element.setAttribute(kAXPositionAttribute, value: originValue)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
 
         guard attemptsLeft > 1 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             // The user has taken hold of the window; it is theirs now.
             guard let self, NSEvent.pressedMouseButtons == 0, let frame = Self.frame(of: element) else { return }
             let settled = abs(frame.minX - target.minX) <= Self.tolerance

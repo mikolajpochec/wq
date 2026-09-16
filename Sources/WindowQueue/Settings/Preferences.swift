@@ -181,9 +181,9 @@ struct Preferences: Codable, Equatable {
     var focusFollowsMouseDelay: Double = 0.2
     /// Bring the hovered window to the front as well. Off, it takes keyboard focus where it lies.
     var focusFollowsMouseRaises: Bool = false
-    /// Trim windows that zoom or tile under the strip after the fact, for apps that do not see the
-    /// Dock reservation. It breaks zooming back out and animates twice, so it is opt-in.
-    var trimWindowsAfterZoom: Bool = false
+    /// Trim windows that zoom or tile under the strip after the fact, where the Dock reservation does
+    /// not reach: other screens, and apps started before WindowQueue.
+    var trimWindowsOutsideReservation: Bool = true
     /// Start automatically at login. Only takes effect for the copy in the Applications folder.
     var launchAtLogin: Bool = true
 
@@ -224,7 +224,7 @@ struct Preferences: Codable, Equatable {
         focusFollowsMouse = value(.focusFollowsMouse, defaults.focusFollowsMouse)
         focusFollowsMouseDelay = value(.focusFollowsMouseDelay, defaults.focusFollowsMouseDelay)
         focusFollowsMouseRaises = value(.focusFollowsMouseRaises, defaults.focusFollowsMouseRaises)
-        trimWindowsAfterZoom = value(.trimWindowsAfterZoom, defaults.trimWindowsAfterZoom)
+        trimWindowsOutsideReservation = value(.trimWindowsOutsideReservation, defaults.trimWindowsOutsideReservation)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }

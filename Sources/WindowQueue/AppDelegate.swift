@@ -149,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let enumerator = WindowEnumerator(model: self.model)
             let edgeGuard = ScreenEdgeGuard(store: self.store)
             enumerator.onWindowResized = { element in edgeGuard.windowResized(element) }
+            enumerator.onWindowSettled = { element in edgeGuard.windowSettled(element) }
             self.enumerator = enumerator
             enumerator.start()
             strip.start()

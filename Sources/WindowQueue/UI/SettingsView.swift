@@ -238,7 +238,7 @@ struct SettingsView: View {
 
             Section("Reserve screen space") {
                 Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
-                Toggle("Also trim windows in apps that miss the reservation", isOn: $store.prefs.trimWindowsAfterZoom)
+                Toggle("Trim windows on other screens and in older apps", isOn: $store.prefs.trimWindowsOutsideReservation)
                     .disabled(!store.prefs.reserveScreenSpace)
                 Text(reservationExplanation)
                     .font(.caption)

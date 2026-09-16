@@ -16,6 +16,8 @@ final class WindowEnumerator {
     private var isRefreshing = false
     /// Told about every window resize, which the queue itself does not care about.
     var onWindowResized: ((AXUIElement) -> Void)?
+    /// Told when a window moves or takes focus.
+    var onWindowSettled: ((AXUIElement) -> Void)?
 
     /// A window that took focus before we had it in the queue, adopted once it appears.
     private var pendingExternalFocusID: CGWindowID?
@@ -32,6 +34,7 @@ final class WindowEnumerator {
         kAXWindowMiniaturizedNotification,
         kAXWindowDeminiaturizedNotification,
         kAXWindowResizedNotification,
+        kAXWindowMovedNotification,
     ]
 
     init(model: WindowQueueModel) {
@@ -399,6 +402,13 @@ final class WindowEnumerator {
             onWindowResized?(element)
             return
         }
+        if notification == kAXWindowMovedNotification {
+            onWindowSettled?(element)
+            return
+        }
+        if notification == kAXFocusedWindowChangedNotification {
+            onWindowSettled?(element)
+        }
         if notification == kAXFocusedWindowChangedNotification,
            let id = AXPrivate.windowID(of: element) {
             adoptExternalFocus(id)
@@ -439,6 +449,18 @@ final class WindowEnumerator {
         else { return }
         registerObserver(for: app.processIdentifier)
         scheduleRefresh()
+        // An app that has only just launched accepts the registration but never delivers: its
+        // accessibility side is not up yet. Register again once it has had time to start.
+        let pid = app.processIdentifier
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, !app.isTerminated else { return }
+            self.unregisterObserver(for: pid)
+            self.registerObserver(for: pid)
+            // The window it opened with was focused before anyone was listening.
+            if let focused = AXPrivate.application(pid).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self) {
+                self.onWindowSettled?(focused)
+            }
+        }
     }
 
     @objc private func appTerminated(_ note: Notification) {
@@ -458,9 +480,9 @@ final class WindowEnumerator {
         // Some applications only honour the request while they are frontmost; the next refresh
         // asks again, off the main thread.
         accessibilityEnabledPIDs.remove(app.processIdentifier)
-        if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self),
-           let id = AXPrivate.windowID(of: focused) {
-            adoptExternalFocus(id)
+        if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self) {
+            onWindowSettled?(focused)
+            if let id = AXPrivate.windowID(of: focused) { adoptExternalFocus(id) }
         }
         scheduleRefresh()
     }
