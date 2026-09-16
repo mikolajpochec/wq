@@ -7,10 +7,24 @@ import CoreGraphics
 /// rather than by giving a panel key focus.
 final class AimingKeyCapture {
     enum Key {
-        case previous, next, commit, cancel
+        case up, down, left, right
+        /// `[` and `]`.
+        case back, forward
+        /// Return or keypad Enter.
+        case enter
+        case space
+        case cancel
     }
 
-    var onKey: ((Key) -> Void)?
+    struct Press {
+        let key: Key
+        /// Shift was held: grow the aimed run instead of moving the aim.
+        let extends: Bool
+        /// Option, Command or Control was held: move the aimed windows along the queue.
+        let moves: Bool
+    }
+
+    var onKey: ((Press) -> Void)?
     /// Fires when the mode should end without the user having confirmed anything.
     var onDismiss: (() -> Void)? {
         didSet { grabber.onDismiss = onDismiss }
@@ -37,16 +51,16 @@ final class AimingKeyCapture {
     private func handle(_ event: CGEvent) -> Bool {
         let key: Key?
         switch event.keyCode {
-        case 36, 76, 49:            // Return, keypad Enter, Space
-            key = .commit
-        case 53:                    // Escape
-            key = .cancel
-        case 126, 123, 33:          // Up, Left, [
-            key = .previous
-        case 125, 124, 30:          // Down, Right, ]
-            key = .next
-        default:
-            key = nil
+        case 36, 76: key = .enter
+        case 49: key = .space
+        case 53: key = .cancel
+        case 126: key = .up
+        case 125: key = .down
+        case 123: key = .left
+        case 124: key = .right
+        case 33: key = .back
+        case 30: key = .forward
+        default: key = nil
         }
 
         if Diagnostics.isEnabled {
@@ -55,7 +69,11 @@ final class AimingKeyCapture {
 
         // Acting inside the callback would hold up event delivery, and a slow tap gets disabled.
         if let key {
-            DispatchQueue.main.async { [weak self] in self?.onKey?(key) }
+            let flags = event.flags
+            let press = Press(key: key,
+                              extends: flags.contains(.maskShift),
+                              moves: !flags.intersection([.maskAlternate, .maskCommand, .maskControl]).isEmpty)
+            DispatchQueue.main.async { [weak self] in self?.onKey?(press) }
         }
 
         // Every key press is swallowed: while aiming, none of them belong to the app in front.

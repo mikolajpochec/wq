@@ -137,6 +137,13 @@ final class ToastController {
         }
     }
 
+    /// Takes the popup down straight away, for when something else is about to take its place.
+    func hideNow() {
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
+        panel?.orderOut(nil)
+    }
+
     private func hide() {
         guard let panel else { return }
         NSAnimationContext.runAnimationGroup({ context in

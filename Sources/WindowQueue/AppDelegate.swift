@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
     private var toast: ToastController?
+    private lazy var tilingMenu = TilingMenuController(store: store)
     private var settingsWindow: SettingsWindowController?
     private var scrollFocusWork: DispatchWorkItem?
     private var statusItem: NSStatusItem?
@@ -112,7 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hoverFocus.start()
         self.hoverFocus = hoverFocus
 
-        aimingKeys.onKey = { [weak self] key in self?.handleAimingKey(key) }
+        aimingKeys.onKey = { [weak self] press in self?.handleAimingPress(press) }
+        tilingMenu.anchorProvider = { [weak strip] ids in
+            guard let strip, let first = ids.first, let last = ids.last,
+                  let start = strip.rowFrame(for: first), let end = strip.rowFrame(for: last)
+            else { return nil }
+            return (start.union(end), strip.side)
+        }
         aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }
 
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
@@ -207,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard model.aimingID != nil else { return }
         let aimed = model.aimedWindow
         model.endAiming()
+        tilingMenu.hide()
         aimingKeys.end()
         dimOverlay?.hide()
         toast?.endHold()
@@ -216,17 +224,132 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focus(aimed)
     }
 
-    private func handleAimingKey(_ key: AimingKeyCapture.Key) {
-        switch key {
-        case .previous:
-            if let aimed = model.moveAim(by: -1) { toast?.show(aimed, pinned: true) }
-        case .next:
-            if let aimed = model.moveAim(by: 1) { toast?.show(aimed, pinned: true) }
-        case .commit:
+    /// Keys while aiming. Along the strip, the arrows and [ ] move the aim; with Shift they grow a
+    /// run of aimed windows, and with Option, Command or Control they carry the aimed windows along
+    /// the queue. Once two or more are aimed, a menu of layouts sits beside them: Return or the arrow
+    /// pointing into the screen enters it, and Return there tiles the windows.
+    private func handleAimingPress(_ press: AimingKeyCapture.Press) {
+        if tilingMenu.state.isFocused {
+            handleTilingMenuPress(press)
+            return
+        }
+
+        let side = store.prefs.stripSide
+        let canTile = model.aimedWindows.count >= 2
+
+        if let step = step(for: press.key, side: side, canTile: canTile) {
+            if press.moves {
+                model.moveAimedGroup(by: step)
+            } else if press.extends {
+                model.extendAim(by: step)
+            } else {
+                model.moveAim(by: step)
+            }
+            aimChanged()
+            return
+        }
+
+        switch press.key {
+        case .enter where canTile:
+            tilingMenu.state.isFocused = true
+        case _ where canTile && press.key == Self.intoScreen(from: side):
+            tilingMenu.state.isFocused = true
+        case .enter, .space:
             endAiming(commit: true)
         case .cancel:
             endAiming(commit: false)
+        default:
+            break
         }
+    }
+
+    /// Which way a key moves along the strip, or nil when it does not.
+    private func step(for key: AimingKeyCapture.Key, side: StripSide, canTile: Bool) -> Int? {
+        switch key {
+        case .back: return -1
+        case .forward: return 1
+        case .up, .down, .left, .right:
+            let alongPrevious: AimingKeyCapture.Key = side.isVertical ? .up : .left
+            let alongNext: AimingKeyCapture.Key = side.isVertical ? .down : .right
+            if key == alongPrevious { return -1 }
+            if key == alongNext { return 1 }
+            // Across the strip the arrows lead into the menu when there is one; otherwise they
+            // keep moving the aim, as they always have.
+            if canTile { return nil }
+            return key == .left || key == .up ? -1 : 1
+        default:
+            return nil
+        }
+    }
+
+    private static func intoScreen(from side: StripSide) -> AimingKeyCapture.Key {
+        switch side {
+        case .left: return .right
+        case .right: return .left
+        case .top: return .down
+        case .bottom: return .up
+        }
+    }
+
+    private func handleTilingMenuPress(_ press: AimingKeyCapture.Press) {
+        let side = store.prefs.stripSide
+        switch press.key {
+        case .up, .back: tilingMenu.moveHighlight(by: -1)
+        case .down, .forward: tilingMenu.moveHighlight(by: 1)
+        case .left where side == .top || side == .bottom: tilingMenu.moveHighlight(by: -1)
+        case .right where side == .top || side == .bottom: tilingMenu.moveHighlight(by: 1)
+        case .enter, .space: tileAimedWindows()
+        default:
+            // Escape, or the arrow back towards the strip, returns to aiming.
+            tilingMenu.state.isFocused = false
+        }
+    }
+
+    /// Keeps the popup and the tiling menu in step with what is aimed.
+    private func aimChanged() {
+        let aimed = model.aimedWindows
+        if aimed.count >= 2 {
+            toast?.hideNow()
+            tilingMenu.update(for: aimed)
+        } else {
+            tilingMenu.hide()
+            if let window = aimed.first { toast?.show(window, pinned: true) }
+        }
+    }
+
+    private func tileAimedWindows() {
+        let windows = model.aimedWindows
+        guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
+        let area = tilingArea()
+        endAiming(commit: false)
+
+        let placed = WindowTiler.tile(windows, layout: layout, in: area)
+        guard let first = placed.first else { return }
+        WindowTiler.raise(placed)
+        model.select(id: first.id, announce: false)
+        focus(first)
+    }
+
+    /// The screen being worked on, less the room the strip keeps for itself.
+    private func tilingArea() -> NSRect {
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        var area = screen?.visibleFrame ?? .zero
+        let prefs = store.prefs
+        guard prefs.stripDisplay != .hidden, prefs.reserveScreenSpace else { return area }
+        let gap = CGFloat(RectangleIntegration.reservedWidth(for: prefs))
+        switch prefs.stripSide {
+        case .left:
+            area.origin.x += gap
+            area.size.width -= gap
+        case .right:
+            area.size.width -= gap
+        case .top:
+            area.size.height -= gap
+        case .bottom:
+            area.origin.y += gap
+            area.size.height -= gap
+        }
+        return area
     }
 
     private func perform(_ action: HotkeyAction) {
@@ -237,10 +360,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.aimingID != nil {
             switch action {
             case .cyclePrevious:
-                handleAimingKey(.previous)
+                handleAimingPress(.init(key: .back, extends: false, moves: false))
                 return
             case .cycleNext:
-                handleAimingKey(.next)
+                handleAimingPress(.init(key: .forward, extends: false, moves: false))
+                return
+            case .moveLeft:
+                handleAimingPress(.init(key: .back, extends: false, moves: true))
+                return
+            case .moveRight:
+                handleAimingPress(.init(key: .forward, extends: false, moves: true))
                 return
             default:
                 endAiming(commit: false)

@@ -12,6 +12,8 @@ final class WindowQueueModel: ObservableObject {
     /// The window aiming mode is pointing at. Nil whenever the mode is off. Aiming deliberately
     /// does not touch `selectedID`: nothing is focused until the user confirms.
     @Published var aimingID: CGWindowID?
+    /// Where a multi-window aim started; the aimed windows run from here to `aimingID`.
+    @Published var aimAnchorID: CGWindowID?
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
@@ -53,17 +55,57 @@ final class WindowQueueModel: ObservableObject {
     /// Starts aiming at whatever is selected, so the first step moves from where the user is.
     @discardableResult
     func beginAiming() -> ManagedWindow? {
+        aimAnchorID = nil
         aimingID = selectedID ?? visibleWindows.first?.id
         return aimedWindow
     }
 
     func endAiming() {
         aimingID = nil
+        aimAnchorID = nil
+    }
+
+    /// Every window the aim covers, in queue order: one, or the run from the anchor to the aim.
+    var aimedWindows: [ManagedWindow] {
+        let visible = visibleWindows
+        guard let aim = visible.firstIndex(where: { $0.id == aimingID }) else { return [] }
+        guard let anchor = visible.firstIndex(where: { $0.id == aimAnchorID }) else { return [visible[aim]] }
+        return Array(visible[min(aim, anchor)...max(aim, anchor)])
+    }
+
+    var aimedIDs: Set<CGWindowID> { Set(aimedWindows.map(\.id)) }
+
+    /// Grows or shrinks the aimed run by moving its free end, stopping at the ends of the queue.
+    @discardableResult
+    func extendAim(by delta: Int) -> ManagedWindow? {
+        let visible = visibleWindows
+        guard let current = visible.firstIndex(where: { $0.id == aimingID }) else { return nil }
+        if aimAnchorID == nil { aimAnchorID = aimingID }
+        aimingID = visible[min(max(current + delta, 0), visible.count - 1)].id
+        return aimedWindow
+    }
+
+    /// Moves the whole aimed run one slot along the queue, keeping it together and aimed.
+    func moveAimedGroup(by delta: Int) {
+        let visible = visibleWindows
+        let group = aimedWindows
+        let ids = Set(group.map(\.id))
+        guard let first = visible.firstIndex(where: { ids.contains($0.id) }) else { return }
+        let destination = min(max(first + delta, 0), visible.count - group.count)
+        guard destination != first else { return }
+        noteManualReorder()
+
+        var order = visible.filter { !ids.contains($0.id) }
+        order.insert(contentsOf: group, at: destination)
+        for (slot, index) in visibleIndices.enumerated() {
+            windows[index] = order[slot]
+        }
     }
 
     /// Moves the aim within the visible slice, wrapping around, without focusing anything.
     @discardableResult
     func moveAim(by delta: Int) -> ManagedWindow? {
+        aimAnchorID = nil
         let visible = visibleWindows
         guard !visible.isEmpty else { return nil }
         let current = visible.firstIndex { $0.id == aimingID } ?? (delta > 0 ? -1 : 0)

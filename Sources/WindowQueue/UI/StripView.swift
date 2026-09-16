@@ -211,7 +211,9 @@ struct StripView: View {
         let isSelected = window.id == model.selectedID
         // Aiming borrows the highlight and marks it in a different colour, so it is never mistaken
         // for the window that actually has focus.
-        let isAimed = window.id == model.aimingID
+        // A run of aimed windows is all marked; the end the aim is moving has the heavier border.
+        let isAimCursor = window.id == model.aimingID
+        let isAimed = isAimCursor || (model.aimAnchorID != nil && model.aimedIDs.contains(window.id))
         let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
         return ZStack(alignment: .bottomTrailing) {
             icon(for: window)
@@ -226,7 +228,7 @@ struct StripView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(highlight ?? .clear, lineWidth: isAimed ? 2.5 : 1.5)
+                .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
         .contentShape(Rectangle())
         .help(window.displayTitle)
