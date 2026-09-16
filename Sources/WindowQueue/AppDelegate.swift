@@ -376,6 +376,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
+    /// Opening WindowQueue again — from Spotlight, Launchpad or Finder — while it is already running
+    /// has nothing to show but its settings.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openSettings()
+        return false
+    }
+
     @objc private func openSettings() {
         if settingsWindow == nil {
             settingsWindow = SettingsWindowController(

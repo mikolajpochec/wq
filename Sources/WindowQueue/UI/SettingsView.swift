@@ -11,109 +11,133 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             general.tabItem { Label("General", systemImage: "gearshape") }
+            focus.tabItem { Label("Focus", systemImage: "cursorarrow.rays") }
             shortcuts.tabItem { Label("Shortcuts", systemImage: "keyboard") }
             strip.tabItem { Label("Strip", systemImage: "sidebar.left") }
         }
-        .frame(width: 520, height: 460)
+        .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
     }
+
+    // MARK: - Building blocks
+
+    /// Every slider is the same length with its value in a fixed column, so they line up down the
+    /// page whatever their labels say.
+    private func sliderRow(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>,
+                           step: Double, format: @escaping (Double) -> String) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Slider(value: value, in: range, step: step)
+                    .labelsHidden()
+                    .frame(width: 200)
+                Text(format(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+            }
+        }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private static func percent(_ value: Double) -> String { String(format: "%.0f%%", value * 100) }
+    private static func points(_ value: Double) -> String { "\(Int(value)) pt" }
+    private static func seconds(_ value: Double) -> String { String(format: "%.2g s", value) }
 
     // MARK: - General
 
     private var general: some View {
         Form {
-            Picker("Queue scope", selection: $store.prefs.scope) {
-                ForEach(QueueScope.allCases) { Text($0.title).tag($0) }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Picker("Workspace switching", selection: $store.prefs.spaceSwitchMethod) {
-                    ForEach(SpaceSwitchMethod.allCases) { Text($0.title).tag($0) }
+            Section("Queue") {
+                Picker("Queue scope", selection: $store.prefs.scope) {
+                    ForEach(QueueScope.allCases) { Text($0.title).tag($0) }
                 }
-                Text(store.prefs.spaceSwitchMethod.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
-                Text("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
-                Text("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    Text("Dim the screens")
-                    Slider(value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05)
-                    Text(store.prefs.aimingDimOpacity == 0
-                         ? "off"
-                         : String(format: "%.0f%%", store.prefs.aimingDimOpacity * 100))
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
+                    caption("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
                 }
-                .disabled(!store.prefs.aimingEnabled)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("Launch at login", isOn: $store.prefs.launchAtLogin)
-                    .disabled(!LoginItem.isInstalled)
-                if let note = loginItemNote {
-                    HStack(spacing: 8) {
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if LoginItem.state == .needsApproval {
-                            Button("Open Login Items") { LoginItem.openSystemSettings() }
-                                .controlSize(.small)
-                        }
+
+            Section("Workspaces") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Workspace switching", selection: $store.prefs.spaceSwitchMethod) {
+                        ForEach(SpaceSwitchMethod.allCases) { Text($0.title).tag($0) }
                     }
+                    caption(store.prefs.spaceSwitchMethod.explanation)
+                }
+                if !spacesAvailable {
+                    Text("Workspace support is unavailable on this macOS version: the private Spaces API could not be loaded. Workspace switching and per-workspace scope are disabled.")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
                 }
             }
-            Toggle("Move the pointer to the focused window", isOn: $store.prefs.warpCursorToWindow)
-            Toggle("Focus the window under the pointer", isOn: $store.prefs.focusFollowsMouse)
-            if store.prefs.focusFollowsMouse {
-                HStack {
-                    Text("Hover delay")
-                    Slider(value: $store.prefs.focusFollowsMouseDelay, in: 0...1.0, step: 0.05)
-                    Text(String(format: "%.2f s", store.prefs.focusFollowsMouseDelay))
-                        .monospacedDigit()
-                        .frame(width: 52, alignment: .trailing)
-                }
-                Toggle("Bring the hovered window to the front", isOn: $store.prefs.focusFollowsMouseRaises)
-            }
-            Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
-            HStack {
-                Text("Popup duration")
-                Slider(value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5)
-                Text(String(format: "%.1f s", store.prefs.toastDuration))
-                    .monospacedDigit()
-                    .frame(width: 50, alignment: .trailing)
-            }
-            .disabled(!store.prefs.toastEnabled)
 
             Section("Window titles") {
-                Text(titlesExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                caption(titlesExplanation)
                 if !ScreenRecordingAccess.isGranted {
-                    HStack {
-                        Button("Grant Screen Recording…") {
-                            ScreenRecordingAccess.request()
-                            ScreenRecordingAccess.openSettings()
-                        }
-                        Spacer()
+                    Button("Grant Screen Recording…") {
+                        ScreenRecordingAccess.request()
+                        ScreenRecordingAccess.openSettings()
                     }
                 }
             }
 
-            if !spacesAvailable {
-                Text("Workspace support is unavailable on this macOS version: the private Spaces API could not be loaded. Workspace switching and per-workspace scope are disabled.")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
+            Section("Startup") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Launch at login", isOn: $store.prefs.launchAtLogin)
+                        .disabled(!LoginItem.isInstalled)
+                    if let note = loginItemNote {
+                        HStack(spacing: 8) {
+                            caption(note)
+                            if LoginItem.state == .needsApproval {
+                                Button("Open Login Items") { LoginItem.openSystemSettings() }
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)
-        .padding()
+    }
+
+    // MARK: - Focus
+
+    private var focus: some View {
+        Form {
+            Section("Pointer") {
+                Toggle("Move the pointer to windows focused from the keyboard", isOn: $store.prefs.warpCursorToWindow)
+                Toggle("Focus the window under the pointer", isOn: $store.prefs.focusFollowsMouse)
+                sliderRow("Hover delay", value: $store.prefs.focusFollowsMouseDelay, in: 0...1.0, step: 0.05,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.focusFollowsMouse)
+                Toggle("Bring the hovered window to the front", isOn: $store.prefs.focusFollowsMouseRaises)
+                    .disabled(!store.prefs.focusFollowsMouse)
+            }
+
+            Section("Aiming mode") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
+                    caption("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
+                }
+                sliderRow("Dim the screens", value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05) {
+                    $0 == 0 ? "off" : Self.percent($0)
+                }
+                .disabled(!store.prefs.aimingEnabled)
+            }
+
+            Section("Name popup") {
+                Toggle("Show the window name after a change", isOn: $store.prefs.toastEnabled)
+                sliderRow("Popup duration", value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.toastEnabled)
+            }
+        }
+        .formStyle(.grouped)
     }
 
     private var loginItemNote: String? {
@@ -196,62 +220,45 @@ struct SettingsView: View {
 
     private var strip: some View {
         Form {
-            Picker("Show strip", selection: $store.prefs.stripDisplay) {
-                ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
-            }
-            if store.prefs.stripDisplay == .highlightActiveScreen {
-                HStack {
-                    Text("Inactive monitors")
-                    Slider(value: $store.prefs.inactiveStripOpacity, in: 0.1...1.0, step: 0.05)
-                    Text(String(format: "%.0f%%", store.prefs.inactiveStripOpacity * 100))
-                        .monospacedDigit().frame(width: 44, alignment: .trailing)
+            Section("Visibility") {
+                Picker("Show strip", selection: $store.prefs.stripDisplay) {
+                    ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
                 }
+                sliderRow("Inactive monitors", value: $store.prefs.inactiveStripOpacity, in: 0.1...1.0, step: 0.05,
+                          format: Self.percent)
+                    .disabled(store.prefs.stripDisplay != .highlightActiveScreen)
+                Toggle("Hide over fullscreen windows", isOn: $store.prefs.hideInFullscreen)
             }
-            Picker("Side", selection: $store.prefs.stripSide) {
-                ForEach(StripSide.allCases) { Text($0.title).tag($0) }
+
+            Section("Position") {
+                Picker("Side", selection: $store.prefs.stripSide) {
+                    ForEach(StripSide.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Picker("Alignment", selection: $store.prefs.stripAlignment) {
+                    ForEach(StripAlignment.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                sliderRow("Margin", value: $store.prefs.stripMargin, in: 0...40, step: 1, format: Self.points)
             }
-            Picker("Alignment", selection: $store.prefs.stripAlignment) {
-                ForEach(StripAlignment.allCases) { Text($0.title).tag($0) }
+
+            Section("Appearance") {
+                sliderRow("Thickness", value: $store.prefs.stripWidth, in: 30...90, step: 2, format: Self.points)
+                sliderRow("Icon size", value: $store.prefs.iconSize, in: 16...48, step: 2, format: Self.points)
+                sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
+                Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
             }
-            .pickerStyle(.segmented)
-            Toggle("Hide over fullscreen windows", isOn: $store.prefs.hideInFullscreen)
-            Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
-            HStack {
-                Text("Icon size")
-                Slider(value: $store.prefs.iconSize, in: 16...48, step: 2)
-                Text("\(Int(store.prefs.iconSize))").monospacedDigit().frame(width: 34, alignment: .trailing)
-            }
-            HStack {
-                Text("Margin")
-                Slider(value: $store.prefs.stripMargin, in: 0...40, step: 1)
-                Text("\(Int(store.prefs.stripMargin))").monospacedDigit().frame(width: 34, alignment: .trailing)
-            }
-            HStack {
-                Text("Strip thickness")
-                Slider(value: $store.prefs.stripWidth, in: 30...90, step: 2)
-                Text("\(Int(store.prefs.stripWidth))").monospacedDigit().frame(width: 34, alignment: .trailing)
-            }
-            HStack {
-                Text("Focus after scrolling")
-                Slider(value: $store.prefs.scrollFocusDelay, in: 0.1...2.0, step: 0.1)
-                Text(String(format: "%.1f s", store.prefs.scrollFocusDelay))
-                    .monospacedDigit()
-                    .frame(width: 44, alignment: .trailing)
-            }
-            HStack {
-                Text("Opacity")
-                Slider(value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05)
-                Text(String(format: "%.0f%%", store.prefs.stripOpacity * 100))
-                    .monospacedDigit().frame(width: 44, alignment: .trailing)
+
+            Section("Scrolling") {
+                sliderRow("Focus after scrolling", value: $store.prefs.scrollFocusDelay, in: 0.1...2.0, step: 0.1,
+                          format: Self.seconds)
             }
 
             Section("Reserve screen space") {
                 Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
                 Toggle("Trim windows on other screens and in older apps", isOn: $store.prefs.trimWindowsOutsideReservation)
                     .disabled(!store.prefs.reserveScreenSpace)
-                Text(reservationExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                caption(reservationExplanation)
                 if RectangleIntegration.isInstalled {
                     HStack {
                         Button("Restart Rectangle to apply") {
@@ -267,18 +274,19 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
     }
 }
 
 /// Hosts `SettingsView` in a normal window; the app is an accessory, so it activates on demand.
 final class SettingsWindowController: NSWindowController {
+    static let size = NSSize(width: 600, height: 560)
+
     private let store: PreferencesStore
 
     init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool) {
         self.store = store
         let view = SettingsView(store: store, hotkeyFailures: failures(), spacesAvailable: spacesAvailable)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                               styleMask: [.titled, .closable, .miniaturizable],
                               backing: .buffered, defer: false)
         window.title = "WindowQueue Settings"
