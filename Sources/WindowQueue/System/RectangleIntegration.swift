@@ -41,6 +41,19 @@ enum RectangleIntegration {
         restart { _ in }
     }
 
+    /// True while WindowQueue itself is relaunching Rectangle.
+    private(set) static var isRestarting = false
+
+    /// Rectangle started on its own — at login, say — while the Dock reservation was in place, so
+    /// it read a screen that already leaves room for the strip. Relaunch it to read the real one.
+    static func handleLaunch(of app: NSRunningApplication) {
+        guard app.bundleIdentifier == bundleID, !isRestarting,
+              DockReservation.shared?.isInstalled == true
+        else { return }
+        Diagnostics.note("rectangle launched under the dock reservation; restarting it")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { restart { _ in } }
+    }
+
     static func clear() {
         write("screenEdgeGapLeft", 0)
         write("screenEdgeGapRight", 0)
@@ -63,6 +76,10 @@ enum RectangleIntegration {
         }
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         running.forEach { $0.terminate() }
+        isRestarting = true
+        // Rectangle adds its gap to the visible frame it reads at launch; it must not also see the
+        // room the Dock reservation already makes for the strip.
+        DockReservation.shared?.suspend(for: 6)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             let configuration = NSWorkspace.OpenConfiguration()
@@ -71,7 +88,10 @@ enum RectangleIntegration {
             configuration.hides = true
             configuration.addsToRecentItems = false
             NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-                DispatchQueue.main.async { completion(error == nil) }
+                DispatchQueue.main.async {
+                    isRestarting = false
+                    completion(error == nil)
+                }
             }
         }
     }

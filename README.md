@@ -70,7 +70,15 @@ Nothing else depends on it.
 ## Keeping windows clear of the strip
 
 Only the Dock and menu bar can shrink `NSScreen.visibleFrame`, so a third-party strip cannot reserve
-screen space on macOS. WindowQueue works around it twice:
+screen space on macOS through public API. WindowQueue works around it three ways:
+
+- Every app derives its visible frame from one Dock rectangle kept by the WindowServer, and any
+  process can overwrite it. While the Dock auto-hides, WindowQueue replaces it with a strip-wide rect
+  on the menu bar screen, so zoom, Fill and tiling leave room natively. Apps only read the rect at
+  launch and whenever the Dock announces its own, so this reaches apps started after WindowQueue and
+  is lost for everyone when the Dock rewrites it; WindowQueue puts it back, and restores the Dock's
+  rect on quit (including `kill`). Rectangle is relaunched with the Dock's rect in place, since it
+  adds its own gap on top.
 
 - Zoom (double-clicking a title bar), Fill and the built-in tiling size windows to the visible frame.
   WindowQueue watches for a window resized flush against the strip's screen edge and trims it to

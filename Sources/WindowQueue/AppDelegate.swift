@@ -22,7 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
 
+    private lazy var dockReservation = DockReservation(store: store)
+    private var terminationSources: [DispatchSourceSignal] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DockReservation.shared = dockReservation
+        dockReservation.start()
+        restoreDockOnSignals()
         Diagnostics.note("launch: trusted=\(AXIsProcessTrusted()) windowIDs=\(AXPrivate.supportsWindowNumbers) spaces=\(SpacesBridge.shared.isAvailable)")
         setUpStatusItem()
 
@@ -40,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.hotkeys.apply(prefs)
                 LoginItem.apply(enabled: prefs.launchAtLogin)
+                // `@Published` fires before the new value lands; read it on the next turn.
+                DispatchQueue.main.async { self.dockReservation.update() }
             }
             .store(in: &cancellables)
 
@@ -144,6 +152,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             enumerator.start()
             strip.start()
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dockReservation.restore()
+    }
+
+    /// Quitting through `kill` — as `make install` does — skips `applicationWillTerminate`, and the
+    /// Dock rect would outlive the app. Catch the usual signals and hand it back first.
+    private func restoreDockOnSignals() {
+        for signalNumber in [SIGTERM, SIGINT, SIGHUP] {
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { [weak self] in
+                self?.dockReservation.restore()
+                exit(0)
+            }
+            source.resume()
+            terminationSources.append(source)
+        }
+
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)
+            .compactMap { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
+            .sink { app in RectangleIntegration.handleLaunch(of: app) }
+            .store(in: &cancellables)
     }
 
     // MARK: - Actions
