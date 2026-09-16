@@ -82,6 +82,9 @@ final class ToastController {
         } else {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
+            // The strip lives in the overlay space above the desktops; the popup has to join it or
+            // it would be drawn underneath the strip it points from.
+            OverlaySpace.shared.adopt(panel)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.12
                 panel.animator().alphaValue = 1
@@ -109,9 +112,15 @@ final class ToastController {
 
     private func position(for size: NSSize, windowID: CGWindowID) -> NSPoint {
         let margin: CGFloat = 8
-        let visible = NSScreen.main?.visibleFrame ?? .zero
+        let anchor = anchorProvider?(windowID)
+        // Clamp to the screen the icon is on, which with a strip on every monitor need not be the
+        // main one.
+        let screen = anchor.flatMap { anchor in
+            NSScreen.screens.first { $0.frame.intersects(anchor.frame) }
+        } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? .zero
 
-        guard let anchor = anchorProvider?(windowID) else {
+        guard let anchor else {
             return NSPoint(x: visible.minX + margin, y: visible.midY - size.height / 2)
         }
 

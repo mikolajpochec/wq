@@ -12,6 +12,9 @@ always-on-top strip showing that list, and workspace switching by number.
   straight away, and it stays up for as long as the icon is held.
 - A vertical strip floats above everything on every Space, showing the app icons in queue order,
   the current selection, and the current workspace number.
+  It can show on the selected monitor only, on every monitor with the inactive ones greyed out,
+  or not at all. The strip lives in a private WindowServer space above the desktops, so switching
+  workspaces slides the desktops underneath it instead of hiding and redrawing it.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
 - Tapping the super key on its own opens **aiming mode**: the screens dim, the strip grows, the aimed icon is
   outlined in orange, `[`/`]` or the arrow keys move the aim without focusing anything, and tapping the

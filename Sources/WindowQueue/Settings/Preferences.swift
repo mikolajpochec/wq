@@ -21,6 +21,24 @@ enum StripSide: String, Codable, CaseIterable, Identifiable {
     var title: String { self == .left ? "Left" : "Right" }
 }
 
+/// Which screens the strip is drawn on.
+enum StripDisplayMode: String, Codable, CaseIterable, Identifiable {
+    /// Only on the screen holding the focused window; nothing on the others.
+    case activeScreenOnly
+    /// On every screen, with the strips on inactive screens greyed out and faded.
+    case highlightActiveScreen
+    case hidden
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .activeScreenOnly: return "Selected monitor only"
+        case .highlightActiveScreen: return "All monitors, highlight selected"
+        case .hidden: return "Hidden"
+        }
+    }
+}
+
 enum SuperModifier: String, Codable, CaseIterable, Identifiable {
     case option, control, command, controlOption, commandOption
 
@@ -131,7 +149,9 @@ struct Preferences: Codable, Equatable {
     var toastEnabled: Bool = true
     var toastDuration: Double = 2.0
 
-    var stripEnabled: Bool = true
+    var stripDisplay: StripDisplayMode = .activeScreenOnly
+    /// Opacity of the greyed-out strips on inactive screens.
+    var inactiveStripOpacity: Double = 0.4
     var stripSide: StripSide = .left
     var stripWidth: Double = 46
     var iconSize: Double = 28
@@ -175,7 +195,11 @@ struct Preferences: Codable, Equatable {
         bindings = value(.bindings, defaults.bindings)
         toastEnabled = value(.toastEnabled, defaults.toastEnabled)
         toastDuration = value(.toastDuration, defaults.toastDuration)
-        stripEnabled = value(.stripEnabled, defaults.stripEnabled)
+        // Older builds stored a plain on/off switch; an explicit "off" carries over as hidden.
+        let legacy = try? decoder.container(keyedBy: LegacyKeys.self)
+        let legacyEnabled = (try? legacy?.decodeIfPresent(Bool.self, forKey: .stripEnabled)) ?? nil
+        stripDisplay = value(.stripDisplay, legacyEnabled == false ? .hidden : defaults.stripDisplay)
+        inactiveStripOpacity = value(.inactiveStripOpacity, defaults.inactiveStripOpacity)
         stripSide = value(.stripSide, defaults.stripSide)
         stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
@@ -193,6 +217,10 @@ struct Preferences: Codable, Equatable {
     }
 
     init() {}
+
+    private enum LegacyKeys: String, CodingKey {
+        case stripEnabled
+    }
 
     static func defaultBindings(superMask: UInt32) -> [String: KeyCombo] {
         var out: [String: KeyCombo] = [:]

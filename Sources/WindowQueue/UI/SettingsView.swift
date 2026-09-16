@@ -186,7 +186,17 @@ struct SettingsView: View {
 
     private var strip: some View {
         Form {
-            Toggle("Show strip", isOn: $store.prefs.stripEnabled)
+            Picker("Show strip", selection: $store.prefs.stripDisplay) {
+                ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
+            }
+            if store.prefs.stripDisplay == .highlightActiveScreen {
+                HStack {
+                    Text("Inactive monitors")
+                    Slider(value: $store.prefs.inactiveStripOpacity, in: 0.1...1.0, step: 0.05)
+                    Text(String(format: "%.0f%%", store.prefs.inactiveStripOpacity * 100))
+                        .monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+            }
             Picker("Side", selection: $store.prefs.stripSide) {
                 ForEach(StripSide.allCases) { Text($0.title).tag($0) }
             }

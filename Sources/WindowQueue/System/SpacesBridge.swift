@@ -100,6 +100,34 @@ final class SpacesBridge {
         return CFUUIDCreateString(nil, uuid) as String?
     }
 
+    static func displayUUID(of screen: NSScreen) -> String? {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue()
+        else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String?
+    }
+
+    /// What one screen is showing: its desktop number, or that it is in fullscreen.
+    struct ScreenSpace: Equatable {
+        var index: Int?
+        var isFullscreen: Bool
+    }
+
+    /// The space on show on every screen, keyed by display UUID. When displays do not have
+    /// separate Spaces there is a single entry, which applies to every screen.
+    func screenSpaces() -> [String: ScreenSpace] {
+        let all = displays()
+        let desktops = all.flatMap { $0.userSpaces.map(\.id) }
+        var result: [String: ScreenSpace] = [:]
+        for display in all {
+            guard let current = display.currentSpaceID else { continue }
+            let index = desktops.firstIndex(of: current).map { $0 + 1 }
+            result[display.identifier] = ScreenSpace(index: index,
+                                                     isFullscreen: !desktops.isEmpty && index == nil)
+        }
+        return result
+    }
+
     // MARK: - Queries
 
     var currentSpaceID: UInt64? {

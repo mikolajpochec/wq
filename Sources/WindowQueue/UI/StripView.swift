@@ -14,6 +14,7 @@ import SwiftUI
 struct StripView: View {
     @ObservedObject var model: WindowQueueModel
     @ObservedObject var store: PreferencesStore
+    @ObservedObject var screen: StripScreenState
     var onSelect: (ManagedWindow) -> Void
     /// Called with the window being held and how far it has been dragged, and with nil when the
     /// hold ends, so the popup can stay up and follow the icon.
@@ -77,6 +78,10 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
+        // On a monitor that is not the selected one the strip stays readable but steps back.
+        .saturation(screen.isActive ? 1 : 0)
+        .opacity(screen.isActive ? 1 : prefs.inactiveStripOpacity)
+        .animation(.easeOut(duration: 0.2), value: screen.isActive)
         .overlay(alignment: .top) { floatingRow }
         .coordinateSpace(name: Self.dragSpace)
         // One gesture for the whole strip: a per-row recogniser would be destroyed the moment its
@@ -142,7 +147,7 @@ struct StripView: View {
     }
 
     private var spaceBadge: some View {
-        Text(model.currentSpaceIndex.map(String.init) ?? "–")
+        Text((screen.spaceIndex ?? model.currentSpaceIndex).map(String.init) ?? "–")
             .font(.system(size: prefs.iconSize * 0.55, weight: .semibold, design: .rounded))
             .foregroundStyle(Color.accentColor)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
