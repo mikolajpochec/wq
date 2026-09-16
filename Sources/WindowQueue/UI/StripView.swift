@@ -265,7 +265,8 @@ struct StripView: View {
     }
 
     private func row(for window: ManagedWindow) -> some View {
-        let isSelected = window.id == model.selectedID
+        // While a run of windows is aimed, that run is the only highlight on the strip.
+        let isSelected = window.id == model.selectedID && !isAimingRun
         // Aiming borrows the highlight and marks it in a different colour, so it is never mistaken
         // for the window that actually has focus.
         // A run of several aimed windows is drawn as one highlight behind them all, so its rows
