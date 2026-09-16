@@ -149,16 +149,16 @@ struct Preferences: Codable, Equatable {
     var toastEnabled: Bool = true
     var toastDuration: Double = 2.0
 
-    var stripDisplay: StripDisplayMode = .activeScreenOnly
+    var stripDisplay: StripDisplayMode = .highlightActiveScreen
     /// Opacity of the greyed-out strips on inactive screens.
-    var inactiveStripOpacity: Double = 0.4
+    var inactiveStripOpacity: Double = 0.65
     var stripSide: StripSide = .left
-    var stripWidth: Double = 46
-    var iconSize: Double = 28
+    var stripWidth: Double = 36
+    var iconSize: Double = 26
     var showSpaceBadge: Bool = true
     /// Keep the queue grouped by workspace without having to sort it by hand.
     var autoSortByWorkspace: Bool = true
-    var stripOpacity: Double = 0.9
+    var stripOpacity: Double = 1.0
     /// Get out of the way of a fullscreen window, where an always-on-top strip is an intrusion.
     var hideInFullscreen: Bool = true
 
