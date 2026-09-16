@@ -93,6 +93,7 @@ final class ScreenEdgeGuard {
         let gap = CGFloat(RectangleIntegration.reservedWidth(for: store.prefs))
         var target = frame
 
+        // Accessibility coordinates grow downwards, so "top" is the smaller y.
         switch store.prefs.stripSide {
         case .left:
             let edge = visible.minX + gap
@@ -107,6 +108,19 @@ final class ScreenEdgeGuard {
                 return settle(id, at: frame)
             }
             target.size.width = edge - frame.minX
+        case .top:
+            let edge = visible.minY + gap
+            guard abs(frame.minY - visible.minY) <= Self.tolerance, frame.maxY > edge + gap else {
+                return settle(id, at: frame)
+            }
+            target.origin.y = edge
+            target.size.height = frame.maxY - edge
+        case .bottom:
+            let edge = visible.maxY - gap
+            guard abs(frame.maxY - visible.maxY) <= Self.tolerance, frame.minY < edge - gap else {
+                return settle(id, at: frame)
+            }
+            target.size.height = edge - frame.minY
         }
 
         // The app does not know its zoomed frame was trimmed, so zooming again — to get back out —

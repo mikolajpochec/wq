@@ -189,7 +189,7 @@ struct SettingsView: View {
         let gap = RectangleIntegration.reservedWidth(for: store.prefs)
         let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free — in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
         guard RectangleIntegration.isInstalled else { return base }
-        return base + " It also sets Rectangle's \(store.prefs.stripSide == .left ? "left" : "right") screen-edge gap, which Rectangle reads at launch, so restart it after changing this."
+        return base + " It also sets Rectangle's \(store.prefs.stripSide.rawValue) screen-edge gap, which Rectangle reads at launch, so restart it after changing this."
     }
 
     // MARK: - Strip
@@ -210,6 +210,10 @@ struct SettingsView: View {
             Picker("Side", selection: $store.prefs.stripSide) {
                 ForEach(StripSide.allCases) { Text($0.title).tag($0) }
             }
+            Picker("Alignment", selection: $store.prefs.stripAlignment) {
+                ForEach(StripAlignment.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
             Toggle("Hide over fullscreen windows", isOn: $store.prefs.hideInFullscreen)
             Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
             HStack {
@@ -218,7 +222,7 @@ struct SettingsView: View {
                 Text("\(Int(store.prefs.iconSize))").monospacedDigit().frame(width: 34, alignment: .trailing)
             }
             HStack {
-                Text("Strip width")
+                Text("Strip thickness")
                 Slider(value: $store.prefs.stripWidth, in: 30...90, step: 2)
                 Text("\(Int(store.prefs.stripWidth))").monospacedDigit().frame(width: 34, alignment: .trailing)
             }

@@ -34,22 +34,48 @@ struct StripView: View {
 
     private var prefs: Preferences { store.prefs }
 
+    private var side: StripSide { prefs.stripSide }
+
     var body: some View {
-        // The panel keeps a fixed, full-height frame so nothing resizes while the queue changes;
-        // the spacers centre the strip and stay transparent to clicks.
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            strip
-            Spacer(minLength: 0)
+        // The panel spans the whole edge and never resizes while the queue changes. The strip is
+        // placed inside it by alignment, and the empty rest stays transparent to clicks. The panel
+        // is also thicker than the strip, leaving room for aiming mode to grow into, so the strip
+        // is pinned to the screen edge it lives on.
+        strip
+            .padding(side.isVertical ? .vertical : .horizontal, StripMetrics.screenMargin)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Self.placement(of: prefs))
+    }
+
+    /// Where the strip sits in its panel: against the screen edge, and along it by alignment.
+    static func placement(of prefs: Preferences) -> Alignment {
+        let along: CGFloat = prefs.stripAlignment.fraction
+        switch prefs.stripSide {
+        case .left: return Alignment(horizontal: .leading, vertical: along == 0 ? .top : along == 1 ? .bottom : .center)
+        case .right: return Alignment(horizontal: .trailing, vertical: along == 0 ? .top : along == 1 ? .bottom : .center)
+        case .top: return Alignment(horizontal: along == 0 ? .leading : along == 1 ? .trailing : .center, vertical: .top)
+        case .bottom: return Alignment(horizontal: along == 0 ? .leading : along == 1 ? .trailing : .center, vertical: .bottom)
         }
-        // The panel is wider than the strip to leave room for aiming mode to grow into, so the
-        // content is pinned to whichever screen edge the strip lives on rather than centred.
-        .frame(maxWidth: .infinity, maxHeight: .infinity,
-               alignment: prefs.stripSide == .left ? .leading : .trailing)
+    }
+
+    /// The point aiming mode grows the strip from: its screen edge, at the end it is aligned to.
+    private var scaleAnchor: UnitPoint {
+        let along = prefs.stripAlignment.fraction
+        switch side {
+        case .left: return UnitPoint(x: 0, y: along)
+        case .right: return UnitPoint(x: 1, y: along)
+        case .top: return UnitPoint(x: along, y: 0)
+        case .bottom: return UnitPoint(x: along, y: 1)
+        }
+    }
+
+    private var stack: AnyLayout {
+        side.isVertical
+            ? AnyLayout(VStackLayout(spacing: StripMetrics.spacing))
+            : AnyLayout(HStackLayout(spacing: StripMetrics.spacing))
     }
 
     private var strip: some View {
-        VStack(spacing: StripMetrics.spacing) {
+        stack {
             ForEach(previewLayout.elements) { element in
                 switch element {
                 case .badge:
@@ -68,7 +94,8 @@ struct StripView: View {
         .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
         .padding(StripMetrics.padding)
-        .frame(width: prefs.stripWidth)
+        .frame(width: side.isVertical ? prefs.stripWidth : nil,
+               height: side.isVertical ? nil : prefs.stripWidth)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -82,25 +109,27 @@ struct StripView: View {
         .saturation(screen.isActive ? 1 : 0)
         .opacity(screen.isActive ? 1 : prefs.inactiveStripOpacity)
         .animation(.easeOut(duration: 0.2), value: screen.isActive)
-        .overlay(alignment: .top) { floatingRow }
+        .overlay(alignment: side.isVertical ? .top : .leading) { floatingRow }
         .coordinateSpace(name: Self.dragSpace)
         // One gesture for the whole strip: a per-row recogniser would be destroyed the moment its
         // row moves, cancelling the drag halfway through.
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.dragSpace))
                 .onChanged { value in
-                    dragChanged(start: value.startLocation.y,
-                                offset: value.location.y - value.startLocation.y)
+                    let start = side.isVertical ? value.startLocation.y : value.startLocation.x
+                    let now = side.isVertical ? value.location.y : value.location.x
+                    dragChanged(start: start, offset: now - start)
                 }
                 .onEnded { value in
-                    dragEnded(offset: value.location.y - value.startLocation.y)
+                    let start = side.isVertical ? value.startLocation.y : value.startLocation.x
+                    let now = side.isVertical ? value.location.y : value.location.x
+                    dragEnded(offset: now - start)
                 }
         )
         // Applied last so the background and border grow with the icons, and outside the named
         // coordinate space so drag positions keep arriving in unscaled units. Growth is anchored to
         // the screen edge, so the strip expands inwards instead of off the side of its panel.
-        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale,
-                     anchor: prefs.stripSide == .left ? .leading : .trailing)
+        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale, anchor: scaleAnchor)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.aimingID == nil)
     }
 
@@ -142,7 +171,8 @@ struct StripView: View {
             row(for: window)
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
-                .offset(y: dragOriginTop + dragTranslation)
+                .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
+                        y: side.isVertical ? dragOriginTop + dragTranslation : 0)
         }
     }
 

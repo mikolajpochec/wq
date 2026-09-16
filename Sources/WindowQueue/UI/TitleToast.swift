@@ -124,13 +124,17 @@ final class ToastController {
             return NSPoint(x: visible.minX + margin, y: visible.midY - size.height / 2)
         }
 
-        let x = anchor.side == .left
-            ? anchor.frame.maxX + margin
-            : anchor.frame.minX - size.width - margin
-        // Keep the toast on screen when the row is near the top or bottom edge.
-        let y = min(max(anchor.frame.midY - size.height / 2, visible.minY + margin),
-                    visible.maxY - size.height - margin)
-        return NSPoint(x: x, y: y)
+        // Beside the icon, on the screen side of the strip, and kept on screen near the ends.
+        let clampedY = min(max(anchor.frame.midY - size.height / 2, visible.minY + margin),
+                           visible.maxY - size.height - margin)
+        let clampedX = min(max(anchor.frame.midX - size.width / 2, visible.minX + margin),
+                           visible.maxX - size.width - margin)
+        switch anchor.side {
+        case .left: return NSPoint(x: anchor.frame.maxX + margin, y: clampedY)
+        case .right: return NSPoint(x: anchor.frame.minX - size.width - margin, y: clampedY)
+        case .top: return NSPoint(x: clampedX, y: anchor.frame.minY - size.height - margin)
+        case .bottom: return NSPoint(x: clampedX, y: anchor.frame.maxY + margin)
+        }
     }
 
     private func hide() {

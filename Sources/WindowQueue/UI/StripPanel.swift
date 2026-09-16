@@ -67,8 +67,11 @@ private final class HoverHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        // A wheel notch pushes content up, so invert it: scrolling down walks down the queue.
-        onScroll?(-event.scrollingDeltaY)
+        // A wheel notch pushes content up, so invert it: scrolling down walks down the queue. A
+        // sideways swipe counts too, which suits a strip that runs across the screen.
+        let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+            ? event.scrollingDeltaX : event.scrollingDeltaY
+        onScroll?(-delta)
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -250,13 +253,23 @@ final class StripController {
     private func layout(_ strip: ScreenStrip) {
         let prefs = store.prefs
         let visible = strip.screen.visibleFrame
+        let margin = StripMetrics.screenMargin
         // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
-        // strip, so it is always as wide as the strip can ever get.
-        let width = prefs.stripWidth * max(1, prefs.aimingScale)
-        let x = prefs.stripSide == .left
-            ? visible.minX + StripMetrics.screenMargin
-            : visible.maxX - width - StripMetrics.screenMargin
-        let target = NSRect(x: x, y: visible.minY, width: width, height: visible.height)
+        // strip, so it is always as thick as the strip can ever get.
+        let thickness = prefs.stripWidth * max(1, prefs.aimingScale)
+        let target: NSRect
+        switch prefs.stripSide {
+        case .left:
+            target = NSRect(x: visible.minX + margin, y: visible.minY, width: thickness, height: visible.height)
+        case .right:
+            target = NSRect(x: visible.maxX - thickness - margin, y: visible.minY,
+                            width: thickness, height: visible.height)
+        case .top:
+            target = NSRect(x: visible.minX, y: visible.maxY - thickness - margin,
+                            width: visible.width, height: thickness)
+        case .bottom:
+            target = NSRect(x: visible.minX, y: visible.minY + margin, width: visible.width, height: thickness)
+        }
         guard target != strip.panel.frame else { return }
         strip.panel.setFrame(target, display: true)
     }
@@ -274,11 +287,16 @@ final class StripController {
             ?? visible.first
     }
 
-    /// Frame of the strip content in screen coordinates, used to place the title toast beside it.
-    private func contentFrame(of strip: ScreenStrip) -> NSRect {
-        let frame = strip.panel.frame
-        let height = contentLayout.totalHeight
-        return NSRect(x: frame.minX, y: frame.midY - height / 2, width: frame.width, height: height)
+    /// Distance from the start of the panel — its top for a vertical strip, its left for a
+    /// horizontal one — to the start of the strip content, which alignment places along the edge.
+    private func contentStart(inPanelLength length: CGFloat) -> CGFloat {
+        let margin = StripMetrics.screenMargin
+        let free = max(0, length - margin * 2 - contentLayout.totalHeight)
+        return margin + free * store.prefs.stripAlignment.fraction
+    }
+
+    private func mainLength(of rect: NSRect) -> CGFloat {
+        side.isVertical ? rect.height : rect.width
     }
 
     /// Shows the window's name as soon as its icon is hovered, and drops it on the way out.
@@ -310,13 +328,17 @@ final class StripController {
         onScroll(steps)
     }
 
-    /// The window under a point in the hosting view, which spans the whole screen height while the
-    /// strip content is centred inside it.
+    /// The window under a point in the hosting view, which spans the whole edge while the strip
+    /// content sits inside it wherever alignment puts it.
     private func window(at point: NSPoint, in view: NSView) -> ManagedWindow? {
-        let layout = contentLayout
-        let fromTop = view.isFlipped ? point.y : view.bounds.height - point.y
-        let withinContent = fromTop - (view.bounds.height - layout.totalHeight) / 2
-        return layout.windowIndex(atOffsetFromTop: withinContent)
+        let along: CGFloat
+        if side.isVertical {
+            along = view.isFlipped ? point.y : view.bounds.height - point.y
+        } else {
+            along = point.x
+        }
+        let withinContent = along - contentStart(inPanelLength: mainLength(of: view.bounds))
+        return contentLayout.windowIndex(atOffsetFromTop: withinContent)
             .map { model.visibleWindows[$0] }
     }
 
@@ -325,23 +347,30 @@ final class StripController {
         guard let strip = anchorStrip,
               let index = model.visibleWindows.firstIndex(where: { $0.id == id })
         else { return nil }
-        let content = contentFrame(of: strip)
-        let rowHeight = StripMetrics.rowHeight(prefs: store.prefs)
+        let panel = strip.panel.frame
+        let prefs = store.prefs
+        let start = contentStart(inPanelLength: mainLength(of: panel))
         // A dragged icon is drawn at the cursor while the queue order still has it in its old slot,
-        // so shift the anchor by the drag. Screen coordinates run upwards, the drag downwards.
+        // so shift the anchor by the drag.
         let drag = dragOffset.flatMap { $0.id == id ? $0.y : nil } ?? 0
-        var centreY = content.maxY - contentLayout.centreOffset(ofWindowAt: index) - drag
+        var along = start + contentLayout.centreOffset(ofWindowAt: index) + drag
+        var rowLength = StripMetrics.rowHeight(prefs: prefs)
 
-        // While aiming, the strip is drawn scaled about its vertical centre; the layout is not, so
-        // the anchor has to follow the same transform or the popup drifts from its icon.
+        // While aiming, the strip is drawn scaled about the end it is aligned to; the layout is
+        // not, so the anchor follows the same transform or the popup drifts from its icon.
         if model.aimingID != nil {
-            let scale = store.prefs.aimingScale
-            centreY = content.midY + (centreY - content.midY) * scale
+            let anchor = start + contentLayout.totalHeight * prefs.stripAlignment.fraction
+            along = anchor + (along - anchor) * prefs.aimingScale
+            rowLength *= prefs.aimingScale
         }
 
-        let scaledRowHeight = model.aimingID == nil ? rowHeight : rowHeight * store.prefs.aimingScale
-        return NSRect(x: content.minX, y: centreY - scaledRowHeight / 2,
-                      width: content.width, height: scaledRowHeight)
+        if side.isVertical {
+            // Screen coordinates run upwards, offsets along the strip downwards.
+            let centreY = panel.maxY - along
+            return NSRect(x: panel.minX, y: centreY - rowLength / 2, width: panel.width, height: rowLength)
+        }
+        let centreX = panel.minX + along
+        return NSRect(x: centreX - rowLength / 2, y: panel.minY, width: rowLength, height: panel.height)
     }
 
     var side: StripSide { store.prefs.stripSide }

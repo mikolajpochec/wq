@@ -17,7 +17,7 @@ enum RectangleIntegration {
     }
 
     private static func key(for side: StripSide) -> String {
-        side == .left ? "screenEdgeGapLeft" : "screenEdgeGapRight"
+        "screenEdgeGap" + side.rawValue.capitalized
     }
 
     /// Total width the strip occupies, including the margin it is inset by.
@@ -30,9 +30,11 @@ enum RectangleIntegration {
     @discardableResult
     static func apply(prefs: Preferences) -> Bool {
         let gap = prefs.reserveScreenSpace ? reservedWidth(for: prefs) : 0
-        let changed = write(key(for: prefs.stripSide), gap)
-        let cleared = write(key(for: prefs.stripSide == .left ? .right : .left), 0)
-        return changed || cleared
+        var changed = write(key(for: prefs.stripSide), gap)
+        for side in StripSide.allCases where side != prefs.stripSide {
+            changed = write(key(for: side), 0) || changed
+        }
+        return changed
     }
 
     /// Writes the gaps and, if they changed while Rectangle is running, restarts it so they apply.
@@ -55,8 +57,7 @@ enum RectangleIntegration {
     }
 
     static func clear() {
-        write("screenEdgeGapLeft", 0)
-        write("screenEdgeGapRight", 0)
+        StripSide.allCases.forEach { write(key(for: $0), 0) }
     }
 
     @discardableResult

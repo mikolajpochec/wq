@@ -16,9 +16,34 @@ enum QueueScope: String, Codable, CaseIterable, Identifiable {
 }
 
 enum StripSide: String, Codable, CaseIterable, Identifiable {
-    case left, right
+    case left, right, top, bottom
     var id: String { rawValue }
-    var title: String { self == .left ? "Left" : "Right" }
+    var title: String { rawValue.capitalized }
+
+    /// Left and right strips run down the screen; top and bottom ones across it.
+    var isVertical: Bool { self == .left || self == .right }
+}
+
+/// Where the strip sits along its edge, like `justify-content` in a flex container.
+enum StripAlignment: String, Codable, CaseIterable, Identifiable {
+    case start, center, end
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .start: return "Start"
+        case .center: return "Center"
+        case .end: return "End"
+        }
+    }
+
+    /// The same position as a fraction of the edge's length.
+    var fraction: CGFloat {
+        switch self {
+        case .start: return 0
+        case .center: return 0.5
+        case .end: return 1
+        }
+    }
 }
 
 /// Which screens the strip is drawn on.
@@ -153,6 +178,7 @@ struct Preferences: Codable, Equatable {
     /// Opacity of the greyed-out strips on inactive screens.
     var inactiveStripOpacity: Double = 0.65
     var stripSide: StripSide = .left
+    var stripAlignment: StripAlignment = .center
     var stripWidth: Double = 36
     var iconSize: Double = 26
     var showSpaceBadge: Bool = true
@@ -210,6 +236,7 @@ struct Preferences: Codable, Equatable {
         stripDisplay = value(.stripDisplay, legacyEnabled == false ? .hidden : defaults.stripDisplay)
         inactiveStripOpacity = value(.inactiveStripOpacity, defaults.inactiveStripOpacity)
         stripSide = value(.stripSide, defaults.stripSide)
+        stripAlignment = value(.stripAlignment, defaults.stripAlignment)
         stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)

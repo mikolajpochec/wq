@@ -33,9 +33,15 @@ final class DockReservation {
     private typealias SetFn = @convention(c) (Int32, Double, Double, Double, Double, Int32, Int32) -> Int32
     private typealias AutoHideFn = @convention(c) () -> Bool
 
-    /// `kCoreDockOrientationLeft` / `Right`.
-    private static let leftOrientation: Int32 = 3
-    private static let rightOrientation: Int32 = 4
+    /// `kCoreDockOrientation…` for each edge.
+    private static func orientation(for side: StripSide) -> Int32 {
+        switch side {
+        case .top: return 1
+        case .bottom: return 2
+        case .left: return 3
+        case .right: return 4
+        }
+    }
     /// Reason the Dock reports while it is showing, as opposed to hidden.
     private static let shownReason: Int32 = 0
     private static let savedKey = "dockReservation.originalRect.v1"
@@ -153,18 +159,24 @@ final class DockReservation {
         let gap = Double(RectangleIntegration.reservedWidth(for: prefs))
         // Global coordinates with the origin at the top left of the menu bar screen.
         let menuBarHeight = Double(screen.frame.maxY - screen.visibleFrame.maxY)
-        let height = Double(screen.frame.height) - menuBarHeight
-        let x = prefs.stripSide == .left ? Double(screen.frame.minX) : Double(screen.frame.maxX) - gap
-        return DockRect(x: x, y: menuBarHeight, width: gap, height: height,
+        let width = Double(screen.frame.width)
+        let height = Double(screen.frame.height)
+        let rect: (x: Double, y: Double, width: Double, height: Double)
+        switch prefs.stripSide {
+        case .left: rect = (0, menuBarHeight, gap, height - menuBarHeight)
+        case .right: rect = (width - gap, menuBarHeight, gap, height - menuBarHeight)
+        case .top: rect = (0, menuBarHeight, width, gap)
+        case .bottom: rect = (0, height - gap, width, gap)
+        }
+        return DockRect(x: Double(screen.frame.minX) + rect.x, y: rect.y, width: rect.width, height: rect.height,
                         reason: Self.shownReason,
-                        orientation: prefs.stripSide == .left ? Self.leftOrientation : Self.rightOrientation)
+                        orientation: Self.orientation(for: prefs.stripSide))
     }
 
     /// A left or right rect with the shown reason — which the Dock itself never writes while hidden.
     private func looksLikeOurs(_ rect: DockRect) -> Bool {
-        rect.reason == Self.shownReason
-            && (rect.orientation == Self.leftOrientation || rect.orientation == Self.rightOrientation)
-            && (autoHideEnabled?() ?? false)
+        // A shown Dock never reports itself while auto-hide is on, so a "shown" rect then is ours.
+        rect.reason == Self.shownReason && (autoHideEnabled?() ?? false)
     }
 
     private func current() -> DockRect? {
