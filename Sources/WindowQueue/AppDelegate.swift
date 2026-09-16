@@ -331,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let result = spaceMover.move(windows, to: target, queue: model.windows)
+        model.relocate(result.arrived.map(\.id), toSpace: target)
         if !result.leftBehind.isEmpty {
             Diagnostics.note("tiling without \(result.leftBehind.map(\.appName)): their apps have other windows elsewhere")
         }
@@ -505,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !windows.isEmpty, spaces.indices.contains(index - 1), spaceMover.isAvailable else { return }
 
         let result = spaceMover.move(windows, to: spaces[index - 1], queue: model.windows)
+        model.relocate(result.arrived.map(\.id), toSpace: spaces[index - 1])
         if let kept = result.leftBehind.first {
             let others = result.leftBehind.count > 1 ? " and \(result.leftBehind.count - 1) more" : ""
             toast?.show(title: "\(kept.appName) stayed here\(others)",

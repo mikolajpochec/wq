@@ -280,6 +280,31 @@ final class WindowQueueModel: ObservableObject {
 
     /// Groups the queue by workspace, in Mission Control order.
     ///
+    /// Records that windows now live on `space` and moves them in the queue to where that workspace's
+    /// windows are: after its last one, or, when it had none, just before the first window of a
+    /// later workspace. Their order among themselves is kept.
+    func relocate(_ ids: [CGWindowID], toSpace space: UInt64) {
+        let moving = Set(ids)
+        guard !moving.isEmpty, let targetRank = spaceOrder.firstIndex(of: space) else { return }
+
+        var moved = windows.filter { moving.contains($0.id) }
+        for index in moved.indices { moved[index].spaceID = space }
+        var rest = windows.filter { !moving.contains($0.id) }
+
+        let insertion: Int
+        if let last = rest.lastIndex(where: { $0.spaceID == space }) {
+            insertion = last + 1
+        } else if let later = rest.firstIndex(where: { window in
+            window.spaceID.flatMap { spaceOrder.firstIndex(of: $0) }.map { $0 > targetRank } ?? false
+        }) {
+            insertion = later
+        } else {
+            insertion = rest.count
+        }
+        rest.insert(contentsOf: moved, at: insertion)
+        windows = rest
+    }
+
     /// The sort is stable, so the order the user arranged inside a workspace is kept; windows whose
     /// workspace cannot be resolved (a minimised window has none) collect at the end.
     func sortByWorkspace() {
