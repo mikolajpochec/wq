@@ -75,19 +75,58 @@ enum WindowTiler {
             if window.isMinimized {
                 element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
             }
-            var size = frame.size
-            var origin = frame.origin
-            guard let sizeValue = AXValueCreate(.cgSize, &size),
-                  let originValue = AXValueCreate(.cgPoint, &origin)
-            else { continue }
-            // Size, position, size: an app may clamp a resize against where the window still is.
-            element.setAttribute(kAXSizeAttribute, value: sizeValue)
-            element.setAttribute(kAXPositionAttribute, value: originValue)
-            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            setFrame(frame, of: element, window: window)
             placed.append(window)
         }
         Diagnostics.note("tiled \(placed.count)/\(windows.count) windows as \(layout.name)")
         return placed
+    }
+
+    /// When to look at a tiled window again. A window that has just arrived from another
+    /// workspace, or whose app animates or snaps its own frame, can accept a size and then lose the
+    /// position, so the whole frame is checked a few times and set again whenever it slipped.
+    private static let checkDelays: [TimeInterval] = [0.15, 0.4, 0.8, 1.5]
+
+    private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int = 0) {
+        var size = frame.size
+        var origin = frame.origin
+        guard let sizeValue = AXValueCreate(.cgSize, &size),
+              let originValue = AXValueCreate(.cgPoint, &origin)
+        else { return }
+        // Size, position, size: an app may clamp a resize against where the window still is.
+        element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        element.setAttribute(kAXPositionAttribute, value: originValue)
+        element.setAttribute(kAXSizeAttribute, value: sizeValue)
+
+        scheduleCheck(frame, of: element, window: window, check: check)
+    }
+
+    private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int) {
+        guard checkDelays.indices.contains(check) else { return }
+        let wait = checkDelays[check] - (check == 0 ? 0 : checkDelays[check - 1])
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            guard let current = currentFrame(of: element) else { return }
+            let slipped = abs(current.minX - frame.minX) > 2 || abs(current.minY - frame.minY) > 2
+                || abs(current.width - frame.width) > 2 || abs(current.height - frame.height) > 2
+            if slipped {
+                Diagnostics.note("tiling: \(window.appName) id=\(window.id) at \(current), setting \(frame) again")
+                setFrame(frame, of: element, window: window, check: check + 1)
+            } else {
+                scheduleCheck(frame, of: element, window: window, check: check + 1)
+            }
+        }
+    }
+
+    private static func currentFrame(of element: AXUIElement) -> CGRect? {
+        guard let positionRef = element.attribute(kAXPositionAttribute, as: AXValue.self),
+              let sizeRef = element.attribute(kAXSizeAttribute, as: AXValue.self)
+        else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionRef, .cgPoint, &position),
+              AXValueGetValue(sizeRef, .cgSize, &size)
+        else { return nil }
+        return CGRect(origin: position, size: size)
     }
 
     /// Brings the tiled windows forward together, so none of them is left behind another app.
