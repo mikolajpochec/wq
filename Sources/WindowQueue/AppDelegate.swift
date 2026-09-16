@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hoverFocus.isSuspended = { [weak self] in
             guard let self else { return false }
-            return self.model.aimingID != nil || self.search?.isOpen == true || self.spaceMover.isRunning
+            return self.model.aimingID != nil || self.search?.isOpen == true
         }
         hoverFocus.start()
         self.hoverFocus = hoverFocus
@@ -323,21 +323,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
         endAiming(commit: false)
 
-        // Everything goes to the workspace of the last aimed window and is tiled there. Windows on
-        // other workspaces have to be carried over by hand, which the mover does for them.
+        // Everything goes to the workspace of the last aimed window and is tiled there.
         guard let last = windows.last, let target = last.spaceID,
-              let index = model.workspaceNumber(of: last),
-              windows.contains(where: { $0.spaceID != target })
+              windows.contains(where: { $0.spaceID != target }), spaceMover.isAvailable
         else {
             finishTiling(windows, layout: layout)
             return
         }
-        spaceMover.move(windows, toWorkspace: index, targetSpace: target,
-                        focus: { [weak self] window in self?.focus(window, warpCursor: false) },
-                        completion: { [weak self] moved in
-                            self?.enumerator?.refresh()
-                            self?.finishTiling(moved.filter { $0.spaceID == target }, layout: layout)
-                        })
+        let result = spaceMover.move(windows, to: target, queue: model.windows)
+        if !result.leftBehind.isEmpty {
+            Diagnostics.note("tiling without \(result.leftBehind.map(\.appName)): their apps have other windows elsewhere")
+        }
+
+        // Go there, then give the windows that just arrived time to show up in their apps' window
+        // lists, so they have accessibility elements to be tiled through.
+        focus(last, warpCursor: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self else { return }
+            let ready = result.arrived.map { window -> ManagedWindow in
+                var copy = window
+                copy.element = WindowSpaceMover.element(for: window) ?? window.element
+                return copy
+            }
+            self.enumerator?.refresh()
+            self.finishTiling(ready, layout: layout)
+        }
     }
 
     private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {

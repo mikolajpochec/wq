@@ -3,122 +3,84 @@ import ApplicationServices
 
 /// Carries windows of other apps onto one workspace.
 ///
-/// macOS 26 ignores `SLSMoveWindowsToManagedSpace` for windows another process owns, so there is no
-/// API left for this. What still works is what a person would do: hold the window by its title bar
-/// and switch workspace — the held window comes along. This does exactly that with synthesized
-/// events, one window at a time, then puts the pointer back. It takes the mouse over for about a
-/// second per window.
+/// macOS 26 refuses `SLSMoveWindowsToManagedSpace` for windows another process owns. What it still
+/// allows is assigning a whole application to a workspace — the Dock's "Assign To" option — which
+/// moves every window the app has there at once. Clearing the assignment straight away leaves the
+/// windows where they landed and lets the app open new windows wherever the user is, as before.
+///
+/// The move is per application, so a window is only carried over when every other window of its
+/// app is going along or is already there; otherwise it would drag unrelated windows with it.
 final class WindowSpaceMover {
-    private let queue = DispatchQueue(label: "com.mpochec.windowqueue.space-mover")
-    private(set) var isRunning = false
+    private typealias ConnectionFn = @convention(c) () -> Int32
+    private typealias AssignFn = @convention(c) (Int32, pid_t, UInt64) -> Int32
 
-    /// Moves `windows` onto the workspace with the 1-based `index` (1…9, the range the system
-    /// shortcuts cover), then calls back on the main queue with each window's fresh accessibility
-    /// element, for the ones that could be found there.
-    func move(_ windows: [ManagedWindow], toWorkspace index: Int, targetSpace: UInt64,
-              focus: @escaping (ManagedWindow) -> Void,
-              completion: @escaping ([ManagedWindow]) -> Void) {
-        guard !isRunning else { return }
-        isRunning = true
-        let origin = CGEvent(source: nil)?.location
+    private let connectionID: Int32
+    private let assign: AssignFn?
 
-        queue.async { [self] in
-            for window in windows {
-                let space = SpacesBridge.shared.spaces(forWindows: [window.id])[window.id]
-                guard space != targetSpace else { continue }
-                carry(window, toWorkspace: index, targetSpace: targetSpace, focus: focus)
-            }
-
-            // Finish on the target workspace, whichever window went last.
-            if SpacesBridge.shared.currentSpaceID != targetSpace {
-                SpaceSwitcher.sendSystemShortcut(index: index)
-                waitFor(timeout: 1.5) { SpacesBridge.shared.currentSpaceID == targetSpace }
-            }
-            if let origin { CGWarpMouseCursorPosition(origin) }
-            usleep(150_000)
-
-            let refreshed = windows.map { window -> ManagedWindow in
-                var copy = window
-                copy.element = Self.element(for: window) ?? window.element
-                copy.spaceID = SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] ?? window.spaceID
-                return copy
-            }
-            DispatchQueue.main.async {
-                self.isRunning = false
-                completion(refreshed)
-            }
+    init() {
+        let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+        func symbol<T>(_ name: String, as type: T.Type) -> T? {
+            guard let skyLight, let pointer = dlsym(skyLight, name) else { return nil }
+            return unsafeBitCast(pointer, to: type)
         }
+        connectionID = symbol("CGSMainConnectionID", as: ConnectionFn.self)?() ?? 0
+        assign = symbol("SLSProcessAssignToSpace", as: AssignFn.self)
     }
 
-    private func carry(_ window: ManagedWindow, toWorkspace index: Int, targetSpace: UInt64,
-                       focus: @escaping (ManagedWindow) -> Void) {
-        // Go to the window first: it can only be picked up where it is.
-        DispatchQueue.main.sync { focus(window) }
-        let arrived = waitFor(timeout: 2.5) {
-            SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] == SpacesBridge.shared.currentSpaceID
-                && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
-        }
-        guard arrived, let element = Self.element(for: window), let frame = Self.frame(of: element) else {
-            Diagnostics.note("space mover: could not reach \(window.appName) id=\(window.id)")
-            return
-        }
-        // Let the focus request settle first: its own checks would otherwise switch back to the
-        // window's old workspace while it is being carried away.
-        usleep(600_000)
+    var isAvailable: Bool { connectionID != 0 && assign != nil }
 
-        // Just inside the top edge, in the middle: the title bar of an ordinary window, and the
-        // strip above the tabs in a browser, rather than a tab that would tear off.
-        let grab = CGPoint(x: frame.midX, y: frame.minY + 5)
-        post(.leftMouseDown, at: grab)
-        usleep(80_000)
-        // A few pixels of travel turns the press into a window drag.
-        for step in 1...4 {
-            post(.leftMouseDragged, at: CGPoint(x: grab.x + CGFloat(step), y: grab.y))
-            usleep(20_000)
-        }
-        usleep(120_000)
-        SpaceSwitcher.sendSystemShortcut(index: index)
-        let moved = waitFor(timeout: 1.5) { SpacesBridge.shared.currentSpaceID == targetSpace }
-        usleep(350_000)
-        post(.leftMouseUp, at: CGPoint(x: grab.x + 4, y: grab.y))
-        usleep(200_000)
-
-        let landed = SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] == targetSpace
-        Diagnostics.note("space mover: \(window.appName) id=\(window.id) switched=\(moved) landed=\(landed)")
+    struct Result {
+        /// Windows now on the target workspace, the ones already there included.
+        var arrived: [ManagedWindow]
+        /// Windows left behind because moving them would have moved other windows of their app.
+        var leftBehind: [ManagedWindow]
     }
 
-    private func post(_ type: CGEventType, at point: CGPoint) {
-        CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: type,
-                mouseCursorPosition: point, mouseButton: .left)?
-            .post(tap: .cghidEventTap)
-    }
+    /// - Parameters:
+    ///   - windows: the windows to gather, in queue order.
+    ///   - queue: every window in the queue, to tell whether an app has windows outside the group.
+    func move(_ windows: [ManagedWindow], to target: UInt64, queue: [ManagedWindow]) -> Result {
+        var result = Result(arrived: [], leftBehind: [])
+        let selected = Set(windows.map(\.id))
 
-    @discardableResult
-    private func waitFor(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            usleep(50_000)
+        for (pid, group) in Dictionary(grouping: windows, by: \.pid) {
+            let away = group.filter { $0.spaceID != target }
+            guard !away.isEmpty else { continue }
+
+            let bystanders = queue.filter {
+                $0.pid == pid && !selected.contains($0.id) && !$0.isMinimized && $0.spaceID != target
+            }
+            guard bystanders.isEmpty, let assign else {
+                Diagnostics.note("space mover: \(group.first?.appName ?? "?") has other windows elsewhere; not moving")
+                result.leftBehind.append(contentsOf: away)
+                continue
+            }
+
+            _ = assign(connectionID, pid, target)
+            // Zero clears the assignment: the windows stay put, new ones open where the user is.
+            _ = assign(connectionID, pid, 0)
+            Diagnostics.note("space mover: moved \(away.count) window(s) of \(group.first?.appName ?? "?")")
         }
-        return condition()
+
+        let current = SpacesBridge.shared.spaces(forWindows: windows.map(\.id))
+        let leftIDs = Set(result.leftBehind.map(\.id))
+        for window in windows where !leftIDs.contains(window.id) {
+            var updated = window
+            updated.spaceID = current[window.id] ?? window.spaceID
+            if updated.spaceID == target {
+                result.arrived.append(updated)
+            } else {
+                result.leftBehind.append(window)
+            }
+        }
+        return result
     }
 
-    private static func element(for window: ManagedWindow) -> AXUIElement? {
+    /// The window's accessibility element as its app lists it now. A window that arrived from a
+    /// workspace we never visited has no element until its app is asked again.
+    static func element(for window: ManagedWindow) -> AXUIElement? {
         AXPrivate.application(window.pid)
             .attribute(kAXWindowsAttribute, as: [AXUIElement].self)?
             .first { AXPrivate.windowID(of: $0) == window.id }
-    }
-
-    /// Frame in accessibility coordinates: top left of the menu bar screen, y downwards.
-    private static func frame(of element: AXUIElement) -> CGRect? {
-        guard let positionRef = element.attribute(kAXPositionAttribute, as: AXValue.self),
-              let sizeRef = element.attribute(kAXSizeAttribute, as: AXValue.self)
-        else { return nil }
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionRef, .cgPoint, &position),
-              AXValueGetValue(sizeRef, .cgSize, &size)
-        else { return nil }
-        return CGRect(origin: position, size: size)
     }
 }
