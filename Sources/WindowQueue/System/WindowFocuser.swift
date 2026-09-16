@@ -200,8 +200,12 @@ enum WindowFocuser {
                 let front = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
                 Diagnostics.note("  verify #\(attempt) target=\(window.id) focused=\(focusedID.map(String.init) ?? "nil") axWindows=\(listed) front=\(front)")
             }
-            if focusedID == window.id {
-                finish(token: token, window: window)
+            // The app's own focused window is not enough: an activation requested for an earlier
+            // window in a quick run of presses can land after ours and put a different app in
+            // front, while this app still reports our window as its focused one.
+            let isFrontmostApp = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            if focusedID == window.id, isFrontmostApp {
+                confirm(window, workspaceIndex: workspaceIndex, token: token)
                 return
             }
 
@@ -239,6 +243,31 @@ enum WindowFocuser {
             verify(window, workspaceIndex: workspaceIndex, token: token, attempt: attempt + 1)
         }
     }
+
+    /// Looks once more a moment after focus seemed to land, because a late activation from an
+    /// earlier request can still take it away; if it has, the verification starts over.
+    private static func confirm(_ window: ManagedWindow, workspaceIndex: Int?, token: UInt64) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + confirmDelay) {
+            guard token == generation else { return }
+            let isFrontmostApp = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            let focusedID = AXPrivate.application(window.pid)
+                .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+                .flatMap { AXPrivate.windowID(of: $0) }
+            if isFrontmostApp, focusedID == window.id {
+                finish(token: token, window: window)
+                return
+            }
+            Diagnostics.note("focus of \(window.id) was taken back; retrying")
+            let appElement = AXPrivate.application(window.pid)
+            let raised = window.element.map {
+                raise($0, appElement: appElement, wasMinimized: window.isMinimized)
+            } ?? false
+            if !raised { activate(window, appElement: appElement) }
+            verify(window, workspaceIndex: workspaceIndex, token: token, attempt: forceSpaceSwitchAttempt + 1)
+        }
+    }
+
+    private static let confirmDelay: TimeInterval = 0.25
 
     /// Walks an application through its own windows with ⌘`.
     ///
