@@ -55,7 +55,9 @@ final class ScreenEdgeGuard {
     }
 
     func windowResized(_ element: AXUIElement) {
-        guard isEnabled, let id = AXPrivate.windowID(of: element) else { return }
+        // Our own frame changes, and an app pushing back against them, are handled by the checks
+        // that follow each change; reading them as the user zooming would undo the correction.
+        guard isEnabled, let id = AXPrivate.windowID(of: element), !isApplying(id) else { return }
         settling[id]?.cancel()
         settling[id] = nil
         pending[id]?.cancel()
@@ -115,14 +117,14 @@ final class ScreenEdgeGuard {
             Diagnostics.note("edge guard: \(id) zoomed back out to \(previous)")
             trimmed[id] = nil
             knownFrames[id] = previous
-            apply(previous, to: element, id: id, attemptsLeft: Self.maxAttempts)
+            apply(previous, to: element, id: id)
             return
         }
 
         Diagnostics.note("edge guard: \(id) \(frame) -> \(target)")
         trimmed[id] = (applied: target, previous: knownFrames[id])
         knownFrames[id] = target
-        apply(target, to: element, id: id, attemptsLeft: Self.maxAttempts)
+        apply(target, to: element, id: id)
     }
 
     private func settle(_ id: CGWindowID, at frame: CGRect) {
@@ -137,33 +139,42 @@ final class ScreenEdgeGuard {
             && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
     }
 
-    private static let maxAttempts = 4
+    /// When to look again after setting a frame, counted from the first attempt. Apps that animate
+    /// their own zoom, or snap to a character grid like terminals do, can overwrite the frame a
+    /// while after accepting it.
+    private static let checkDelays: [TimeInterval] = [0.15, 0.35, 0.7, 1.2]
 
     /// Sets size, then position, then size again — the order Rectangle uses. Many apps clamp a
     /// resize against their current position, so shrinking first and moving second leaves a window
     /// the right size in the wrong place, or moved but still full width and hanging off the screen.
-    /// Zoom also animates, and an app can overwrite the result as its animation lands, so the frame
-    /// is checked again shortly after and re-applied if it did not stick.
-    private func apply(_ target: CGRect, to element: AXUIElement, id: CGWindowID, attemptsLeft: Int) {
+    /// The whole frame is then checked a few times and re-applied whenever it has drifted.
+    private func apply(_ target: CGRect, to element: AXUIElement, id: CGWindowID, check: Int = 0) {
         var size = target.size
         var origin = target.origin
         guard let sizeValue = AXValueCreate(.cgSize, &size),
               let originValue = AXValueCreate(.cgPoint, &origin)
         else { return }
-        applyingUntil[id] = Date().addingTimeInterval(0.6)
+        let lastCheck = Self.checkDelays.last ?? 0
+        applyingUntil[id] = Date().addingTimeInterval(lastCheck + 0.5)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
         _ = element.setAttribute(kAXPositionAttribute, value: originValue)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        scheduleCheck(target, element: element, id: id, check: check)
+    }
 
-        guard attemptsLeft > 1 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+    private func scheduleCheck(_ target: CGRect, element: AXUIElement, id: CGWindowID, check: Int) {
+        guard Self.checkDelays.indices.contains(check) else { return }
+        let previousDelay = check == 0 ? 0 : Self.checkDelays[check - 1]
+        let wait = Self.checkDelays[check] - previousDelay
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
             // The user has taken hold of the window; it is theirs now.
             guard let self, NSEvent.pressedMouseButtons == 0, let frame = Self.frame(of: element) else { return }
-            let settled = abs(frame.minX - target.minX) <= Self.tolerance
-                && abs(frame.maxX - target.maxX) <= Self.tolerance
-            guard !settled else { return }
-            Diagnostics.note("edge guard: \(id) did not stick (\(frame)), retrying")
-            self.apply(target, to: element, id: id, attemptsLeft: attemptsLeft - 1)
+            if Self.approximatelyEqual(frame, target) {
+                self.scheduleCheck(target, element: element, id: id, check: check + 1)
+            } else {
+                Diagnostics.note("edge guard: \(id) drifted to \(frame), re-applying \(target)")
+                self.apply(target, to: element, id: id, check: check + 1)
+            }
         }
     }
 
