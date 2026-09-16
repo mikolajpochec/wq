@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var strip: StripController?
     private var toast: ToastController?
     private lazy var tilingMenu = TilingMenuController(store: store)
+    private let spaceMover = WindowSpaceMover()
     private var settingsWindow: SettingsWindowController?
     private var scrollFocusWork: DispatchWorkItem?
     private var statusItem: NSStatusItem?
@@ -108,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hoverFocus.isSuspended = { [weak self] in
             guard let self else { return false }
-            return self.model.aimingID != nil || self.search?.isOpen == true
+            return self.model.aimingID != nil || self.search?.isOpen == true || self.spaceMover.isRunning
         }
         hoverFocus.start()
         self.hoverFocus = hoverFocus
@@ -320,14 +321,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func tileAimedWindows() {
         let windows = model.aimedWindows
         guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
-        let area = tilingArea()
         endAiming(commit: false)
 
-        let placed = WindowTiler.tile(windows, layout: layout, in: area)
+        // Everything goes to the workspace of the last aimed window and is tiled there. Windows on
+        // other workspaces have to be carried over by hand, which the mover does for them.
+        guard let last = windows.last, let target = last.spaceID,
+              let index = model.workspaceNumber(of: last),
+              windows.contains(where: { $0.spaceID != target })
+        else {
+            finishTiling(windows, layout: layout)
+            return
+        }
+        spaceMover.move(windows, toWorkspace: index, targetSpace: target,
+                        focus: { [weak self] window in self?.focus(window, warpCursor: false) },
+                        completion: { [weak self] moved in
+                            self?.enumerator?.refresh()
+                            self?.finishTiling(moved.filter { $0.spaceID == target }, layout: layout)
+                        })
+    }
+
+    private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {
+        // A window that did not make it over leaves a smaller group, which gets its own layout.
+        let layout = windows.count == layout.frames.count
+            ? layout
+            : TileLayout.options(for: windows.count).first { $0.name == layout.name }
+                ?? TileLayout.options(for: windows.count).first
+        guard let layout else { return }
+        let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea())
         guard let first = placed.first else { return }
         WindowTiler.raise(placed)
         model.select(id: first.id, announce: false)
-        focus(first)
+        focus(first, warpCursor: false)
     }
 
     /// The screen being worked on, less the room the strip keeps for itself.
