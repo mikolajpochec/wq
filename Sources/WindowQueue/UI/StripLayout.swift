@@ -61,7 +61,8 @@ struct StripLayout {
         let heights = elements.map { element -> CGFloat in
             switch element {
             case .badge: return prefs.iconSize
-            case .window, .emptySlot: return StripMetrics.rowHeight(prefs: prefs)
+            case .window: return StripMetrics.rowHeight(prefs: prefs)
+            case .emptySlot: return StripMetrics.slotLength(prefs: prefs)
             }
         }
 

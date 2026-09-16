@@ -198,14 +198,20 @@ struct StripView: View {
             .help("Current workspace")
     }
 
-    /// A dashed, narrower-than-an-icon outline: a place a window could go, never mistakable for one.
+    /// A dashed, hatched outline, as wide as an icon but much shorter along the strip: a place a
+    /// window could go, never mistakable for one.
     private var emptySlotMarker: some View {
         let long = prefs.iconSize
-        let short = prefs.iconSize * 0.55
-        return RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .strokeBorder(Color.accentColor.opacity(0.8),
-                          style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
-            .frame(width: side.isVertical ? short : long, height: side.isVertical ? long : short)
+        let short = StripMetrics.slotThickness(prefs: prefs)
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return DiagonalStripes(spacing: 5)
+            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.2)
+            .clipShape(shape)
+            .overlay(
+                shape.strokeBorder(Color.accentColor.opacity(0.85),
+                                   style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+            )
+            .frame(width: side.isVertical ? long : short, height: side.isVertical ? short : long)
             .padding(4)
             .help("Empty workspace")
     }
@@ -334,5 +340,27 @@ enum StripMetrics {
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
 
+    /// Length of the empty-workspace marker along the strip: short, so it reads as a gap rather
+    /// than as another window.
+    static func slotThickness(prefs: Preferences) -> CGFloat { (prefs.iconSize * 0.4).rounded() }
+    static func slotLength(prefs: Preferences) -> CGFloat { slotThickness(prefs: prefs) + 8 }
 
+
+}
+
+/// Parallel lines at 45°, filling their rect, for hatching.
+private struct DiagonalStripes: Shape {
+    let spacing: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        // Lines running up to the right; start far enough left that the whole rect is covered.
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            path.move(to: CGPoint(x: x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            x += spacing
+        }
+        return path
+    }
 }
