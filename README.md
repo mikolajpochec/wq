@@ -15,6 +15,9 @@ always-on-top strip showing that list, and workspace switching by number.
   It can show on the selected monitor only, on every monitor with the inactive ones greyed out,
   or not at all. The strip lives in a private WindowServer space above the desktops, so switching
   workspaces slides the desktops underneath it instead of hiding and redrawing it.
+- Focus follows the mouse: resting the pointer on a window focuses and raises it (macOS cannot
+  focus without raising). It waits for the pointer to settle, and ignores the strip, menus, the Dock
+  and anything held with a button or modifier down. Opt out in Settings › General.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
 - Tapping the super key on its own opens **aiming mode**: the screens dim, the strip grows, the aimed icon is
   outlined in orange, `[`/`]` or the arrow keys move the aim without focusing anything, and tapping the

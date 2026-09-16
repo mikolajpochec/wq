@@ -175,6 +175,10 @@ struct Preferences: Codable, Equatable {
     /// Move the pointer to the middle of a window when it is focused, so the cursor follows the
     /// keyboard instead of being left behind on another screen.
     var warpCursorToWindow: Bool = true
+    /// Focus the window under the pointer once the pointer rests on it.
+    var focusFollowsMouse: Bool = true
+    /// How long the pointer has to rest before the window under it is focused.
+    var focusFollowsMouseDelay: Double = 0.2
     /// Start automatically at login. Only takes effect for the copy in the Applications folder.
     var launchAtLogin: Bool = true
 
@@ -212,6 +216,8 @@ struct Preferences: Codable, Equatable {
         aimingDimOpacity = value(.aimingDimOpacity, defaults.aimingDimOpacity)
         scrollFocusDelay = value(.scrollFocusDelay, defaults.scrollFocusDelay)
         warpCursorToWindow = value(.warpCursorToWindow, defaults.warpCursorToWindow)
+        focusFollowsMouse = value(.focusFollowsMouse, defaults.focusFollowsMouse)
+        focusFollowsMouseDelay = value(.focusFollowsMouseDelay, defaults.focusFollowsMouseDelay)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
     }

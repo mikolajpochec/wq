@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dimOverlay: DimOverlay?
     private let orderStore = QueueOrderStore()
     private var search: SearchController?
+    private var hoverFocus: FocusFollowsMouse?
 
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
@@ -89,6 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modifierTaps.modifiers = store.prefs.superModifier.eventFlags
         modifierTaps.onTap = { [weak self] in self?.toggleAiming() }
         modifierTaps.start()
+
+        // Hover focus never moves the pointer: the pointer is already where the user wants it.
+        let hoverFocus = FocusFollowsMouse(model: model, store: store) { [weak self] window in
+            guard let self else { return }
+            WindowFocuser.focus(window, siblingCount: self.model.windows.count { $0.pid == window.pid })
+        }
+        hoverFocus.isSuspended = { [weak self] in
+            guard let self else { return false }
+            return self.model.aimingID != nil || self.search?.isOpen == true
+        }
+        hoverFocus.start()
+        self.hoverFocus = hoverFocus
 
         aimingKeys.onKey = { [weak self] key in self?.handleAimingKey(key) }
         aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }

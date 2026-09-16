@@ -70,6 +70,16 @@ struct SettingsView: View {
                 }
             }
             Toggle("Move the pointer to the focused window", isOn: $store.prefs.warpCursorToWindow)
+            Toggle("Focus the window under the pointer", isOn: $store.prefs.focusFollowsMouse)
+            if store.prefs.focusFollowsMouse {
+                HStack {
+                    Text("Hover delay")
+                    Slider(value: $store.prefs.focusFollowsMouseDelay, in: 0...1.0, step: 0.05)
+                    Text(String(format: "%.2f s", store.prefs.focusFollowsMouseDelay))
+                        .monospacedDigit()
+                        .frame(width: 52, alignment: .trailing)
+                }
+            }
             Toggle("Show window name popup", isOn: $store.prefs.toastEnabled)
             HStack {
                 Text("Popup duration")
