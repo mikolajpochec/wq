@@ -91,6 +91,8 @@ final class StripScreenState: ObservableObject {
     @Published var spaceIndex: Int?
     /// Whether the screen behind the workspace number is light, or nil while unknown.
     @Published var backdropIsLight: Bool?
+    /// The last sample's verdict, which has to be repeated before the number changes colour.
+    var pendingBackdropIsLight: Bool?
 }
 
 /// Owns the strip panels, one per screen that should show the strip, and keeps them positioned.
@@ -126,6 +128,7 @@ final class StripController {
     private var cancellables = Set<AnyCancellable>()
     private let backdrop = BackdropSampler()
     private var backdropTimer: Timer?
+    private var backdropQuietUntil = Date.distantPast
     /// Live position of an icon being dragged, which the queue order does not yet reflect.
     private var dragOffset: (id: CGWindowID, y: CGFloat)?
     private var hoveredID: CGWindowID?
@@ -165,8 +168,9 @@ final class StripController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.sync()
-                // Give the Space switch or the newly active app a moment to finish drawing.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self?.sampleBackdrops() }
+                // A Space switch slides windows past the strip for a while; samples taken then
+                // describe the animation, not the screen it settles on.
+                self?.backdropQuietUntil = Date().addingTimeInterval(1.2)
             }
             .store(in: &cancellables)
 
@@ -182,15 +186,22 @@ final class StripController {
     /// Reads how light the screen is behind each strip's workspace number, so the number can
     /// switch between dark and light to stay readable.
     private func sampleBackdrops() {
-        guard store.prefs.showSpaceBadge else { return }
+        guard store.prefs.showSpaceBadge, Date() >= backdropQuietUntil else { return }
         for strip in strips.values where strip.panel.isVisible {
             guard let rect = badgeFrame(of: strip) else { continue }
-            backdrop.luminance(behind: rect, on: strip.screen) { [weak strip] luminance in
-                guard let strip, let luminance else { return }
+            backdrop.luminance(behind: rect, on: strip.screen) { [weak self, weak strip] luminance in
+                guard let self else { return }
+                guard let strip, let luminance, Date() >= self.backdropQuietUntil else { return }
                 // A little hysteresis, so a backdrop near the middle does not flicker between the two.
                 let current = strip.state.backdropIsLight
                 let isLight = current == true ? luminance > 0.45 : luminance > 0.55
-                if current != isLight { strip.state.backdropIsLight = isLight }
+                // Only a verdict that holds for two samples in a row changes the colour, so a window
+                // passing under the strip does not make the number blink.
+                defer { strip.state.pendingBackdropIsLight = isLight }
+                guard current != isLight else { return }
+                if current == nil || strip.state.pendingBackdropIsLight == isLight {
+                    strip.state.backdropIsLight = isLight
+                }
             }
         }
     }
