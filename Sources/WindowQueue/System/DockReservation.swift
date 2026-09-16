@@ -75,6 +75,10 @@ final class DockReservation {
         if let saved = savedOriginal, current().map(looksLikeOurs) == true {
             write(saved)
         }
+        // Each process reads the rect once and keeps it. Make WindowQueue's own read happen now,
+        // before the reservation goes in: the strip and the edge guard measure the screen as the
+        // Dock leaves it, and would otherwise count the strip's room twice.
+        _ = NSScreen.screens.first?.visibleFrame
         update()
         // The Dock rewrites its rect whenever its geometry changes; notice and take the edge back.
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.update() }

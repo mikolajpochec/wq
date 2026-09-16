@@ -68,14 +68,35 @@ final class ScreenEdgeGuard {
         }
 
         Diagnostics.note("edge guard: \(id) \(frame) -> \(target)")
-        // Shrink before moving on the left, so the window never pokes past the right-hand edge in
-        // between; some apps refuse a position that would put them partly off screen.
+        apply(target, to: element, id: id, attemptsLeft: Self.maxAttempts)
+    }
+
+    private static let maxAttempts = 4
+
+    /// Sets size, then position, then size again — the order Rectangle uses. Many apps clamp a
+    /// resize against their current position, so shrinking first and moving second leaves a window
+    /// the right size in the wrong place, or moved but still full width and hanging off the screen.
+    /// Zoom also animates, and an app can overwrite the result as its animation lands, so the frame
+    /// is checked again shortly after and re-applied if it did not stick.
+    private func apply(_ target: CGRect, to element: AXUIElement, id: CGWindowID, attemptsLeft: Int) {
         var size = target.size
         var origin = target.origin
-        if let sizeValue = AXValueCreate(.cgSize, &size),
-           let originValue = AXValueCreate(.cgPoint, &origin) {
-            _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
-            _ = element.setAttribute(kAXPositionAttribute, value: originValue)
+        guard let sizeValue = AXValueCreate(.cgSize, &size),
+              let originValue = AXValueCreate(.cgPoint, &origin)
+        else { return }
+        _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        _ = element.setAttribute(kAXPositionAttribute, value: originValue)
+        _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+
+        guard attemptsLeft > 1 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            // The user has taken hold of the window; it is theirs now.
+            guard let self, NSEvent.pressedMouseButtons == 0, let frame = Self.frame(of: element) else { return }
+            let settled = abs(frame.minX - target.minX) <= Self.tolerance
+                && abs(frame.maxX - target.maxX) <= Self.tolerance
+            guard !settled else { return }
+            Diagnostics.note("edge guard: \(id) did not stick (\(frame)), retrying")
+            self.apply(target, to: element, id: id, attemptsLeft: attemptsLeft - 1)
         }
     }
 
