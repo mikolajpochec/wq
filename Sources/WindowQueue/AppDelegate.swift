@@ -505,8 +505,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let spaces = SpacesBridge.shared.userSpaceIDs
         guard !windows.isEmpty, spaces.indices.contains(index - 1), spaceMover.isAvailable else { return }
 
-        let result = spaceMover.move(windows, to: spaces[index - 1], queue: model.windows)
-        model.relocate(result.arrived.map(\.id), toSpace: spaces[index - 1])
+        let target = spaces[index - 1]
+        let orderBefore = model.visibleWindows.map(\.id)
+        let selectedBefore = model.selectedID
+
+        let result = spaceMover.move(windows, to: target, queue: model.windows)
+        model.relocate(result.arrived.map(\.id), toSpace: target)
+
+        // The selected window has left the workspace the user is on, so the selection follows
+        // what is still here rather than pointing at something out of sight.
+        let movedAway = Set(result.arrived.filter { $0.id == selectedBefore }.map(\.id))
+        if let selectedBefore, movedAway.contains(selectedBefore),
+           let current = model.currentSpaceID, current != target {
+            selectNearestRemaining(to: selectedBefore, in: orderBefore, on: current,
+                                   excluding: Set(result.arrived.map(\.id)))
+        }
         if let kept = result.leftBehind.first {
             let others = result.leftBehind.count > 1 ? " and \(result.leftBehind.count - 1) more" : ""
             toast?.show(title: "\(kept.appName) stayed here\(others)",
@@ -518,6 +531,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.enumerator?.refresh()
+        }
+    }
+
+    /// Focuses the window on `space` closest in the queue to where `id` was, or, when the workspace
+    /// has nothing left, leaves the strip showing an empty slot there.
+    private func selectNearestRemaining(to id: CGWindowID, in order: [CGWindowID], on space: UInt64,
+                                        excluding moved: Set<CGWindowID>) {
+        guard let origin = order.firstIndex(of: id) else { return }
+        let candidates = model.visibleWindows.filter {
+            $0.spaceID == space && !moved.contains($0.id) && !$0.isMinimized
+        }
+        let nearest = candidates.min { left, right in
+            let leftDistance = order.firstIndex(of: left.id).map { abs($0 - origin) } ?? .max
+            let rightDistance = order.firstIndex(of: right.id).map { abs($0 - origin) } ?? .max
+            return leftDistance < rightDistance
+        }
+        if let nearest {
+            model.select(id: nearest.id, announce: false)
+            focus(nearest)
+        } else {
+            model.showEmptySlot(for: space)
         }
     }
 

@@ -31,6 +31,8 @@ struct StripView: View {
     /// Where the dragged icon started, captured once: headers come and go as the preview reorders,
     /// so recomputing this mid-drag would shift the icon out from under the cursor.
     @State private var dragOriginTop: CGFloat = 0
+    /// Ties the empty-workspace marker to the window that fills it, so the window grows out of it.
+    @Namespace private var slotNamespace
 
     private var prefs: Preferences { store.prefs }
 
@@ -80,6 +82,13 @@ struct StripView: View {
                 switch element {
                 case .badge:
                     spaceBadge
+                case .emptySlot:
+                    emptySlotMarker
+                        .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                case .window(let window) where window.id == model.slotFilledID:
+                    row(for: window)
+                        .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
                 case .window(let window):
                     row(for: window)
                         // Kept in the layout, just not drawn: the floating copy stands in for it.
@@ -136,7 +145,7 @@ struct StripView: View {
     // MARK: - Layout
 
     private func layout(of windows: [ManagedWindow]) -> StripLayout {
-        StripLayout(windows: windows, prefs: prefs)
+        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement)
     }
 
     /// Geometry of the committed queue. Drag targeting measures against this rather than the preview
@@ -187,6 +196,18 @@ struct StripView: View {
             )
             .animation(.easeOut(duration: 0.25), value: screen.backdropIsLight)
             .help("Current workspace")
+    }
+
+    /// A dashed, narrower-than-an-icon outline: a place a window could go, never mistakable for one.
+    private var emptySlotMarker: some View {
+        let long = prefs.iconSize
+        let short = prefs.iconSize * 0.55
+        return RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(Color.accentColor.opacity(0.8),
+                          style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+            .frame(width: side.isVertical ? short : long, height: side.isVertical ? long : short)
+            .padding(4)
+            .help("Empty workspace")
     }
 
     /// The number follows what is behind the strip: dark over a light screen, light over a dark

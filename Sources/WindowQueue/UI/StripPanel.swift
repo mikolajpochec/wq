@@ -336,7 +336,7 @@ final class StripController {
     }
 
     private var contentLayout: StripLayout {
-        StripLayout(windows: model.visibleWindows, prefs: store.prefs)
+        StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement)
     }
 
     /// The strip the popup points from: the one under the pointer, else the selected screen's.

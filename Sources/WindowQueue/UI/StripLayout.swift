@@ -12,10 +12,13 @@ struct StripLayout {
         /// The accent badge showing the workspace currently in view.
         case badge
         case window(ManagedWindow)
+        /// Where the windows of an empty workspace the user is on would go.
+        case emptySlot
 
         var id: String {
             switch self {
             case .badge: return "badge"
+            case .emptySlot: return "empty-slot"
             case .window(let window): return "window-\(window.id)"
             }
         }
@@ -35,15 +38,30 @@ struct StripLayout {
 
     let totalHeight: CGFloat
 
-    init(windows: [ManagedWindow], prefs: Preferences) {
+    /// Where the empty-workspace marker goes among the windows.
+    enum SlotPlacement: Equatable {
+        case before(CGWindowID)
+        case end
+    }
+
+    init(windows: [ManagedWindow], prefs: Preferences, slot: SlotPlacement? = nil) {
         var elements: [Element] = []
         if prefs.showSpaceBadge { elements.append(.badge) }
         elements.append(contentsOf: windows.map { .window($0) })
+        switch slot {
+        case .before(let id):
+            let index = elements.firstIndex { $0.window?.id == id } ?? elements.count
+            elements.insert(.emptySlot, at: index)
+        case .end:
+            elements.append(.emptySlot)
+        case nil:
+            break
+        }
 
         let heights = elements.map { element -> CGFloat in
             switch element {
             case .badge: return prefs.iconSize
-            case .window: return StripMetrics.rowHeight(prefs: prefs)
+            case .window, .emptySlot: return StripMetrics.rowHeight(prefs: prefs)
             }
         }
 

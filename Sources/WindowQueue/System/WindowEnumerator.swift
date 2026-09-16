@@ -429,6 +429,12 @@ final class WindowEnumerator {
             return
         }
         pendingExternalFocusID = nil
+        // A window just sent away from an empty workspace can still hold its app's focus; that
+        // must not pull the selection off the empty slot the user is looking at.
+        if let slot = model.emptySlot,
+           model.windows.first(where: { $0.id == id })?.spaceID != slot.spaceID {
+            return
+        }
         model.select(id: id, announce: false)
     }
 

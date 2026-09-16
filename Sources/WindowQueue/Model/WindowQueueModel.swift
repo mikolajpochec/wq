@@ -17,7 +17,24 @@ final class WindowQueueModel: ObservableObject {
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
-    @Published var currentSpaceID: UInt64?
+    @Published var currentSpaceID: UInt64? {
+        didSet {
+            // The marker belongs to one workspace; leaving it takes the marker away.
+            if let emptySlot, currentSpaceID != emptySlot.spaceID { self.emptySlot = nil }
+        }
+    }
+
+    /// The user is on a workspace with no windows left: nothing is selected, and the strip marks
+    /// the place in the queue where that workspace's windows would be.
+    struct EmptySlot: Equatable {
+        let spaceID: UInt64
+        /// The window the marker sits in front of, or nil for the end of the queue.
+        let beforeID: CGWindowID?
+    }
+
+    @Published private(set) var emptySlot: EmptySlot?
+    /// The window that has just taken the marker's place, so the strip can animate it in there.
+    @Published private(set) var slotFilledID: CGWindowID?
     @Published var currentSpaceIndex: Int?
     /// The display the strip is on is showing a fullscreen window.
     @Published var currentSpaceIsFullscreen = false
@@ -149,7 +166,22 @@ final class WindowQueueModel: ObservableObject {
         // New windows land directly after the current one, the way a tiling WM inserts next to the
         // focused client, rather than at the far end of the queue.
         let known = Set(next.map(\.id))
-        let fresh = discovered.filter { !known.contains($0.id) }
+        var fresh = discovered.filter { !known.contains($0.id) }
+
+        // A window opening on the empty workspace the user is on takes the marked place.
+        if let slot = emptySlot,
+           let filler = fresh.firstIndex(where: { ($0.spaceID ?? currentSpaceID) == slot.spaceID }) {
+            let window = fresh.remove(at: filler)
+            let index = slot.beforeID.flatMap { id in next.firstIndex { $0.id == id } } ?? next.count
+            next.insert(window, at: index)
+            emptySlot = nil
+            selectedID = window.id
+            slotFilledID = window.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                if self?.slotFilledID == window.id { self?.slotFilledID = nil }
+            }
+        }
+
         if !fresh.isEmpty {
             let insertionIndex = selectedID
                 .flatMap { id in next.firstIndex { $0.id == id } }
@@ -179,6 +211,11 @@ final class WindowQueueModel: ObservableObject {
 
     private func clampSelection() {
         if let selectedID, windows.contains(where: { $0.id == selectedID }) { return }
+        // On an empty workspace nothing is meant to be selected.
+        if emptySlot != nil {
+            selectedID = nil
+            return
+        }
         selectedID = visibleWindows.first?.id
     }
 
@@ -190,6 +227,7 @@ final class WindowQueueModel: ObservableObject {
             Diagnostics.note("select \(window.appName) id=\(id) announce=\(announce)")
         }
         selectedID = id
+        emptySlot = nil
         if announce { announcement.send(window) }
     }
 
@@ -280,6 +318,27 @@ final class WindowQueueModel: ObservableObject {
 
     /// Groups the queue by workspace, in Mission Control order.
     ///
+    /// Leaves the user on a workspace with no windows: nothing selected, and a marker where that
+    /// workspace's windows would sit in the queue.
+    func showEmptySlot(for space: UInt64) {
+        let rank = spaceOrder.firstIndex(of: space)
+        let before = windows.first { window in
+            guard let rank, let other = window.spaceID.flatMap({ spaceOrder.firstIndex(of: $0) }) else { return false }
+            return other > rank
+        }
+        selectedID = nil
+        emptySlot = EmptySlot(spaceID: space, beforeID: before?.id)
+    }
+
+    /// The marker's place among the windows the strip shows.
+    var slotPlacement: StripLayout.SlotPlacement? {
+        guard let emptySlot else { return nil }
+        guard let before = emptySlot.beforeID, visibleWindows.contains(where: { $0.id == before }) else {
+            return .end
+        }
+        return .before(before)
+    }
+
     /// Records that windows now live on `space` and moves them in the queue to where that workspace's
     /// windows are: after its last one, or, when it had none, just before the first window of a
     /// later workspace. Their order among themselves is kept.
