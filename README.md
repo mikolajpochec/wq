@@ -64,12 +64,19 @@ Windows on a workspace you have not visited show only their app name. macOS hide
 from apps without Screen Recording access; granting it in Settings › General fills the titles in.
 Nothing else depends on it.
 
-## Optional: keeping tiled windows clear of the strip
+## Keeping windows clear of the strip
 
 Only the Dock and menu bar can shrink `NSScreen.visibleFrame`, so a third-party strip cannot reserve
-screen space on macOS. Rectangle does honour its own hidden screen-edge gap preferences, so
-WindowQueue writes `screenEdgeGapLeft`/`screenEdgeGapRight` to match the strip and restarts Rectangle
-when the value changes. Turn it off in Settings › Strip.
+screen space on macOS. WindowQueue works around it twice:
+
+- Zoom (double-clicking a title bar), Fill and the built-in tiling size windows to the visible frame.
+  WindowQueue watches for a window resized flush against the strip's screen edge and trims it to
+  start beside the strip. Plain moves and resizes with a mouse button still held are left alone.
+- Rectangle honours its own hidden screen-edge gap preferences, so WindowQueue writes
+  `screenEdgeGapLeft`/`screenEdgeGapRight` to match the strip and restarts Rectangle when the value
+  changes.
+
+Turn both off in Settings › Strip.
 
 ## Workspace switching
 

@@ -14,6 +14,8 @@ final class WindowEnumerator {
     /// wedged application blocks until it times out, which on the main thread freezes the strip.
     private let enumerationQueue = DispatchQueue(label: "com.mpochec.windowqueue.enumeration")
     private var isRefreshing = false
+    /// Told about every window resize, which the queue itself does not care about.
+    var onWindowResized: ((AXUIElement) -> Void)?
 
     /// A window that took focus before we had it in the queue, adopted once it appears.
     private var pendingExternalFocusID: CGWindowID?
@@ -29,6 +31,7 @@ final class WindowEnumerator {
         kAXTitleChangedNotification,
         kAXWindowMiniaturizedNotification,
         kAXWindowDeminiaturizedNotification,
+        kAXWindowResizedNotification,
     ]
 
     init(model: WindowQueueModel) {
@@ -392,6 +395,10 @@ final class WindowEnumerator {
     }
 
     private func handle(notification: String, element: AXUIElement) {
+        if notification == kAXWindowResizedNotification {
+            onWindowResized?(element)
+            return
+        }
         if notification == kAXFocusedWindowChangedNotification,
            let id = AXPrivate.windowID(of: element) {
             adoptExternalFocus(id)

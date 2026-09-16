@@ -175,11 +175,10 @@ struct SettingsView: View {
     }
 
     private var reservationExplanation: String {
-        guard RectangleIntegration.isInstalled else {
-            return "Only the Dock and menu bar can shrink the usable screen area on macOS. WindowQueue can instead set Rectangle's screen-edge gap, but Rectangle is not installed."
-        }
         let gap = RectangleIntegration.reservedWidth(for: store.prefs)
-        return "macOS lets only the Dock and menu bar shrink the usable screen area, so WindowQueue sets Rectangle's \(store.prefs.stripSide == .left ? "left" : "right") screen-edge gap to \(gap) pt instead. Rectangle reads that value at launch, so restart it after changing this."
+        let base = "macOS lets only the Dock and menu bar shrink the usable screen area. WindowQueue instead trims windows that zoom, Fill or tiling lay against the strip's edge, so they start \(gap) pt in."
+        guard RectangleIntegration.isInstalled else { return base }
+        return base + " It also sets Rectangle's \(store.prefs.stripSide == .left ? "left" : "right") screen-edge gap, which Rectangle reads at launch, so restart it after changing this."
     }
 
     // MARK: - Strip
@@ -227,8 +226,7 @@ struct SettingsView: View {
             }
 
             Section("Reserve screen space") {
-                Toggle("Keep tiled windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
-                    .disabled(!RectangleIntegration.isInstalled)
+                Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
                 Text(reservationExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)

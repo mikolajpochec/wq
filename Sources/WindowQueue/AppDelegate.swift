@@ -125,6 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .store(in: &self.cancellables)
 
             let enumerator = WindowEnumerator(model: self.model)
+            let edgeGuard = ScreenEdgeGuard(store: self.store)
+            enumerator.onWindowResized = { element in edgeGuard.windowResized(element) }
             self.enumerator = enumerator
             enumerator.start()
             strip.start()
