@@ -105,6 +105,8 @@ struct StripView: View {
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? prefs.stripWidth : nil,
                height: side.isVertical ? nil : prefs.stripWidth)
+        // Behind the icons but above the strip's own background.
+        .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -198,6 +200,35 @@ struct StripView: View {
             .help("Current workspace")
     }
 
+    private var isAimingRun: Bool {
+        model.aimAnchorID != nil && model.aimAnchorID != model.aimingID
+    }
+
+    /// One continuous highlight spanning every aimed window, from the first to the last.
+    @ViewBuilder
+    private var aimedRunHighlight: some View {
+        let visible = model.visibleWindows
+        let aimed = model.aimedIDs
+        if isAimingRun,
+           let first = visible.firstIndex(where: { aimed.contains($0.id) }),
+           let last = visible.lastIndex(where: { aimed.contains($0.id) }) {
+            let layout = committedLayout
+            let start = layout.topOffset(ofWindowAt: first)
+            let length = layout.topOffset(ofWindowAt: last) + StripMetrics.rowHeight(prefs: prefs) - start
+            let thickness = StripMetrics.rowHeight(prefs: prefs)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.orange.opacity(0.28))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.orange, lineWidth: 2.5)
+                )
+                .frame(width: side.isVertical ? thickness : length,
+                       height: side.isVertical ? length : thickness)
+                .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
+                .animation(.spring(response: 0.22, dampingFraction: 0.85), value: aimed)
+        }
+    }
+
     /// A dashed, hatched outline the size of an icon: a place a window could go.
     private var emptySlotMarker: some View {
         let long = prefs.iconSize
@@ -237,9 +268,10 @@ struct StripView: View {
         let isSelected = window.id == model.selectedID
         // Aiming borrows the highlight and marks it in a different colour, so it is never mistaken
         // for the window that actually has focus.
-        // A run of aimed windows is all marked; the end the aim is moving has the heavier border.
-        let isAimCursor = window.id == model.aimingID
-        let isAimed = isAimCursor || (model.aimAnchorID != nil && model.aimedIDs.contains(window.id))
+        // A run of several aimed windows is drawn as one highlight behind them all, so its rows
+        // carry none of their own.
+        let isAimCursor = window.id == model.aimingID && !isAimingRun
+        let isAimed = isAimCursor
         let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
         return ZStack(alignment: .bottomTrailing) {
             icon(for: window)
