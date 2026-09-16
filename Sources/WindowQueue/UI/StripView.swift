@@ -198,8 +198,7 @@ struct StripView: View {
             .help("Current workspace")
     }
 
-    /// A dashed, hatched outline, as wide as an icon but much shorter along the strip: a place a
-    /// window could go, never mistakable for one.
+    /// A dashed, hatched outline the size of an icon: a place a window could go.
     private var emptySlotMarker: some View {
         let long = prefs.iconSize
         let short = StripMetrics.slotThickness(prefs: prefs)
@@ -340,9 +339,9 @@ enum StripMetrics {
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
 
-    /// Length of the empty-workspace marker along the strip: short, so it reads as a gap rather
-    /// than as another window.
-    static func slotThickness(prefs: Preferences) -> CGFloat { (prefs.iconSize * 0.4).rounded() }
+    /// Length of the empty-workspace marker along the strip: the size of an icon, so it takes a
+    /// window's place; the dashes and hatching are what tell it apart.
+    static func slotThickness(prefs: Preferences) -> CGFloat { prefs.iconSize }
     static func slotLength(prefs: Preferences) -> CGFloat { slotThickness(prefs: prefs) + 8 }
 
 
