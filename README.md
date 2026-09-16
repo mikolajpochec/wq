@@ -29,6 +29,9 @@ always-on-top strip showing that list, and workspace switching by number.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.
 - `⌥1` … `⌥9` switch workspace.
+- `⌥⇧1` … `⌥⇧9` move the selected window (or every aimed window) to that workspace. macOS only
+  lets another app move windows a whole application at a time, so a window whose app has windows on
+  other workspaces stays where it is.
 - Option is the "super" key by default; the super key and every individual shortcut are remappable.
 
 Order is **stable**: a new window is inserted directly after the currently selected one, cycling

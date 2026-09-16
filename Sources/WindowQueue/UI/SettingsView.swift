@@ -187,6 +187,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     section("Queue", actions: HotkeyAction.queueActions)
                     section("Workspaces", actions: HotkeyAction.spaceActions)
+                    section("Move to workspace", actions: HotkeyAction.moveToSpaceActions)
                 }
             }
         }

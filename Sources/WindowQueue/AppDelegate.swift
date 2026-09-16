@@ -405,9 +405,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .moveRight:
                 handleAimingPress(.init(key: .forward, extends: false, moves: true))
                 return
+            case _ where action.moveSpaceIndex != nil:
+                moveWindows(toWorkspace: action.moveSpaceIndex!)
+                return
             default:
                 endAiming(commit: false)
             }
+        }
+
+        if let index = action.moveSpaceIndex {
+            moveWindows(toWorkspace: index)
+            return
         }
 
         if let space = action.spaceIndex {
@@ -485,6 +493,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             workspaceIndex: model.workspaceNumber(of: window),
                             siblingCount: siblings,
                             warpCursor: warpCursor && store.prefs.warpCursorToWindow)
+    }
+
+    /// Sends the selected window — or every aimed window, while aiming — to a workspace, staying
+    /// where the user is. Windows move with their whole app, so one whose app has other windows
+    /// elsewhere stays put, and the popup says so.
+    private func moveWindows(toWorkspace index: Int) {
+        let windows = model.aimingID != nil ? model.aimedWindows : model.selectedWindow.map { [$0] } ?? []
+        if model.aimingID != nil { endAiming(commit: false) }
+        let spaces = SpacesBridge.shared.userSpaceIDs
+        guard !windows.isEmpty, spaces.indices.contains(index - 1), spaceMover.isAvailable else { return }
+
+        let result = spaceMover.move(windows, to: spaces[index - 1], queue: model.windows)
+        if let kept = result.leftBehind.first {
+            let others = result.leftBehind.count > 1 ? " and \(result.leftBehind.count - 1) more" : ""
+            toast?.show(title: "\(kept.appName) stayed here\(others)",
+                        subtitle: "Its app has windows on other workspaces, and moves as a whole",
+                        beside: kept.id)
+        } else if let first = windows.first {
+            toast?.show(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows",
+                        subtitle: "Moved to workspace \(index)", beside: first.id)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.enumerator?.refresh()
+        }
     }
 
     /// Changes workspace using the configured strategy, falling back through the others.

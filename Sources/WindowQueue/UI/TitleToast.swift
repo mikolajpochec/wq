@@ -47,9 +47,14 @@ final class ToastController {
     /// - Parameter pinned: keep the popup up instead of hiding it after the configured delay, for
     ///   as long as the icon is held.
     func show(_ window: ManagedWindow, pinned: Bool = false) {
+        show(title: window.displayTitle, subtitle: window.appName, beside: window.id, pinned: pinned)
+    }
+
+    /// A popup with any text, placed beside a window's icon.
+    func show(title: String, subtitle: String, beside windowID: CGWindowID, pinned: Bool = false) {
         guard store.prefs.toastEnabled else { return }
 
-        let view = ToastView(title: window.displayTitle, subtitle: window.appName)
+        let view = ToastView(title: title, subtitle: subtitle)
         let hosting: NSHostingView<ToastView>
         if let existing = self.hosting {
             hosting = existing
@@ -74,7 +79,7 @@ final class ToastController {
         // Already on screen — while an icon is being dragged this is called on every slot change,
         // so move it rather than fading it in again.
         let wasVisible = panel.isVisible && panel.alphaValue > 0
-        panel.setFrame(NSRect(origin: position(for: clamped, windowID: window.id), size: clamped),
+        panel.setFrame(NSRect(origin: position(for: clamped, windowID: windowID), size: clamped),
                        display: true)
 
         if wasVisible {

@@ -109,6 +109,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case closeWindow
     case search
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
+    case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
+    case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
 
     var id: String { rawValue }
 
@@ -123,7 +125,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .sortByWorkspace: return "Sort queue by workspace"
         case .closeWindow: return "Close selected window"
         case .search: return "Search windows"
-        default: return "Switch to workspace \(spaceIndex ?? 0)"
+        default:
+            if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
+            return "Switch to workspace \(spaceIndex ?? 0)"
         }
     }
 
@@ -131,6 +135,16 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     var spaceIndex: Int? {
         guard rawValue.hasPrefix("space") else { return nil }
         return Int(rawValue.dropFirst("space".count))
+    }
+
+    /// 1-based workspace index for the `moveToSpaceN` cases, nil for every other action.
+    var moveSpaceIndex: Int? {
+        guard rawValue.hasPrefix("moveToSpace") else { return nil }
+        return Int(rawValue.dropFirst("moveToSpace".count))
+    }
+
+    static var moveToSpaceActions: [HotkeyAction] {
+        allCases.filter { $0.moveSpaceIndex != nil }
     }
 
     static var queueActions: [HotkeyAction] {
@@ -157,6 +171,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+            if let move = moveSpaceIndex {
+                return KeyCombo(keyCode: digits[move - 1], modifiers: superMask | shift)
+            }
             let index = (spaceIndex ?? 1) - 1
             return KeyCombo(keyCode: digits[index], modifiers: superMask)
         }
