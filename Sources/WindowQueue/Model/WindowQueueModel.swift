@@ -152,6 +152,11 @@ final class WindowQueueModel: ObservableObject {
     /// Merges a freshly enumerated set of windows into the queue, preserving existing order.
     func reconcile(with discovered: [ManagedWindow]) {
         let discoveredByID = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
+        // If the selected window is about to disappear, where it was decides what comes next.
+        let previousOrder = windows.map(\.id)
+        let vanishedSelection = selectedID.flatMap { id in
+            discoveredByID[id] == nil ? windows.first { $0.id == id } : nil
+        }
         var next: [ManagedWindow] = []
 
         for existing in windows {
@@ -192,6 +197,9 @@ final class WindowQueueModel: ObservableObject {
         guard next != windows else { return }
         windows = next
         if autoSortByWorkspace { sortByWorkspace() }
+        if let vanished = vanishedSelection {
+            followVanishedSelection(vanished, previousOrder: previousOrder)
+        }
         clampSelection()
     }
 
@@ -318,6 +326,31 @@ final class WindowQueueModel: ObservableObject {
 
     /// Groups the queue by workspace, in Mission Control order.
     ///
+    /// The selected window closed. On the workspace the user is looking at, the selection moves to
+    /// the nearest window left there, or to an empty slot when there is none — never to a window
+    /// out of sight on another workspace.
+    private func followVanishedSelection(_ vanished: ManagedWindow, previousOrder: [CGWindowID]) {
+        guard let space = vanished.spaceID, space == currentSpaceID else { return }
+        if let nearest = nearestWindow(on: space, to: vanished.id, in: previousOrder) {
+            selectedID = nearest.id
+        } else {
+            showEmptySlot(for: space)
+        }
+    }
+
+    /// The window on `space` closest in `order` to where `id` sits, `id` itself excluded.
+    func nearestWindow(on space: UInt64, to id: CGWindowID, in order: [CGWindowID],
+                       excluding excluded: Set<CGWindowID> = []) -> ManagedWindow? {
+        guard let origin = order.firstIndex(of: id) else { return nil }
+        return visibleWindows
+            .filter { $0.id != id && $0.spaceID == space && !$0.isMinimized && !excluded.contains($0.id) }
+            .min { left, right in
+                let leftDistance = order.firstIndex(of: left.id).map { abs($0 - origin) } ?? .max
+                let rightDistance = order.firstIndex(of: right.id).map { abs($0 - origin) } ?? .max
+                return leftDistance < rightDistance
+            }
+    }
+
     /// Leaves the user on a workspace with no windows: nothing selected, and a marker where that
     /// workspace's windows would sit in the queue.
     func showEmptySlot(for space: UInt64) {

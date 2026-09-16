@@ -474,7 +474,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func close(_ window: ManagedWindow) {
         // Hand the selection to a neighbour up front: the window is about to stop existing, and
         // otherwise the selection would fall back to the top of the queue when it does.
-        let successor = model.neighbour(after: window.id)
+        // On the workspace in view, only a window that is also here can take over; with none left
+        // the strip falls back to an empty slot once the window is gone.
+        let onCurrentSpace = window.spaceID != nil && window.spaceID == model.currentSpaceID
+        let successor = onCurrentSpace
+            ? window.spaceID.flatMap { model.nearestWindow(on: $0, to: window.id, in: model.windows.map(\.id)) }
+            : model.neighbour(after: window.id)
 
         WindowCloser.close(window,
                            workspaceIndex: model.workspaceNumber(of: window),
@@ -538,16 +543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// has nothing left, leaves the strip showing an empty slot there.
     private func selectNearestRemaining(to id: CGWindowID, in order: [CGWindowID], on space: UInt64,
                                         excluding moved: Set<CGWindowID>) {
-        guard let origin = order.firstIndex(of: id) else { return }
-        let candidates = model.visibleWindows.filter {
-            $0.spaceID == space && !moved.contains($0.id) && !$0.isMinimized
-        }
-        let nearest = candidates.min { left, right in
-            let leftDistance = order.firstIndex(of: left.id).map { abs($0 - origin) } ?? .max
-            let rightDistance = order.firstIndex(of: right.id).map { abs($0 - origin) } ?? .max
-            return leftDistance < rightDistance
-        }
-        if let nearest {
+        if let nearest = model.nearestWindow(on: space, to: id, in: order, excluding: moved) {
             model.select(id: nearest.id, announce: false)
             focus(nearest)
         } else {
