@@ -623,6 +623,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ]
             guard let name = words.dropFirst().first, let key = keys[name], model.aimingID != nil else { return }
             handleAimingPress(.init(key: key, extends: words.contains("shift"), moves: words.contains("move")))
+        case "focus":
+            guard let id = words.dropFirst().first.flatMap({ CGWindowID($0) }),
+                  let window = model.windows.first(where: { $0.id == id }) else { return }
+            model.select(id: id, announce: true)
+            focus(window)
         case "refresh":
             enumerator?.refresh()
         case "dump":

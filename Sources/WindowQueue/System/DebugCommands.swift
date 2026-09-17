@@ -41,7 +41,11 @@ final class DebugCommands {
         lines.append("emptySlot \(model.emptySlot.map { "space=\($0.spaceID) before=\($0.beforeID.map(String.init) ?? "end")" } ?? "nil")")
         lines.append("autoSort \(model.autoSortByWorkspace)")
         let front = NSWorkspace.shared.frontmostApplication
-        lines.append("frontmost \(front?.localizedName ?? "nil") pid \(front?.processIdentifier ?? -1)")
+        let focused = front.flatMap {
+            AXPrivate.application($0.processIdentifier).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+        }.flatMap(AXPrivate.windowID(of:))
+        lines.append("frontmost \(front?.localizedName ?? "nil") pid \(front?.processIdentifier ?? -1) focusedWindow \(focused.map(String.init) ?? "nil")")
+        lines.append("pointer \(NSEvent.mouseLocation)")
         let serverSpaces = SpacesBridge.shared.spaces(forWindows: model.windows.map(\.id))
         for window in model.windows {
             let workspace = model.workspaceNumber(of: window).map(String.init) ?? "-"

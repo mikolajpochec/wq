@@ -28,8 +28,11 @@ struct ManagedWindow: Identifiable, Equatable {
         title.isEmpty ? appName : title
     }
 
+    /// The same image object every time for a given app. `NSRunningApplication.icon` hands out a
+    /// fresh one on each call, and SwiftUI takes a new image for a changed one: inside an animated
+    /// reorder, every icon on the strip would cross-fade into itself and blink.
     var icon: NSImage? {
-        NSRunningApplication(processIdentifier: pid)?.icon
+        IconCache.icon(for: pid)
     }
 
     static func == (lhs: ManagedWindow, rhs: ManagedWindow) -> Bool {
@@ -37,5 +40,18 @@ struct ManagedWindow: Identifiable, Equatable {
             && lhs.title == rhs.title
             && lhs.isMinimized == rhs.isMinimized
             && lhs.spaceID == rhs.spaceID
+    }
+}
+
+private enum IconCache {
+    private static var icons: [pid_t: NSImage] = [:]
+
+    static func icon(for pid: pid_t) -> NSImage? {
+        if let cached = icons[pid] { return cached }
+        guard let icon = NSRunningApplication(processIdentifier: pid)?.icon else { return nil }
+        // Process ids are reused, so an app that has gone is not worth remembering.
+        icons = icons.filter { NSRunningApplication(processIdentifier: $0.key) != nil }
+        icons[pid] = icon
+        return icon
     }
 }
