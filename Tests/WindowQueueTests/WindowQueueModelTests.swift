@@ -139,3 +139,14 @@ extension WindowQueueModelTests {
         XCTAssertTrue([1, 3].contains(model.aimingID ?? 0))
     }
 }
+
+extension WindowQueueModelTests {
+    func testCurrentSpaceScopeOnEmptyWorkspaceShowsOnlySlot() {
+        let model = makeModel([window(1, space: 10), window(2, space: 30)])
+        model.scope = .currentSpace
+        model.currentSpaceID = 20
+        XCTAssertTrue(model.visibleWindows.isEmpty)
+        XCTAssertEqual(model.slotPlacement, .end)
+        XCTAssertNil(model.cycle(by: 1))
+    }
+}

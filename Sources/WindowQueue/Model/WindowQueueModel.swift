@@ -64,8 +64,10 @@ final class WindowQueueModel: ObservableObject {
             return Array(windows.indices)
         }
         let filtered = windows.indices.filter { windows[$0].spaceID == current }
-        // A workspace we cannot resolve should not blank the strip out entirely.
-        return filtered.isEmpty ? Array(windows.indices) : filtered
+        // A workspace we cannot resolve — a fullscreen space, or one not read yet — should not blank
+        // the strip out entirely. A desktop that is simply empty shows nothing but its empty slot.
+        guard filtered.isEmpty, !spaceOrder.contains(current) else { return filtered }
+        return Array(windows.indices)
     }
 
     var aimedWindow: ManagedWindow? {
