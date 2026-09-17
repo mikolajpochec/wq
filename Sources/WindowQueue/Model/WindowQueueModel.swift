@@ -22,7 +22,6 @@ final class WindowQueueModel: ObservableObject {
             guard currentSpaceID != oldValue else { return }
             // The marker belongs to one workspace; leaving it takes the marker away, and arriving
             // on another empty one puts it back there.
-            if let emptySlot, currentSpaceID != emptySlot.spaceID { self.emptySlot = nil }
             updateEmptySlot(clearingSelection: true)
         }
     }
@@ -201,6 +200,7 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        keepAimOnQueue(previousOrder: previousOrder)
         if autoSortByWorkspace { sortByWorkspace() }
         if let vanished = vanishedSelection {
             followVanishedSelection(vanished, previousOrder: previousOrder)
@@ -232,6 +232,20 @@ final class WindowQueueModel: ObservableObject {
             return
         }
         selectedID = visibleWindows.first?.id
+    }
+
+    /// A window that closes while it is aimed at hands the aim to its nearest neighbour, and a run
+    /// whose anchor closed carries on from where the aim is.
+    private func keepAimOnQueue(previousOrder: [CGWindowID]) {
+        let present = Set(windows.map(\.id))
+        if let anchor = aimAnchorID, !present.contains(anchor) { aimAnchorID = nil }
+        guard let aim = aimingID, !present.contains(aim), let origin = previousOrder.firstIndex(of: aim) else { return }
+        let visible = Set(visibleWindows.map(\.id))
+        let nearest = previousOrder.enumerated()
+            .filter { visible.contains($0.element) }
+            .min { abs($0.offset - origin) < abs($1.offset - origin) }
+        aimingID = nearest?.element ?? visibleWindows.first?.id
+        if aimAnchorID == aimingID { aimAnchorID = nil }
     }
 
     // MARK: - Selection
@@ -369,7 +383,8 @@ final class WindowQueueModel: ObservableObject {
         let occupied = windows.contains { $0.spaceID == current && !$0.isMinimized }
 
         if occupied {
-            guard emptySlot?.spaceID == current else { return }
+            // Arriving from an empty workspace, or a window turning up on this one.
+            guard emptySlot != nil else { return }
             emptySlot = nil
             if selectedID == nil {
                 selectedID = visibleWindows.first { $0.spaceID == current && !$0.isMinimized }?.id

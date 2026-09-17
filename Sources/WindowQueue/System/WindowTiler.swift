@@ -8,6 +8,15 @@ struct TileLayout: Identifiable, Equatable {
 
     var id: String { name }
 
+    /// The same arrangement whatever the count: "Side by side" for two is "Columns" for three.
+    var kind: String {
+        switch name {
+        case "Side by side": return "Columns"
+        case "Stacked": return "Rows"
+        default: return name
+        }
+    }
+
     /// The arrangements that make sense for this many windows, most useful first.
     static func options(for count: Int) -> [TileLayout] {
         guard count >= 2 else { return [] }

@@ -32,8 +32,9 @@ final class OverlayPanel: NSPanel {
 private final class HoverHostingView<Content: View>: NSHostingView<Content> {
     /// Pointer position in this view's coordinates, or nil once it leaves.
     var onPointerMoved: ((NSPoint?) -> Void)?
-    /// Raw wheel travel, positive downwards.
-    var onScroll: ((CGFloat) -> Void)?
+    /// Wheel travel, positive downwards, and whether it came in points (a trackpad or a smooth
+    /// wheel) rather than whole notches.
+    var onScroll: ((CGFloat, Bool) -> Void)?
     /// Middle click at a position in this view's coordinates.
     var onMiddleClick: ((NSPoint) -> Void)?
 
@@ -71,7 +72,7 @@ private final class HoverHostingView<Content: View>: NSHostingView<Content> {
         // sideways swipe counts too, which suits a strip that runs across the screen.
         let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
             ? event.scrollingDeltaX : event.scrollingDeltaY
-        onScroll?(-delta)
+        onScroll?(-delta, event.hasPreciseScrollingDeltas)
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -299,7 +300,7 @@ final class StripController {
             guard let self, let strip else { return }
             self.pointerMoved(to: point, in: strip)
         }
-        hosting.onScroll = { [weak self] delta in self?.scrolled(by: delta) }
+        hosting.onScroll = { [weak self] delta, precise in self?.scrolled(by: delta, precise: precise) }
         hosting.onMiddleClick = { [weak self, weak strip] point in
             guard let self, let strip, let window = self.window(at: point, in: strip.hosting) else { return }
             self.onClose(window)
@@ -380,7 +381,13 @@ final class StripController {
 
     /// Turns wheel travel into whole steps through the queue: one icon per row of movement, so the
     /// selection keeps pace with what the strip actually looks like.
-    private func scrolled(by delta: CGFloat) {
+    private func scrolled(by delta: CGFloat, precise: Bool) {
+        // A notched wheel reports a line or so per notch, far short of a row: one notch, one step.
+        guard precise else {
+            scrollTravel = 0
+            if delta != 0 { onScroll(delta > 0 ? 1 : -1) }
+            return
+        }
         let step = StripMetrics.rowHeight(prefs: store.prefs)
         scrollTravel += delta
         let steps = Int(scrollTravel / step)

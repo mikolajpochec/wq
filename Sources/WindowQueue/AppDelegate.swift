@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private lazy var dockReservation = DockReservation(store: store)
     private var terminationSources: [DispatchSourceSignal] = []
+    private var debugCommands: DebugCommands?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DockReservation.shared = dockReservation
@@ -78,6 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model: model,
             store: store,
             onSelect: { [weak self] window in
+                // A click picks a window outright, so it also settles an aim in progress.
+                self?.endAiming(commit: false)
                 self?.model.select(id: window.id, announce: false)
                 self?.focus(window, warpCursor: false)
             },
@@ -124,6 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }
 
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
+        debugCommands = DebugCommands { [weak self] words in self?.runDebugCommand(words) }
+        debugCommands?.start()
         hotkeys.apply(store.prefs)
         RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
 
@@ -194,7 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Aiming mode: move a highlight around the strip without focusing anything, then confirm.
     private func toggleAiming() {
-        guard store.prefs.aimingEnabled else { return }
+        // The finder has the keyboard; a second grab on top of it would leave it deaf to typing.
+        guard store.prefs.aimingEnabled, search?.isOpen != true else { return }
         if model.aimingID != nil {
             // The same tap that opened the mode confirms it, so a switch is one key, twice.
             endAiming(commit: true)
@@ -324,24 +330,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         endAiming(commit: false)
 
         // Everything goes to the workspace of the last aimed window and is tiled there.
-        guard let last = windows.last, let target = last.spaceID,
-              windows.contains(where: { $0.spaceID != target }), spaceMover.isAvailable
-        else {
+        guard let last = windows.last, let target = last.spaceID else {
             finishTiling(windows, layout: layout)
             return
         }
-        let result = spaceMover.move(windows, to: target, queue: model.windows)
-        model.relocate(result.arrived.map(\.id), toSpace: target)
-        if !result.leftBehind.isEmpty {
-            Diagnostics.note("tiling without \(result.leftBehind.map(\.appName)): their apps have other windows elsewhere")
+        var group = windows
+        if windows.contains(where: { $0.spaceID != target }) {
+            if spaceMover.isAvailable {
+                let result = spaceMover.move(windows, to: target, queue: model.windows)
+                model.relocate(result.arrived.map(\.id), toSpace: target)
+                group = result.arrived
+                if !result.leftBehind.isEmpty {
+                    Diagnostics.note("tiling without \(result.leftBehind.map(\.appName)): their apps have other windows elsewhere")
+                }
+            } else {
+                group = windows.filter { $0.spaceID == target }
+            }
+        } else if target == model.currentSpaceID {
+            finishTiling(windows, layout: layout)
+            return
         }
 
-        // Go there, then give the windows that just arrived time to show up in their apps' window
-        // lists, so they have accessibility elements to be tiled through.
+        // Go there, then give the windows time to show up in their apps' window lists: one that
+        // arrived from, or still sits on, a workspace out of view has no accessibility element yet.
         focus(last, warpCursor: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
-            let ready = result.arrived.map { window -> ManagedWindow in
+            let ready = group.map { window -> ManagedWindow in
                 var copy = window
                 copy.element = WindowSpaceMover.element(for: window) ?? window.element
                 return copy
@@ -352,10 +367,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {
-        // A window that did not make it over leaves a smaller group, which gets its own layout.
+        // Only windows with an element can be placed; the layout is picked for the ones that can,
+        // so a window that could not be reached does not leave a hole.
+        let windows = windows.filter { $0.element != nil }
         let layout = windows.count == layout.frames.count
             ? layout
-            : TileLayout.options(for: windows.count).first { $0.name == layout.name }
+            : TileLayout.options(for: windows.count).first { $0.kind == layout.kind }
                 ?? TileLayout.options(for: windows.count).first
         guard let layout else { return }
         let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea())
@@ -454,6 +471,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Scrolling moves the selection immediately but defers focusing: spinning through the queue
     /// would otherwise fire a burst of app activations and workspace switches on the way past.
     private func scrolled(by steps: Int) {
+        // While aiming, the wheel moves the aim like the cycle shortcuts do, focusing nothing.
+        if model.aimingID != nil {
+            for _ in 0..<abs(steps) {
+                handleAimingPress(.init(key: steps > 0 ? .forward : .back, extends: false, moves: false))
+            }
+            return
+        }
         guard model.cycle(by: steps) != nil else { return }
         scrollFocusWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -580,6 +604,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
         model.currentSpaceIsFullscreen = SpacesBridge.shared.isCurrentSpaceFullscreen
         model.spaceOrder = SpacesBridge.shared.userSpaceIDs
+    }
+
+    // MARK: - Debug commands
+
+    private func runDebugCommand(_ words: [String]) {
+        guard let verb = words.first else { return }
+        Diagnostics.note("debug command: \(words.joined(separator: " "))")
+        switch verb {
+        case "action":
+            if let name = words.dropFirst().first, let action = HotkeyAction(rawValue: name) { perform(action) }
+        case "aim":
+            toggleAiming()
+        case "aimkey":
+            let keys: [String: AimingKeyCapture.Key] = [
+                "up": .up, "down": .down, "left": .left, "right": .right, "back": .back,
+                "forward": .forward, "enter": .enter, "space": .space, "cancel": .cancel,
+            ]
+            guard let name = words.dropFirst().first, let key = keys[name], model.aimingID != nil else { return }
+            handleAimingPress(.init(key: key, extends: words.contains("shift"), moves: words.contains("move")))
+        case "refresh":
+            enumerator?.refresh()
+        case "dump":
+            DebugCommands.writeState(model)
+        default:
+            break
+        }
     }
 
     // MARK: - Status item
