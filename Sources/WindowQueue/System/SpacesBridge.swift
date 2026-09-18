@@ -151,6 +151,14 @@ final class SpacesBridge {
         return display.userSpaces[position].id
     }
 
+    /// Space id of the 1-based desktop index counted across every display, which is how the queue
+    /// numbers workspaces.
+    func userSpaceID(atIndex index: Int) -> UInt64? {
+        let all = allUserSpaces()
+        guard all.indices.contains(index - 1) else { return nil }
+        return all[index - 1].id
+    }
+
     /// Space ids of every desktop, in Mission Control order.
     var userSpaceIDs: [UInt64] {
         allUserSpaces().map(\.id)

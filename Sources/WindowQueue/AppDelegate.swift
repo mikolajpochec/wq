@@ -580,6 +580,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
             if focusWindow(onSpaceIndex: index) { return }
+            // Nothing to focus there: carry a window of our own over instead, and only fall back to
+            // the system shortcut if that is unavailable.
+            if let space = SpacesBridge.shared.userSpaceID(atIndex: index),
+               SpaceSwitcher.jump(toSpace: space) { return }
             SpaceSwitcher.sendSystemShortcut(index: index)
         case .systemShortcut:
             SpaceSwitcher.sendSystemShortcut(index: index)
@@ -590,7 +594,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Activating a window that already lives on a workspace makes macOS animate over to it.
     private func focusWindow(onSpaceIndex index: Int) -> Bool {
-        guard let target = SpacesBridge.shared.spaceID(atIndex: index) else { return false }
+        // Counted across displays, like the numbers the strip shows and the move shortcuts use.
+        guard let target = SpacesBridge.shared.userSpaceID(atIndex: index) else { return false }
         let candidates = model.windows.filter { $0.spaceID == target && !$0.isMinimized }
         guard let window = candidates.first(where: { $0.id == model.selectedID }) ?? candidates.first
         else { return false }
