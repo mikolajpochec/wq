@@ -95,16 +95,18 @@ enum WindowFocuser {
     private static let processForPID = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "GetProcessForPID")
         .map { unsafeBitCast($0, to: PSNForPIDFn.self) }
 
-    /// `kCPSNoWindows`: make the process frontmost without ordering any of its windows forward.
-    private static let noWindowsMode: UInt32 = 0x400
+    /// `kCPSUserGenerated`: bring the process to the front as a user action would, without asking
+    /// it to order its windows forward. `kCPSNoWindows` looks like the better fit, but leaves the app
+    /// only half active: its window draws as focused while the keyboard stays with the old app.
+    private static let userGeneratedMode: UInt32 = 0x200
 
     /// Gives a window keyboard focus where it lies, without bringing it in front of anything.
     ///
     /// There is no public way to do this: activating an app raises its windows. The WindowServer
-    /// can make a process frontmost with no windows, and then be told which window is key through
-    /// the same synthesized event records it uses internally — the technique yabai and AutoRaise
-    /// use. The previously focused window gets the matching "resign key" record so it stops
-    /// drawing itself as active.
+    /// can make a process frontmost without reordering anything, and then be told which window is
+    /// key through the same synthesized event records it uses internally — the sequence yabai and
+    /// AutoRaise use. Within one app, the window that had focus is told to resign it first, since
+    /// the app is already in front and would otherwise keep drawing both as active.
     ///
     /// - Returns: false when the private symbols are missing, so the caller can fall back to an
     ///   ordinary raise.
@@ -114,21 +116,19 @@ enum WindowFocuser {
         var target = ProcessSerialNumber()
         guard processForPID(window.pid, &target) == 0 else { return false }
 
-        if let front = NSWorkspace.shared.frontmostApplication,
+        if let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier == window.pid,
            let focused = AXPrivate.application(front.processIdentifier)
                .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                .flatMap(AXPrivate.windowID(of:)),
            focused != window.id {
-            var previous = ProcessSerialNumber()
-            if processForPID(front.processIdentifier, &previous) == 0 {
-                var record = eventRecord(windowID: focused, kind: 0x02)
-                _ = postEventRecord(&previous, &record)
-            }
+            var resign = focusRecord(windowID: focused, kind: 0x02)
+            _ = postEventRecord(&target, &resign)
+            var gain = focusRecord(windowID: window.id, kind: 0x01)
+            _ = postEventRecord(&target, &gain)
         }
 
-        guard setFrontProcess(&target, window.id, noWindowsMode) == 0 else { return false }
-        var record = eventRecord(windowID: window.id, kind: 0x01)
-        _ = postEventRecord(&target, &record)
+        guard setFrontProcess(&target, window.id, userGeneratedMode) == 0 else { return false }
+        makeKeyWindow(window.id, process: &target, post: postEventRecord)
         Diagnostics.note("focus without raise \(window.appName) id=\(window.id)")
         if Diagnostics.isEnabled {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -143,16 +143,34 @@ enum WindowFocuser {
         return true
     }
 
-    /// 0x01 makes the window key, 0x02 makes it resign.
-    private static func eventRecord(windowID: CGWindowID, kind: UInt8) -> [UInt8] {
+    /// Focus handed between two windows of the app in front: 0x01 gains it, 0x02 resigns it.
+    private static func focusRecord(windowID: CGWindowID, kind: UInt8) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 0xf8)
         bytes[0x04] = 0xf8
         bytes[0x08] = 0x0d
         bytes[0x8a] = kind
+        write(windowID, into: &bytes)
+        return bytes
+    }
+
+    /// The pair of records that makes a window key in its now-frontmost process.
+    private static func makeKeyWindow(_ windowID: CGWindowID, process: inout ProcessSerialNumber,
+                                      post: PostRecordFn) {
+        for phase: UInt8 in [0x01, 0x02] {
+            var bytes = [UInt8](repeating: 0, count: 0xf8)
+            bytes[0x04] = 0xf8
+            bytes[0x08] = phase
+            bytes[0x3a] = 0x10
+            for offset in 0x20..<0x30 { bytes[offset] = 0xff }
+            write(windowID, into: &bytes)
+            _ = post(&process, &bytes)
+        }
+    }
+
+    private static func write(_ windowID: CGWindowID, into bytes: inout [UInt8]) {
         withUnsafeBytes(of: windowID) { raw in
             for offset in 0..<4 { bytes[0x3c + offset] = raw[offset] }
         }
-        return bytes
     }
 
     /// - Returns: whether the element still accepted the raise. A cached element goes stale when
