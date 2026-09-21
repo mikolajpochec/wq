@@ -54,6 +54,22 @@ enum WindowFocuser {
         // pointer goes there with the key press rather than after the focus has been confirmed.
         if warpCursor { warp(to: window) }
 
+        // Activating an app only takes macOS to its workspace when "switch to a Space with open
+        // windows for the application" is on, and many people turn it off. So a window on another
+        // desktop is travelled to first, and brought forward once the switch is under way.
+        if let space = window.spaceID,
+           let current = SpacesBridge.shared.currentSpaceID, space != current,
+           SpacesBridge.shared.userSpaceIDs.contains(space),
+           SpaceSwitcher.jump(toSpace: space, then: {
+               guard token == generation else { return }
+               bringForward(window, workspaceIndex: workspaceIndex, token: token)
+           }) {
+            return
+        }
+        bringForward(window, workspaceIndex: workspaceIndex, token: token)
+    }
+
+    private static func bringForward(_ window: ManagedWindow, workspaceIndex: Int?, token: UInt64) {
         let appElement = AXPrivate.application(window.pid)
         if let element = window.element,
            raise(element, appElement: appElement, wasMinimized: window.isMinimized) {

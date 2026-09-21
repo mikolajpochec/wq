@@ -42,8 +42,10 @@ enum SpaceSwitcher {
     ///
     /// The panel is ordered out again straight away, and WindowQueue steps back so the workspace is
     /// left the way arriving there by hand leaves it.
+    /// - Parameter arrived: called once the switch has been set off, in place of stepping back —
+    ///   whoever is being focused there takes over from the carrier.
     @discardableResult
-    static func jump(toSpace spaceID: UInt64) -> Bool {
+    static func jump(toSpace spaceID: UInt64, then arrived: (() -> Void)? = nil) -> Bool {
         guard let addWindows, let removeWindows, connectionID != 0 else { return false }
         let panel = carrier
         panel.orderFront(nil)
@@ -60,6 +62,13 @@ enum SpaceSwitcher {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
+            if let arrived {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    arrived()
+                    panel.orderOut(nil)
+                }
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 panel.orderOut(nil)
                 NSApp.deactivate()
