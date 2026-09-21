@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
             return (frame, strip.side)
         }
+        toast.everyAnchorProvider = { [weak strip] id in strip?.rowFramesOnEveryStrip(for: id) ?? [] }
 
         modifierTaps.modifiers = store.prefs.superModifier.eventFlags
         modifierTaps.onTap = { [weak self] in self?.toggleAiming() }
@@ -210,11 +211,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func beginAiming() {
-        guard !model.visibleWindows.isEmpty else { return }
+        guard !model.visibleWindows.isEmpty else {
+            Diagnostics.note("aiming: nothing to aim at")
+            return
+        }
         let aimed = model.beginAiming()
+        Diagnostics.note("aiming: begin at \(aimed.map { "\($0.appName) \($0.id)" } ?? "nil")")
         aimingKeys.begin()
         dimOverlay?.show()
-        if let aimed { toast?.show(aimed, pinned: true) }
+        if let aimed { toast?.show(aimed, pinned: true, everywhere: true) }
     }
 
     private func endAiming(commit: Bool) {
@@ -320,7 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tilingMenu.update(for: aimed)
         } else {
             tilingMenu.hide()
-            if let window = aimed.first { toast?.show(window, pinned: true) }
+            if let window = aimed.first { toast?.show(window, pinned: true, everywhere: true) }
         }
     }
 

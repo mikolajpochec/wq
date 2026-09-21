@@ -413,9 +413,20 @@ final class StripController {
 
     /// Screen-space rect of one window's row, so the toast can point at that icon.
     func rowFrame(for id: CGWindowID) -> NSRect? {
-        guard let strip = anchorStrip,
-              let index = model.visibleWindows.firstIndex(where: { $0.id == id })
-        else { return nil }
+        guard let strip = anchorStrip else { return nil }
+        return rowFrame(for: id, in: strip)
+    }
+
+    /// The window's row on every strip on screen, the popup's own strip first.
+    func rowFramesOnEveryStrip(for id: CGWindowID) -> [NSRect] {
+        let anchor = anchorStrip
+        let others = strips.values.filter { $0.panel.isVisible && $0 !== anchor }
+            .sorted { $0.screen.frame.minX < $1.screen.frame.minX }
+        return ([anchor].compactMap { $0 } + others).compactMap { rowFrame(for: id, in: $0) }
+    }
+
+    private func rowFrame(for id: CGWindowID, in strip: ScreenStrip) -> NSRect? {
+        guard let index = model.visibleWindows.firstIndex(where: { $0.id == id }) else { return nil }
         let panel = strip.panel.frame
         let prefs = store.prefs
         let start = contentStart(inPanelLength: mainLength(of: panel))

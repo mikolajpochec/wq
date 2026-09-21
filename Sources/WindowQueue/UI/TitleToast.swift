@@ -28,12 +28,26 @@ private struct ToastView: View {
 }
 
 /// Transient popup showing the name of the window that was just selected.
+///
+/// Usually one bubble beside the strip the user is looking at. While aiming, the aimed window's name
+/// is shown beside every strip, since the aim is on all of them at once.
 final class ToastController {
+    /// One popup window. Built once and updated in place: while an icon is dragged this is
+    /// refreshed on every slot change, and rebuilding the hosting view each time is what makes a
+    /// press feel sluggish.
+    private final class Bubble {
+        let panel: OverlayPanel
+        let hosting: NSHostingView<ToastView>
+
+        init(view: ToastView) {
+            hosting = NSHostingView(rootView: view)
+            panel = OverlayPanel(contentRect: NSRect(origin: .zero, size: hosting.fittingSize))
+            panel.contentView = hosting
+        }
+    }
+
     private let store: PreferencesStore
-    private var panel: OverlayPanel?
-    /// Built once and updated in place: while an icon is dragged this is refreshed on every slot
-    /// change, and rebuilding the hosting view each time is what makes a press feel sluggish.
-    private var hosting: NSHostingView<ToastView>?
+    private var bubbles: [Bubble] = []
     private var hideWorkItem: DispatchWorkItem?
     /// Bumped by every show, so a fade-out already under way does not take down a newer popup.
     private var generation = 0
@@ -41,49 +55,56 @@ final class ToastController {
     /// Supplies the on-screen rect of a window's row in the strip, so the toast appears right
     /// beside the icon it describes rather than in the middle of the strip.
     var anchorProvider: ((CGWindowID) -> (frame: NSRect, side: StripSide)?)?
+    /// The window's row on every strip on screen, for a popup shown beside each of them.
+    var everyAnchorProvider: ((CGWindowID) -> [NSRect])?
 
     init(store: PreferencesStore) {
         self.store = store
     }
 
-    /// - Parameter pinned: keep the popup up instead of hiding it after the configured delay, for
-    ///   as long as the icon is held.
-    func show(_ window: ManagedWindow, pinned: Bool = false) {
-        show(title: window.displayTitle, subtitle: window.appName, beside: window.id, pinned: pinned)
+    /// - Parameters:
+    ///   - pinned: keep the popup up instead of hiding it after the configured delay, for as long
+    ///     as the icon is held.
+    ///   - everywhere: beside every strip on screen rather than only the one in use.
+    func show(_ window: ManagedWindow, pinned: Bool = false, everywhere: Bool = false) {
+        show(title: window.displayTitle, subtitle: window.appName, beside: window.id,
+             pinned: pinned, everywhere: everywhere)
     }
 
     /// A popup with any text, placed beside a window's icon.
-    func show(title: String, subtitle: String, beside windowID: CGWindowID, pinned: Bool = false) {
+    func show(title: String, subtitle: String, beside windowID: CGWindowID,
+              pinned: Bool = false, everywhere: Bool = false) {
         guard store.prefs.toastEnabled else { return }
+        generation += 1
+
+        let side = store.prefs.stripSide
+        var anchors: [NSRect?] = [anchorProvider?(windowID)?.frame]
+        if everywhere, let all = everyAnchorProvider?(windowID), !all.isEmpty { anchors = all }
 
         let view = ToastView(title: title, subtitle: subtitle)
-        let hosting: NSHostingView<ToastView>
-        if let existing = self.hosting {
-            hosting = existing
-            hosting.rootView = view
-        } else {
-            hosting = NSHostingView(rootView: view)
-            self.hosting = hosting
+        while bubbles.count < anchors.count { bubbles.append(Bubble(view: view)) }
+
+        for (bubble, anchor) in zip(bubbles, anchors) {
+            bubble.hosting.rootView = view
+            let size = bubble.hosting.fittingSize
+            let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
+            present(bubble, at: NSRect(origin: position(for: clamped, anchor: anchor, side: side), size: clamped))
         }
+        // Bubbles for strips this popup does not point from.
+        for bubble in bubbles.dropFirst(anchors.count) { bubble.panel.orderOut(nil) }
 
-        let size = hosting.fittingSize
-        let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
+        guard !pinned else { return }
+        scheduleHide(after: store.prefs.toastDuration)
+    }
 
-        let panel: OverlayPanel
-        if let existing = self.panel {
-            panel = existing
-        } else {
-            panel = OverlayPanel(contentRect: NSRect(origin: .zero, size: clamped))
-            panel.contentView = hosting
-            self.panel = panel
-        }
-
-        generation += 1
+    private func present(_ bubble: Bubble, at frame: NSRect) {
+        let panel = bubble.panel
         // Already on screen — while an icon is being dragged this is called on every slot change,
         // so move it rather than fading it in again.
         let wasVisible = panel.isVisible && panel.alphaValue > 0
-        panel.setFrame(NSRect(origin: position(for: clamped, windowID: windowID), size: clamped),
-                       display: true)
+        panel.setFrame(frame, display: true)
 
         if wasVisible {
             panel.orderFrontRegardless()
@@ -103,16 +124,11 @@ final class ToastController {
                 panel.animator().alphaValue = 1
             }
         }
-
-        hideWorkItem?.cancel()
-        hideWorkItem = nil
-        guard !pinned else { return }
-        scheduleHide(after: store.prefs.toastDuration)
     }
 
     /// Ends a pinned popup, leaving it up briefly so the final position is readable.
     func endHold() {
-        guard panel != nil else { return }
+        guard !bubbles.isEmpty else { return }
         scheduleHide(after: min(store.prefs.toastDuration, 0.6))
     }
 
@@ -123,13 +139,12 @@ final class ToastController {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
-    private func position(for size: NSSize, windowID: CGWindowID) -> NSPoint {
+    private func position(for size: NSSize, anchor: NSRect?, side: StripSide) -> NSPoint {
         let margin: CGFloat = 8
-        let anchor = anchorProvider?(windowID)
         // Clamp to the screen the icon is on, which with a strip on every monitor need not be the
         // main one.
         let screen = anchor.flatMap { anchor in
-            NSScreen.screens.first { $0.frame.intersects(anchor.frame) }
+            NSScreen.screens.first { $0.frame.intersects(anchor) }
         } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
 
@@ -138,15 +153,15 @@ final class ToastController {
         }
 
         // Beside the icon, on the screen side of the strip, and kept on screen near the ends.
-        let clampedY = min(max(anchor.frame.midY - size.height / 2, visible.minY + margin),
+        let clampedY = min(max(anchor.midY - size.height / 2, visible.minY + margin),
                            visible.maxY - size.height - margin)
-        let clampedX = min(max(anchor.frame.midX - size.width / 2, visible.minX + margin),
+        let clampedX = min(max(anchor.midX - size.width / 2, visible.minX + margin),
                            visible.maxX - size.width - margin)
-        switch anchor.side {
-        case .left: return NSPoint(x: anchor.frame.maxX + margin, y: clampedY)
-        case .right: return NSPoint(x: anchor.frame.minX - size.width - margin, y: clampedY)
-        case .top: return NSPoint(x: clampedX, y: anchor.frame.minY - size.height - margin)
-        case .bottom: return NSPoint(x: clampedX, y: anchor.frame.maxY + margin)
+        switch side {
+        case .left: return NSPoint(x: anchor.maxX + margin, y: clampedY)
+        case .right: return NSPoint(x: anchor.minX - size.width - margin, y: clampedY)
+        case .top: return NSPoint(x: clampedX, y: anchor.minY - size.height - margin)
+        case .bottom: return NSPoint(x: clampedX, y: anchor.maxY + margin)
         }
     }
 
@@ -154,19 +169,20 @@ final class ToastController {
     func hideNow() {
         hideWorkItem?.cancel()
         hideWorkItem = nil
-        panel?.orderOut(nil)
+        bubbles.forEach { $0.panel.orderOut(nil) }
     }
 
     private func hide() {
-        guard let panel else { return }
         let fading = generation
+        let panels = bubbles.map(\.panel).filter(\.isVisible)
+        guard !panels.isEmpty else { return }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.18
-            panel.animator().alphaValue = 0
+            panels.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: { [weak self] in
             // Shown again while fading: that popup is the one on screen now.
             guard self?.generation == fading else { return }
-            panel.orderOut(nil)
+            panels.forEach { $0.orderOut(nil) }
         })
     }
 }
