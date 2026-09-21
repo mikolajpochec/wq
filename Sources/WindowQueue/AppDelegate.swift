@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var dockReservation = DockReservation(store: store)
     private var terminationSources: [DispatchSourceSignal] = []
     private var debugCommands: DebugCommands?
+    private lazy var mouseButtons = MouseButtonTap(store: store)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DockReservation.shared = dockReservation
@@ -128,6 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }
 
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
+        mouseButtons.onAction = { [weak self] action in self?.perform(action) }
+        mouseButtons.start()
         debugCommands = DebugCommands { [weak self] words in self?.runDebugCommand(words) }
         debugCommands?.start()
         hotkeys.apply(store.prefs)

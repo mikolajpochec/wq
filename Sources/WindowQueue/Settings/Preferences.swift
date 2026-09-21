@@ -180,6 +180,40 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// What a side mouse button does.
+enum MouseButtonAction: String, Codable, CaseIterable, Identifiable {
+    /// Left alone for the app under the pointer, e.g. a browser's back and forward.
+    case passThrough
+    case previousWindow, nextWindow
+    case moveEarlier, moveLater
+    case search
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .passThrough: return "Do nothing (leave to the app)"
+        case .previousWindow: return "Previous window  ( [ )"
+        case .nextWindow: return "Next window  ( ] )"
+        case .moveEarlier: return "Move window earlier"
+        case .moveLater: return "Move window later"
+        case .search: return "Search windows"
+        }
+    }
+
+    /// The shortcut it stands in for, which also carries its meaning in aiming mode.
+    var hotkeyAction: HotkeyAction? {
+        switch self {
+        case .passThrough: return nil
+        case .previousWindow: return .cyclePrevious
+        case .nextWindow: return .cycleNext
+        case .moveEarlier: return .moveLeft
+        case .moveLater: return .moveRight
+        case .search: return .search
+        }
+    }
+}
+
 struct Preferences: Codable, Equatable {
     var scope: QueueScope = .global
     var superModifier: SuperModifier = .option
@@ -235,6 +269,10 @@ struct Preferences: Codable, Equatable {
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
 
+    /// The mouse's back and forward side buttons.
+    var mouseBackButton: MouseButtonAction = .previousWindow
+    var mouseForwardButton: MouseButtonAction = .nextWindow
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -274,6 +312,8 @@ struct Preferences: Codable, Equatable {
         trimWindowsOutsideReservation = value(.trimWindowsOutsideReservation, defaults.trimWindowsOutsideReservation)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
+        mouseBackButton = value(.mouseBackButton, defaults.mouseBackButton)
+        mouseForwardButton = value(.mouseForwardButton, defaults.mouseForwardButton)
     }
 
     init() {}
