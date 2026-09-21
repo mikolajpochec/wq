@@ -110,6 +110,16 @@ enum WindowFocuser {
         var record = eventRecord(windowID: window.id, kind: 0x01)
         _ = postEventRecord(&target, &record)
         Diagnostics.note("focus without raise \(window.appName) id=\(window.id)")
+        if Diagnostics.isEnabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let front = NSWorkspace.shared.frontmostApplication
+                let focused = front.flatMap {
+                    AXPrivate.application($0.processIdentifier).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+                }.flatMap(AXPrivate.windowID(of:))
+                let landed = front?.processIdentifier == window.pid && focused == window.id
+                Diagnostics.note("  hover result: \(landed ? "ok" : "MISSED") front=\(front?.localizedName ?? "nil") focused=\(focused.map(String.init) ?? "nil") wanted=\(window.id)")
+            }
+        }
         return true
     }
 
