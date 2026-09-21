@@ -152,13 +152,17 @@ extension WindowQueueModelTests {
 }
 
 extension WindowQueueModelTests {
-    func testExtendAimToClickedWindowKeepsAnchor() {
+    func testToggleAimPicksWindowsThatAreNotAdjacent() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
-        model.select(id: 2, announce: false)
+        model.select(id: 1, announce: false)
         model.beginAiming()
-        model.extendAim(to: 4)
-        XCTAssertEqual(model.aimedWindows.map(\.id), [2, 3, 4])
-        model.extendAim(to: 1)
-        XCTAssertEqual(model.aimedWindows.map(\.id), [1, 2])
+        model.toggleAim(3)
+        XCTAssertEqual(model.aimedWindows.map(\.id), [1, 3])
+        model.extendAim(by: 1)
+        XCTAssertEqual(model.aimedWindows.map(\.id), [1, 3, 4])
+        model.toggleAim(1)
+        XCTAssertEqual(model.aimedWindows.map(\.id), [3, 4])
+        model.moveAim(by: 1)
+        XCTAssertEqual(model.aimedWindows.count, 1)
     }
 }

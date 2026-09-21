@@ -14,6 +14,9 @@ final class WindowQueueModel: ObservableObject {
     @Published var aimingID: CGWindowID?
     /// Where a multi-window aim started; the aimed windows run from here to `aimingID`.
     @Published var aimAnchorID: CGWindowID?
+    /// Windows picked one by one with Shift-click, aimed at alongside the run. Need not be next to
+    /// each other.
+    @Published var aimPinnedIDs: Set<CGWindowID> = []
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
@@ -79,6 +82,7 @@ final class WindowQueueModel: ObservableObject {
     @discardableResult
     func beginAiming() -> ManagedWindow? {
         aimAnchorID = nil
+        aimPinnedIDs = []
         aimingID = selectedID ?? visibleWindows.first?.id
         return aimedWindow
     }
@@ -86,14 +90,18 @@ final class WindowQueueModel: ObservableObject {
     func endAiming() {
         aimingID = nil
         aimAnchorID = nil
+        aimPinnedIDs = []
     }
 
-    /// Every window the aim covers, in queue order: one, or the run from the anchor to the aim.
+    /// Every window the aim covers, in queue order: the run from the anchor to the aim — or just
+    /// the aimed window — plus any picked one by one.
     var aimedWindows: [ManagedWindow] {
         let visible = visibleWindows
         guard let aim = visible.firstIndex(where: { $0.id == aimingID }) else { return [] }
-        guard let anchor = visible.firstIndex(where: { $0.id == aimAnchorID }) else { return [visible[aim]] }
-        return Array(visible[min(aim, anchor)...max(aim, anchor)])
+        var ids = aimPinnedIDs
+        let anchor = visible.firstIndex(where: { $0.id == aimAnchorID }) ?? aim
+        for window in visible[min(aim, anchor)...max(aim, anchor)] { ids.insert(window.id) }
+        return visible.filter { ids.contains($0.id) }
     }
 
     var aimedIDs: Set<CGWindowID> { Set(aimedWindows.map(\.id)) }
@@ -108,11 +116,28 @@ final class WindowQueueModel: ObservableObject {
         return aimedWindow
     }
 
-    /// Grows or shrinks the aimed run so it reaches `id`, keeping the end it started from.
-    func extendAim(to id: CGWindowID) {
+    /// Adds a window to what is aimed at, or takes it out again, leaving the rest as it is.
+    func toggleAim(_ id: CGWindowID) {
         guard aimingID != nil, visibleWindows.contains(where: { $0.id == id }) else { return }
-        if aimAnchorID == nil { aimAnchorID = aimingID }
-        aimingID = id
+        // Everything aimed so far stays aimed, whether it came from a run or from earlier clicks.
+        var picked = Set(aimedWindows.map(\.id))
+        aimAnchorID = nil
+        if picked.contains(id) {
+            guard picked.count > 1 else { return }
+            picked.remove(id)
+            // The aim itself has to stay on something that is still aimed.
+            if aimingID == id {
+                let order = visibleWindows.map(\.id)
+                let origin = order.firstIndex(of: id) ?? 0
+                aimingID = order.enumerated()
+                    .filter { picked.contains($0.element) }
+                    .min { abs($0.offset - origin) < abs($1.offset - origin) }?.element
+            }
+        } else {
+            picked.insert(id)
+            aimingID = id
+        }
+        aimPinnedIDs = picked
     }
 
     /// Moves the whole aimed run one slot along the queue, keeping it together and aimed.
@@ -136,6 +161,7 @@ final class WindowQueueModel: ObservableObject {
     @discardableResult
     func moveAim(by delta: Int) -> ManagedWindow? {
         aimAnchorID = nil
+        aimPinnedIDs = []
         let visible = visibleWindows
         guard !visible.isEmpty else { return nil }
         let current = visible.firstIndex { $0.id == aimingID } ?? (delta > 0 ? -1 : 0)
@@ -248,6 +274,7 @@ final class WindowQueueModel: ObservableObject {
     private func keepAimOnQueue(previousOrder: [CGWindowID]) {
         let present = Set(windows.map(\.id))
         if let anchor = aimAnchorID, !present.contains(anchor) { aimAnchorID = nil }
+        aimPinnedIDs.formIntersection(present)
         guard let aim = aimingID, !present.contains(aim), let origin = previousOrder.firstIndex(of: aim) else { return }
         let visible = Set(visibleWindows.map(\.id))
         let nearest = previousOrder.enumerated()

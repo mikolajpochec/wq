@@ -200,32 +200,48 @@ struct StripView: View {
             .help("Current workspace")
     }
 
+    /// Several windows are aimed at, which the strip shows as runs rather than a single cursor.
     private var isAimingRun: Bool {
-        model.aimAnchorID != nil && model.aimAnchorID != model.aimingID
+        model.aimedWindows.count > 1
     }
 
-    /// One continuous highlight spanning every aimed window, from the first to the last.
+    /// Positions of the aimed windows grouped into runs of neighbours, each drawn as one highlight.
+    private var aimedRuns: [ClosedRange<Int>] {
+        let aimed = model.aimedIDs
+        var runs: [ClosedRange<Int>] = []
+        for (index, window) in model.visibleWindows.enumerated() where aimed.contains(window.id) {
+            if let last = runs.last, last.upperBound == index - 1 {
+                runs[runs.count - 1] = last.lowerBound...index
+            } else {
+                runs.append(index...index)
+            }
+        }
+        return runs
+    }
+
+    /// One continuous highlight for each run of aimed windows.
     @ViewBuilder
     private var aimedRunHighlight: some View {
-        let visible = model.visibleWindows
-        let aimed = model.aimedIDs
-        if isAimingRun,
-           let first = visible.firstIndex(where: { aimed.contains($0.id) }),
-           let last = visible.lastIndex(where: { aimed.contains($0.id) }) {
+        if isAimingRun {
             let layout = committedLayout
-            let start = layout.topOffset(ofWindowAt: first)
-            let length = layout.topOffset(ofWindowAt: last) + StripMetrics.rowHeight(prefs: prefs) - start
             let thickness = StripMetrics.rowHeight(prefs: prefs)
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.orange.opacity(0.28))
-                .overlay(
+            ZStack(alignment: side.isVertical ? .top : .leading) {
+                ForEach(aimedRuns, id: \.lowerBound) { run in
+                    let start = layout.topOffset(ofWindowAt: run.lowerBound)
+                    let length = layout.topOffset(ofWindowAt: run.upperBound) + thickness - start
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.orange, lineWidth: 2.5)
-                )
-                .frame(width: side.isVertical ? thickness : length,
-                       height: side.isVertical ? length : thickness)
-                .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
-                .animation(.spring(response: 0.22, dampingFraction: 0.85), value: aimed)
+                        .fill(Color.orange.opacity(0.28))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.orange, lineWidth: 2.5)
+                        )
+                        .frame(width: side.isVertical ? thickness : length,
+                               height: side.isVertical ? length : thickness)
+                        .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.isVertical ? .top : .leading)
+            .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.aimedIDs)
         }
     }
 
