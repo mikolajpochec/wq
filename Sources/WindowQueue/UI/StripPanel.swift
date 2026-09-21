@@ -264,7 +264,8 @@ final class StripController {
             let strip = strips[id] ?? build(on: screen)
             strips[id] = strip
             strip.screen = screen
-            let drawActive = isActive || prefs.stripDisplay == .activeScreenOnly
+            // Aiming picks among every window, wherever it is, so no strip is greyed out meanwhile.
+            let drawActive = isActive || prefs.stripDisplay == .activeScreenOnly || model.aimingID != nil
             if strip.state.isActive != drawActive { strip.state.isActive = drawActive }
             let index = space?.index ?? (isActive ? model.currentSpaceIndex : nil)
             if strip.state.spaceIndex != index { strip.state.spaceIndex = index }
