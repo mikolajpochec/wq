@@ -13,6 +13,8 @@ final class TilingMenuState: ObservableObject {
 struct TilingMenuView: View {
     @ObservedObject var state: TilingMenuState
     let side: StripSide
+    /// A layout clicked with the mouse, by position in the list.
+    var pick: (Int) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -34,6 +36,10 @@ struct TilingMenuView: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(highlight(for: index))
                 )
+                .contentShape(Rectangle())
+                // Like the strip, the panel is never key; a zero-distance drag is what reliably
+                // registers a click in it.
+                .gesture(DragGesture(minimumDistance: 0).onEnded { _ in pick(index) })
             }
             Text(hint)
                 .font(.caption2)
@@ -60,7 +66,7 @@ struct TilingMenuView: View {
     }
 
     private var hint: String {
-        if state.isFocused { return "Return to tile · Esc to go back" }
+        if state.isFocused { return "Return or click to tile · Esc to go back" }
         let arrow: String
         switch side {
         case .left: arrow = "→"
@@ -68,7 +74,7 @@ struct TilingMenuView: View {
         case .top: arrow = "↓"
         case .bottom: arrow = "↑"
         }
-        return "\(arrow) or Return to choose a layout"
+        return "\(arrow), Return or click to choose a layout"
     }
 
     private func preview(of layout: TileLayout) -> some View {
@@ -93,6 +99,9 @@ final class TilingMenuController {
     private let store: PreferencesStore
     private var panel: OverlayPanel?
     private var hosting: NSHostingView<TilingMenuView>?
+
+    /// A layout was clicked; the highlight is already on it.
+    var onPick: (() -> Void)?
 
     /// Screen rect covering the aimed icons, and the strip's side, to place the menu beside them.
     var anchorProvider: (([CGWindowID]) -> (frame: NSRect, side: StripSide)?)?
@@ -121,7 +130,11 @@ final class TilingMenuController {
         state.count = windows.count
 
         let side = store.prefs.stripSide
-        let view = TilingMenuView(state: state, side: side)
+        let view = TilingMenuView(state: state, side: side) { [weak self] index in
+            guard let self, self.state.layouts.indices.contains(index) else { return }
+            self.state.highlighted = index
+            self.onPick?()
+        }
         let hosting = self.hosting ?? NSHostingView(rootView: view)
         hosting.rootView = view
         self.hosting = hosting

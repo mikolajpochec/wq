@@ -133,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (start.union(end), strip.side)
         }
         aimingKeys.onDismiss = { [weak self] in self?.endAiming(commit: false) }
+        tilingMenu.onPick = { [weak self] in self?.tileAimedWindows() }
 
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
         debugCommands = DebugCommands { [weak self] words in self?.runDebugCommand(words) }
