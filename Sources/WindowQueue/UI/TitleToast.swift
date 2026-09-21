@@ -35,6 +35,8 @@ final class ToastController {
     /// change, and rebuilding the hosting view each time is what makes a press feel sluggish.
     private var hosting: NSHostingView<ToastView>?
     private var hideWorkItem: DispatchWorkItem?
+    /// Bumped by every show, so a fade-out already under way does not take down a newer popup.
+    private var generation = 0
 
     /// Supplies the on-screen rect of a window's row in the strip, so the toast appears right
     /// beside the icon it describes rather than in the middle of the strip.
@@ -76,6 +78,7 @@ final class ToastController {
             self.panel = panel
         }
 
+        generation += 1
         // Already on screen — while an icon is being dragged this is called on every slot change,
         // so move it rather than fading it in again.
         let wasVisible = panel.isVisible && panel.alphaValue > 0
@@ -84,6 +87,11 @@ final class ToastController {
 
         if wasVisible {
             panel.orderFrontRegardless()
+            // It may be halfway through fading out; bring it back rather than let it finish.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.08
+                panel.animator().alphaValue = 1
+            }
         } else {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
@@ -151,10 +159,13 @@ final class ToastController {
 
     private func hide() {
         guard let panel else { return }
+        let fading = generation
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.18
             panel.animator().alphaValue = 0
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
+            // Shown again while fading: that popup is the one on screen now.
+            guard self?.generation == fading else { return }
             panel.orderOut(nil)
         })
     }
