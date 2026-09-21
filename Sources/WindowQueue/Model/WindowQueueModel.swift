@@ -108,6 +108,13 @@ final class WindowQueueModel: ObservableObject {
         return aimedWindow
     }
 
+    /// Grows or shrinks the aimed run so it reaches `id`, keeping the end it started from.
+    func extendAim(to id: CGWindowID) {
+        guard aimingID != nil, visibleWindows.contains(where: { $0.id == id }) else { return }
+        if aimAnchorID == nil { aimAnchorID = aimingID }
+        aimingID = id
+    }
+
     /// Moves the whole aimed run one slot along the queue, keeping it together and aimed.
     func moveAimedGroup(by delta: Int) {
         let visible = visibleWindows

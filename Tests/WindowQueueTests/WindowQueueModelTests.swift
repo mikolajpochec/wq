@@ -150,3 +150,15 @@ extension WindowQueueModelTests {
         XCTAssertNil(model.cycle(by: 1))
     }
 }
+
+extension WindowQueueModelTests {
+    func testExtendAimToClickedWindowKeepsAnchor() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        model.select(id: 2, announce: false)
+        model.beginAiming()
+        model.extendAim(to: 4)
+        XCTAssertEqual(model.aimedWindows.map(\.id), [2, 3, 4])
+        model.extendAim(to: 1)
+        XCTAssertEqual(model.aimedWindows.map(\.id), [1, 2])
+    }
+}

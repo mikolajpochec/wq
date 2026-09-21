@@ -79,10 +79,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model: model,
             store: store,
             onSelect: { [weak self] window in
+                guard let self else { return }
+                // Shift-clicking while aiming stretches the aimed run to the icon, like Shift+arrows.
+                if self.model.aimingID != nil, NSEvent.modifierFlags.contains(.shift) {
+                    self.model.extendAim(to: window.id)
+                    self.aimChanged()
+                    return
+                }
                 // A click picks a window outright, so it also settles an aim in progress.
-                self?.endAiming(commit: false)
-                self?.model.select(id: window.id, announce: false)
-                self?.focus(window, warpCursor: false)
+                self.endAiming(commit: false)
+                self.model.select(id: window.id, announce: false)
+                self.focus(window, warpCursor: false)
             },
             onHold: { window in
                 if let window {
