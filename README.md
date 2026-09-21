@@ -32,8 +32,6 @@ always-on-top strip showing that list, and workspace switching by number.
 - `⌥⇧1` … `⌥⇧9` move the selected window (or every aimed window) to that workspace. macOS only
   lets another app move windows a whole application at a time, so a window whose app has windows on
   other workspaces stays where it is.
-- The mouse's back and forward side buttons select the previous and next window (moving the aim in
-  aiming mode). Each can be rebound, or left to the app, in Settings › Shortcuts.
 - Option is the "super" key by default; the super key and every individual shortcut are remappable.
 
 Order is **stable**: a new window is inserted directly after the currently selected one, cycling

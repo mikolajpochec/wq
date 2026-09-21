@@ -188,26 +188,10 @@ struct SettingsView: View {
                     section("Queue", actions: HotkeyAction.queueActions)
                     section("Workspaces", actions: HotkeyAction.spaceActions)
                     section("Move to workspace", actions: HotkeyAction.moveToSpaceActions)
-                    mouseButtons
                 }
             }
         }
         .padding()
-    }
-
-    private var mouseButtons: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Mouse side buttons").font(.headline).padding(.top, 8)
-            Picker("Back button", selection: $store.prefs.mouseBackButton) {
-                ForEach(MouseButtonAction.allCases) { Text($0.title).tag($0) }
-            }
-            Picker("Forward button", selection: $store.prefs.mouseForwardButton) {
-                ForEach(MouseButtonAction.allCases) { Text($0.title).tag($0) }
-            }
-            Text("Act like the shortcuts, including moving the aim in aiming mode. A bound button no longer reaches the app under the pointer.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
     }
 
     private func section(_ title: String, actions: [HotkeyAction]) -> some View {
