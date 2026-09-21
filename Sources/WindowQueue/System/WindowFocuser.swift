@@ -50,6 +50,10 @@ enum WindowFocuser {
             Diagnostics.note("focus \(window.appName) id=\(window.id) element=\(window.element != nil) siblings=\(siblingCount)")
         }
 
+        // The window's frame is known before it comes forward — even on another workspace — so the
+        // pointer goes there with the key press rather than after the focus has been confirmed.
+        if warpCursor { warp(to: window) }
+
         let appElement = AXPrivate.application(window.pid)
         if let element = window.element,
            raise(element, appElement: appElement, wasMinimized: window.isMinimized) {
@@ -161,10 +165,11 @@ enum WindowFocuser {
         pendingTargetID = nil
         cyclePressBudget = 0
 
-        // Read the frame only once things have settled: a window that has just come forward from
-        // another Space is still on its way, and its position would be the old one.
+        // The pointer went ahead at the start. A window that moved on its way forward — restored
+        // from the Dock, say — gets it once more, but a pointer already on it stays where it is.
         if warpCursor, let window {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard let frame = serverFrame(of: window.id), !frame.contains(currentPointer()) else { return }
                 warp(to: window)
             }
         }
@@ -177,6 +182,11 @@ enum WindowFocuser {
         CGWarpMouseCursorPosition(CGPoint(x: frame.midX, y: frame.midY))
         // Warping breaks the tie between the mouse and the cursor until this is called back.
         CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// The pointer in the same top-left-origin coordinates as `serverFrame(of:)`.
+    private static func currentPointer() -> CGPoint {
+        CGEvent(source: nil)?.location ?? .zero
     }
 
     /// The window's frame in global display coordinates, which is the space `CGWarpMouseCursorPosition`
