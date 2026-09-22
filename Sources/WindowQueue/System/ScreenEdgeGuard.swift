@@ -177,9 +177,15 @@ final class ScreenEdgeGuard {
         let app = AXPrivate.application(pid)
         let wasEnhanced = app.boolAttribute("AXEnhancedUserInterface") ?? false
         if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanFalse) }
-        _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        // Move, then resize: a window drawn at the new size in the old place reads as a flicker.
+        // Only an app that clamps the resize against its old position needs the other order.
         _ = element.setAttribute(kAXPositionAttribute, value: originValue)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        if let landed = Self.frame(of: element), !Self.approximatelyEqual(landed, target) {
+            _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            _ = element.setAttribute(kAXPositionAttribute, value: originValue)
+            _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        }
         if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue) }
         scheduleCheck(target, element: element, id: id, check: check)
     }

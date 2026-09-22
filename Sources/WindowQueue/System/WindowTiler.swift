@@ -103,7 +103,13 @@ enum WindowTiler {
               let originValue = AXValueCreate(.cgPoint, &origin)
         else { return }
         withoutAnimation(pid: window.pid) {
-            // Size, position, size: an app may clamp a resize against where the window still is.
+            // Move first, then resize: one pass, and the window is never drawn at the new size in
+            // the old place, which reads as a flicker.
+            element.setAttribute(kAXPositionAttribute, value: originValue)
+            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            // Apps that clamp a resize against where the window was need the other order, but only
+            // those: asking for it every time is what caused the flicker.
+            guard let landed = currentFrame(of: element), !matches(landed, frame) else { return }
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
             element.setAttribute(kAXPositionAttribute, value: originValue)
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
@@ -126,14 +132,18 @@ enum WindowTiler {
         if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue) }
     }
 
+    /// Close enough to count as the frame we asked for; apps round sizes to their own grids.
+    private static func matches(_ frame: CGRect, _ target: CGRect) -> Bool {
+        abs(frame.minX - target.minX) <= 2 && abs(frame.minY - target.minY) <= 2
+            && abs(frame.width - target.width) <= 2 && abs(frame.height - target.height) <= 2
+    }
+
     private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int) {
         guard checkDelays.indices.contains(check) else { return }
         let wait = checkDelays[check] - (check == 0 ? 0 : checkDelays[check - 1])
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             guard let current = currentFrame(of: element) else { return }
-            let slipped = abs(current.minX - frame.minX) > 2 || abs(current.minY - frame.minY) > 2
-                || abs(current.width - frame.width) > 2 || abs(current.height - frame.height) > 2
-            if slipped {
+            if !matches(current, frame) {
                 Diagnostics.note("tiling: \(window.appName) id=\(window.id) at \(current), setting \(frame) again")
                 setFrame(frame, of: element, window: window, check: check + 1)
             } else {
