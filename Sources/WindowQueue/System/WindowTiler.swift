@@ -91,12 +91,24 @@ enum WindowTiler {
         return placed
     }
 
+    /// The frame request each window is currently following. A window told to go somewhere else —
+    /// maximized and then restored, say — must not have the older request put back underneath it.
+    private static var currentRequest: [CGWindowID: Int] = [:]
+    private static var lastRequest = 0
+
     /// When to look at a tiled window again. A window that has just arrived from another
     /// workspace, or whose app animates or snaps its own frame, can accept a size and then lose the
     /// position, so the whole frame is checked a few times and set again whenever it slipped.
     private static let checkDelays: [TimeInterval] = [0.15, 0.4, 0.8, 1.5]
 
-    private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int = 0) {
+    private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow) {
+        lastRequest += 1
+        currentRequest[window.id] = lastRequest
+        apply(frame, of: element, window: window, request: lastRequest, check: 0)
+    }
+
+    private static func apply(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow,
+                              request: Int, check: Int) {
         var size = frame.size
         var origin = frame.origin
         guard let sizeValue = AXValueCreate(.cgSize, &size),
@@ -115,7 +127,7 @@ enum WindowTiler {
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
         }
 
-        scheduleCheck(frame, of: element, window: window, check: check)
+        scheduleCheck(frame, of: element, window: window, request: request, check: check, seen: nil)
     }
 
     /// Runs the frame change with the app's `AXEnhancedUserInterface` switched off.
@@ -138,17 +150,26 @@ enum WindowTiler {
             && abs(frame.width - target.width) <= 2 && abs(frame.height - target.height) <= 2
     }
 
-    private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int) {
+    /// - Parameter seen: where the window was at the previous check, so a frame still on its way
+    ///   is left to arrive instead of being fought mid-flight.
+    private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow,
+                                      request: Int, check: Int, seen: CGRect?) {
         guard checkDelays.indices.contains(check) else { return }
         let wait = checkDelays[check] - (check == 0 ? 0 : checkDelays[check - 1])
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
-            guard let current = currentFrame(of: element) else { return }
-            if !matches(current, frame) {
-                Diagnostics.note("tiling: \(window.appName) id=\(window.id) at \(current), setting \(frame) again")
-                setFrame(frame, of: element, window: window, check: check + 1)
-            } else {
-                scheduleCheck(frame, of: element, window: window, check: check + 1)
+            // A newer frame request has taken this window over.
+            guard currentRequest[window.id] == request, let current = currentFrame(of: element) else { return }
+            if matches(current, frame) {
+                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1, seen: current)
+                return
             }
+            guard let seen, matches(current, seen) else {
+                // Still moving: look again before deciding it went wrong.
+                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1, seen: current)
+                return
+            }
+            Diagnostics.note("tiling: \(window.appName) id=\(window.id) settled at \(current), setting \(frame) again")
+            apply(frame, of: element, window: window, request: request, check: check + 1)
         }
     }
 
