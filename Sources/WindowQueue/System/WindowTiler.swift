@@ -102,12 +102,28 @@ enum WindowTiler {
         guard let sizeValue = AXValueCreate(.cgSize, &size),
               let originValue = AXValueCreate(.cgPoint, &origin)
         else { return }
-        // Size, position, size: an app may clamp a resize against where the window still is.
-        element.setAttribute(kAXSizeAttribute, value: sizeValue)
-        element.setAttribute(kAXPositionAttribute, value: originValue)
-        element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        withoutAnimation(pid: window.pid) {
+            // Size, position, size: an app may clamp a resize against where the window still is.
+            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            element.setAttribute(kAXPositionAttribute, value: originValue)
+            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        }
 
         scheduleCheck(frame, of: element, window: window, check: check)
+    }
+
+    /// Runs the frame change with the app's `AXEnhancedUserInterface` switched off.
+    ///
+    /// AppKit animates every frame an accessibility client sets while that attribute is on, which
+    /// makes a window crawl into place instead of arriving there. WindowQueue turns the attribute on
+    /// itself, for apps that otherwise hide their windows, so it has to take it back off around a
+    /// move — the same thing Rectangle does — and put it back afterwards.
+    private static func withoutAnimation(pid: pid_t, _ body: () -> Void) {
+        let app = AXPrivate.application(pid)
+        let wasEnhanced = app.boolAttribute("AXEnhancedUserInterface") ?? false
+        if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanFalse) }
+        body()
+        if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue) }
     }
 
     private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow, check: Int) {

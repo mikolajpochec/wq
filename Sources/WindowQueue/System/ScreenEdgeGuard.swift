@@ -170,9 +170,17 @@ final class ScreenEdgeGuard {
         else { return }
         let lastCheck = Self.checkDelays.last ?? 0
         applyingUntil[id] = Date().addingTimeInterval(lastCheck + 0.5)
+        // Setting a frame while the app is in enhanced accessibility mode makes AppKit animate it,
+        // so the trim would crawl into place; see `WindowTiler.withoutAnimation`.
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let app = AXPrivate.application(pid)
+        let wasEnhanced = app.boolAttribute("AXEnhancedUserInterface") ?? false
+        if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanFalse) }
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
         _ = element.setAttribute(kAXPositionAttribute, value: originValue)
         _ = element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue) }
         scheduleCheck(target, element: element, id: id, check: check)
     }
 
