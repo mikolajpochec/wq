@@ -167,6 +167,8 @@ final class WindowEnumerator {
 
         // 2. Anything AX can see right now: real titles, elements and minimised state.
         var axCapablePIDs: Set<pid_t> = []
+        /// Apps whose accessibility tree lists real windows, so geometry never has to guess for them.
+        var axListedPIDs: Set<pid_t> = []
         for (pid, app) in names {
             let appElement = AXPrivate.application(pid)
             if enable.contains(pid) { enableAccessibility(pid: pid, appElement: appElement) }
@@ -197,6 +199,7 @@ final class WindowEnumerator {
                 guard isStandardWindow(element), let id = AXPrivate.windowID(of: element) else { continue }
                 // The accessibility API vouches for this one as a real, standard window.
                 suspectedPopups.remove(id)
+                axListedPIDs.insert(pid)
                 let minimized = element.boolAttribute(kAXMinimizedAttribute) ?? false
                 if !minimized && discovered[id] == nil { continue }
                 discovered[id] = ManagedWindow(
@@ -212,8 +215,16 @@ final class WindowEnumerator {
             }
         }
 
-        // 3. Whatever still looks like a popup and nothing vouched for is one.
-        for id in suspectedPopups { discovered.removeValue(forKey: id) }
+        // 3. Whatever still looks like a popup and nothing vouched for is one — but only from an app
+        // that shows no windows through accessibility at all. An app that does list them, like a
+        // terminal, has simply left the windows on another Space out of that list, and guessing from
+        // geometry there drops real windows: a small terminal sitting inside a big one is not a
+        // popup, and it would come and go from the strip as the user moves between workspaces.
+        for id in suspectedPopups {
+            guard let window = discovered[id], !axListedPIDs.contains(window.pid) else { continue }
+            Diagnostics.note("dropping suspected popup id=\(id) \(window.appName) — \(window.title)")
+            discovered.removeValue(forKey: id)
+        }
 
         // 4. Fallback ghost filter for systems where the WindowServer cannot be asked whether a
         // window is ordered in: on the active Space the Accessibility API is authoritative, so
