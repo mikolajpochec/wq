@@ -21,6 +21,9 @@ final class WindowEnumerator {
 
     /// A window that took focus before we had it in the queue, adopted once it appears.
     private var pendingExternalFocusID: CGWindowID?
+    /// Apps that have listed a real window through accessibility at least once. Their windows never
+    /// have to be guessed at from geometry, even at a moment when the list comes back empty.
+    private var everListedPIDs: Set<pid_t> = []
     /// Apps we have already asked to expose their accessibility tree.
     private var accessibilityEnabledPIDs: Set<pid_t> = []
     /// Apps we have additionally switched into enhanced accessibility mode.
@@ -105,17 +108,20 @@ final class WindowEnumerator {
         let needsAccessibility = names.keys.filter { !accessibilityEnabledPIDs.contains($0) }
         accessibilityEnabledPIDs.formUnion(needsAccessibility)
         let needsEscalation = names.keys.filter { !accessibilityEscalatedPIDs.contains($0) }
+        let everListed = everListedPIDs
 
         enumerationQueue.async { [weak self] in
             guard let self else { return }
             let result = self.enumerate(names: names,
                                         enable: Set(needsAccessibility),
                                         mayEscalate: Set(needsEscalation),
-                                        currentSpaceID: currentSpaceID)
+                                        currentSpaceID: currentSpaceID,
+                                        everListed: everListed)
 
             DispatchQueue.main.async {
                 self.isRefreshing = false
                 self.accessibilityEscalatedPIDs.formUnion(result.escalated)
+                self.everListedPIDs.formUnion(result.listed)
                 self.model.reconcile(with: result.windows)
                 self.adoptPendingFocus()
                 if Diagnostics.isEnabled { Diagnostics.dump(model: self.model) }
@@ -132,6 +138,8 @@ final class WindowEnumerator {
     private struct EnumerationResult {
         let windows: [ManagedWindow]
         let escalated: Set<pid_t>
+        /// Apps that listed a real window this time round.
+        let listed: Set<pid_t>
     }
 
     /// Rebuilds the window set.
@@ -144,7 +152,8 @@ final class WindowEnumerator {
     private func enumerate(names: [pid_t: AppInfo],
                            enable: Set<pid_t>,
                            mayEscalate: Set<pid_t>,
-                           currentSpaceID: UInt64?) -> EnumerationResult {
+                           currentSpaceID: UInt64?,
+                           everListed: Set<pid_t>) -> EnumerationResult {
         var discovered: [CGWindowID: ManagedWindow] = [:]
         var escalated: Set<pid_t> = []
 
@@ -221,7 +230,9 @@ final class WindowEnumerator {
         // geometry there drops real windows: a small terminal sitting inside a big one is not a
         // popup, and it would come and go from the strip as the user moves between workspaces.
         for id in suspectedPopups {
-            guard let window = discovered[id], !axListedPIDs.contains(window.pid) else { continue }
+            guard let window = discovered[id],
+                  !axListedPIDs.contains(window.pid), !everListed.contains(window.pid)
+            else { continue }
             Diagnostics.note("dropping suspected popup id=\(id) \(window.appName) — \(window.title)")
             discovered.removeValue(forKey: id)
         }
@@ -241,7 +252,7 @@ final class WindowEnumerator {
             ($0.spaceID ?? .max, $0.id) < ($1.spaceID ?? .max, $1.id)
         }
         noteUnreadableApps(discovered: discovered, names: names, currentSpaceID: currentSpaceID)
-        return EnumerationResult(windows: ordered, escalated: escalated)
+        return EnumerationResult(windows: ordered, escalated: escalated, listed: axListedPIDs)
     }
 
     /// Turns on enhanced accessibility for an app that reports no windows at all.
@@ -289,6 +300,10 @@ final class WindowEnumerator {
 
         for siblings in byApp.values where siblings.count > 1 {
             for child in siblings {
+                // A popup has no title of its own; a window with one is somebody's real window,
+                // however it happens to be placed. (Without Screen Recording access no window has a
+                // title here, and the geometry alone has to do.)
+                guard child.title.isEmpty else { continue }
                 let childArea = child.frame.width * child.frame.height
                 let isInsideSibling = siblings.contains { parent in
                     // Two windows on different workspaces can occupy the same coordinates without
