@@ -472,6 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.moveToEnd()
         case .sortByWorkspace:
             sortByWorkspace()
+        case .toggleMaximize:
+            toggleMaximize()
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -501,6 +503,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scrollFocusWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + store.prefs.scrollFocusDelay,
                                       execute: work)
+    }
+
+    /// Frames windows had before they were maximized, so the same shortcut puts them back.
+    private var framesBeforeMaximize: [CGWindowID: NSRect] = [:]
+
+    /// Fills the screen with the selected window, less the strip's room; again restores it.
+    private func toggleMaximize() {
+        guard var window = model.selectedWindow else { return }
+        window.element = window.element ?? WindowSpaceMover.element(for: window)
+        let area = tilingArea()
+
+        if let previous = framesBeforeMaximize[window.id],
+           let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {
+            framesBeforeMaximize[window.id] = nil
+            WindowTiler.restore(window, to: previous)
+            return
+        }
+        framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
+        WindowTiler.fill(window, in: area)
+    }
+
+    /// Near enough to the maximized frame to count as maximized; apps round and snap to their own
+    /// grids, so an exact match would leave the shortcut one-way.
+    private static func fills(_ frame: NSRect, _ area: NSRect) -> Bool {
+        abs(frame.minX - area.minX) <= 12 && abs(frame.minY - area.minY) <= 12
+            && abs(frame.width - area.width) <= 24 && abs(frame.height - area.height) <= 24
     }
 
     private func closeSelectedWindow() {

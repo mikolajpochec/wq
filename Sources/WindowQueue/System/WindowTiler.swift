@@ -138,6 +138,28 @@ enum WindowTiler {
         return CGRect(origin: position, size: size)
     }
 
+    /// Fills the area with one window, as a maximize does.
+    @discardableResult
+    static func fill(_ window: ManagedWindow, in area: NSRect) -> Bool {
+        let layout = TileLayout(name: "Maximize", frames: [CGRect(x: 0, y: 0, width: 1, height: 1)])
+        return !tile([window], layout: layout, in: area).isEmpty
+    }
+
+    /// The window's frame in Cocoa screen coordinates, or nil when its app will not say.
+    static func frame(of window: ManagedWindow) -> NSRect? {
+        guard let element = window.element, let frame = currentFrame(of: element) else { return nil }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// Puts a window back where it was, in Cocoa screen coordinates.
+    static func restore(_ window: ManagedWindow, to frame: NSRect) {
+        guard let element = window.element else { return }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let target = CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+        setFrame(target, of: element, window: window)
+    }
+
     /// Brings the tiled windows forward together, so none of them is left behind another app.
     static func raise(_ windows: [ManagedWindow]) {
         for window in windows.reversed() {
