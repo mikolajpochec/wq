@@ -558,6 +558,23 @@ final class WindowQueueModel: ObservableObject {
         windows = sorted
     }
 
+    /// Moves a group of windows to an absolute slot within the visible slice, keeping them
+    /// together and in their own order — what dragging the collapsed tile does.
+    func move(ids: [CGWindowID], toVisiblePosition target: Int) {
+        let moving = Set(ids)
+        let visible = visibleWindows
+        let group = visible.filter { moving.contains($0.id) }
+        guard !group.isEmpty, group.count < visible.count else { return }
+        noteManualReorder()
+
+        var order = visible.filter { !moving.contains($0.id) }
+        let destination = min(max(target, 0), order.count)
+        order.insert(contentsOf: group, at: destination)
+        for (slot, index) in visibleIndices.enumerated() {
+            windows[index] = order[slot]
+        }
+    }
+
     /// Moves one window to an absolute slot within the visible slice, leaving windows the current
     /// scope hides where they are.
     func move(id: CGWindowID, toVisiblePosition target: Int) {

@@ -31,6 +31,8 @@ struct StripView: View {
     /// Where the dragged icon started, captured once: headers come and go as the preview reorders,
     /// so recomputing this mid-drag would shift the icon out from under the cursor.
     @State private var dragOriginTop: CGFloat = 0
+    /// The collapsed tile is being dragged, which moves every window inside it as one.
+    @State private var draggingStack = false
     /// Ties the empty-workspace marker to the window that fills it, so the window grows out of it.
     @Namespace private var slotNamespace
 
@@ -88,6 +90,8 @@ struct StripView: View {
                         .transition(.scale(scale: 0.5).combined(with: .opacity))
                 case .hiddenStack(let windows):
                     hiddenStackTile(for: windows)
+                        // Kept in the layout while it is dragged; the floating copy stands in.
+                        .opacity(draggingStack ? 0 : 1)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 case .window(let window) where window.id == model.slotFilledID:
                     row(for: window)
@@ -158,8 +162,10 @@ struct StripView: View {
 
     /// Windows the maximized one covers, while they are meant to collapse into one tile.
     private var collapsedIDs: Set<CGWindowID> {
+        // A drag of one icon expands the tile so it can be dropped anywhere among the rows; a drag
+        // of the tile itself keeps it collapsed, because that is the thing being moved.
         guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil,
-              draggingID == nil
+              draggingID == nil || draggingStack
         else { return [] }
         return Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
     }
@@ -174,10 +180,17 @@ struct StripView: View {
     /// previewed by moving the dragged window to the slot it would land in.
     private var orderedWindows: [ManagedWindow] {
         var windows = model.visibleWindows
-        guard let draggingID,
-              let origin = windows.firstIndex(where: { $0.id == draggingID })
-        else { return windows }
+        guard let draggingID else { return windows }
 
+        if draggingStack {
+            let moving = collapsedIDs
+            let group = windows.filter { moving.contains($0.id) }
+            windows.removeAll { moving.contains($0.id) }
+            windows.insert(contentsOf: group, at: min(max(dragTargetIndex, 0), windows.count))
+            return windows
+        }
+
+        guard let origin = windows.firstIndex(where: { $0.id == draggingID }) else { return windows }
         let window = windows.remove(at: origin)
         windows.insert(window, at: min(max(dragTargetIndex, 0), windows.count))
         return windows
@@ -192,7 +205,13 @@ struct StripView: View {
 
     @ViewBuilder
     private var floatingRow: some View {
-        if let window = draggedWindow {
+        if draggingStack {
+            hiddenStackTile(for: model.visibleWindows.filter { collapsedIDs.contains($0.id) })
+                .scaleEffect(1.12)
+                .shadow(color: .black.opacity(0.3), radius: 6)
+                .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
+                        y: side.isVertical ? dragOriginTop + dragTranslation : 0)
+        } else if let window = draggedWindow {
             row(for: window)
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
@@ -478,20 +497,30 @@ struct StripView: View {
             guard let origin = layout.windowIndex(atOffsetFromTop: start),
                   model.visibleWindows.indices.contains(origin)
             else { return }
+            // Taking hold of the collapsed tile takes hold of every window inside it.
+            draggingStack = layout.isHiddenStack(atOffsetFromTop: start)
             draggingID = model.visibleWindows[origin].id
             dragOriginIndex = origin
             dragTargetIndex = origin
             dragOriginTop = layout.topOffset(ofWindowAt: origin)
-            onHold(model.visibleWindows[origin], 0)
+            if !draggingStack { onHold(model.visibleWindows[origin], 0) }
         }
         dragTranslation = offset
 
         guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
         dragTargetIndex = target
-        if let window = draggedWindow { onHold(window, offset) }
+        if !draggingStack, let window = draggedWindow { onHold(window, offset) }
     }
 
     private func dragEnded(offset: CGFloat) {
+        if draggingStack {
+            let ids = model.visibleWindows.filter { collapsedIDs.contains($0.id) }.map(\.id)
+            if abs(offset) >= 4 || dragTargetIndex != dragOriginIndex {
+                model.move(ids: ids, toVisiblePosition: dragTargetIndex)
+            }
+            endDrag()
+            return
+        }
         guard let window = draggedWindow else {
             endDrag()
             return
@@ -522,6 +551,7 @@ struct StripView: View {
 
     private func endDrag() {
         draggingID = nil
+        draggingStack = false
         dragTranslation = 0
         dragOriginTop = 0
         onHold(nil, 0)
