@@ -341,37 +341,55 @@ struct StripView: View {
             .offset(x: 3, y: 3)
     }
 
+    /// Where the maximized window and the tile of what it covers sit together, as offsets along the
+    /// strip, or nil when nothing is collapsed.
+    private var maximizedGroupSpan: (start: CGFloat, end: CGFloat)? {
+        let visible = model.visibleWindows
+        guard !collapsedIDs.isEmpty,
+              let maximized = visible.firstIndex(where: { $0.id == model.maximizedID }),
+              let firstHidden = visible.firstIndex(where: { collapsedIDs.contains($0.id) })
+        else { return nil }
+        let layout = previewLayout
+        let first = min(maximized, firstHidden)
+        let last = max(maximized, firstHidden)
+        let tail = last == firstHidden
+            ? StripMetrics.stackLength(prefs: prefs)
+            : StripMetrics.rowHeight(prefs: prefs)
+        return (layout.topOffset(ofWindowAt: first), layout.topOffset(ofWindowAt: last) + tail)
+    }
+
+    /// The maximized window and the windows it covers are one thing, so one selection covers both.
+    private var isMaximizedGroupSelected: Bool {
+        model.maximizedID != nil && model.selectedID == model.maximizedID && !collapsedIDs.isEmpty
+    }
+
     /// The shape tying the maximized window to the tile of what it covers, so it is plain which
-    /// window the hidden ones are behind.
+    /// window the hidden ones are behind. Plain on purpose: an accent-coloured outline here reads as
+    /// a selection, which is a different thing — unless the group really is the selected one.
     @ViewBuilder
     private var maximizedGroupBackground: some View {
-        let visible = model.visibleWindows
-        if !collapsedIDs.isEmpty,
-           let maximized = visible.firstIndex(where: { $0.id == model.maximizedID }),
-           let firstHidden = visible.firstIndex(where: { collapsedIDs.contains($0.id) }) {
-            let layout = previewLayout
-            let first = min(maximized, firstHidden)
-            let last = max(maximized, firstHidden)
-            let start = layout.topOffset(ofWindowAt: first)
-            let end = layout.topOffset(ofWindowAt: last)
-                + (last == firstHidden ? StripMetrics.stackLength(prefs: prefs) : StripMetrics.rowHeight(prefs: prefs))
+        if let span = maximizedGroupSpan {
+            let selected = isMaximizedGroupSelected
             let thickness = StripMetrics.rowHeight(prefs: prefs) + 4
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.accentColor.opacity(0.14))
+                .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.09))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                        .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5)
                 )
-                .frame(width: side.isVertical ? thickness : end - start,
-                       height: side.isVertical ? end - start : thickness)
-                .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
+                .frame(width: side.isVertical ? thickness : span.end - span.start,
+                       height: side.isVertical ? span.end - span.start : thickness)
+                .offset(x: side.isVertical ? 0 : span.start, y: side.isVertical ? span.start : 0)
                 .animation(StripMetrics.layoutAnimation, value: collapsedIDs)
+                .animation(.easeOut(duration: 0.16), value: selected)
         }
     }
 
     private func row(for window: ManagedWindow) -> some View {
-        // While a run of windows is aimed, that run is the only highlight on the strip.
+        // While a run of windows is aimed, that run is the only highlight on the strip; and a
+        // maximized window with a stack beside it is highlighted as one group, not as a row.
         let isSelected = window.id == model.selectedID && !isAimingRun
+            && !(isMaximizedGroupSelected && window.id == model.maximizedID)
         // Aiming borrows the highlight and marks it in a different colour, so it is never mistaken
         // for the window that actually has focus.
         // A run of several aimed windows is drawn as one highlight behind them all, so its rows
@@ -411,7 +429,9 @@ struct StripView: View {
                 icon(for: window)
                     .frame(width: prefs.iconSize, height: prefs.iconSize)
                 Text(label(for: window))
-                    .font(.system(size: max(9, prefs.iconSize * 0.36), weight: .semibold))
+                    // A fixed, readable size rather than a fraction of the icon: a bigger icon is
+                    // room for more of the title, not for bigger letters.
+                    .font(.system(size: StripMetrics.labelSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(.white)
@@ -519,6 +539,9 @@ enum StripMetrics {
     /// window's place; the dashes and hatching are what tell it apart.
     static func slotThickness(prefs: Preferences) -> CGFloat { prefs.iconSize }
     static func slotLength(prefs: Preferences) -> CGFloat { slotThickness(prefs: prefs) + 8 }
+
+    /// Point size of the title drawn across an icon. Small, and the same whatever the icon size.
+    static let labelSize: CGFloat = 10
 
     /// How far the cascade of hidden windows leans out from the icon under it.
     static let stackStep: CGFloat = 5
