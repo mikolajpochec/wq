@@ -25,6 +25,11 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
   Shift with a step grows the aimed run, `A` aims at everything within reach — the open group's
   windows from inside one, the whole visible queue otherwise, and again to drop back to one.
+- `⌥C` — or `C` in aiming mode, which stays open — starts recording the screen and stops it again;
+  while it records, the strip shows a record mark in place of the workspace number. `⌥X`, or `X`
+  while aiming, photographs the aimed windows, one file each, where your own screenshots go.
+- Settings › Shortcuts › **Aiming mode only** binds bare keys that work in aiming mode and nowhere
+  else; they win over the shortcut of the same key.
 - `⌥I` — or `I` in aiming mode, which stays open — hides or shows the strip, saying which it now is,
   and the windows WindowQueue placed are laid out again for the room that just changed.
 - **Invisible mode** (Settings › Strip › Visibility) keeps the strip off screen except while aiming,

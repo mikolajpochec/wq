@@ -7,6 +7,7 @@ struct SettingsView: View {
     let spacesAvailable: Bool
 
     @State private var rectangleStatus = ""
+    @State private var newAimAction: HotkeyAction = .toggleRecording
 
     var body: some View {
         TabView {
@@ -251,10 +252,62 @@ struct SettingsView: View {
                     section("Queue", actions: HotkeyAction.queueActions)
                     section("Workspaces", actions: HotkeyAction.spaceActions)
                     section("Move to workspace", actions: HotkeyAction.moveToSpaceActions)
+                    aimBindings
                 }
             }
         }
         .padding()
+    }
+
+    /// Keys that mean something only while aiming mode is open, on top of the shortcuts it already
+    /// answers to without their super key.
+    private var aimBindings: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Aiming mode only").font(.headline).padding(.top, 12)
+            Text("While aiming, every shortcut above works without its super key. These keys work there and nowhere else, and come first when both would answer.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(store.prefs.aimBindings.sorted { $0.key < $1.key }, id: \.key) { entry in
+                HStack {
+                    Text(KeyCombo(keyCode: Int(entry.key) ?? 0, modifiers: 0).displayString)
+                        .frame(width: 60, alignment: .leading)
+                        .font(.system(.body, design: .monospaced))
+                    Picker("", selection: Binding(
+                        get: { store.prefs.aimBindings[entry.key] ?? entry.value },
+                        set: { store.prefs.aimBindings[entry.key] = $0 }
+                    )) {
+                        ForEach(HotkeyAction.queueActions) { action in
+                            Text(action.title).tag(action)
+                        }
+                    }
+                    .labelsHidden()
+                    Button(role: .destructive) {
+                        store.prefs.aimBindings.removeValue(forKey: entry.key)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            HStack {
+                Text("Add a key")
+                ShortcutRecorder(combo: nil, allowsBareKey: true) { combo in
+                    // Only the key matters here: aiming mode has the keyboard to itself, so its own
+                    // keys are bare ones.
+                    store.prefs.aimBindings["\(combo.keyCode)"] = newAimAction
+                }
+                .frame(width: 130, height: 24)
+                Picker("", selection: $newAimAction) {
+                    ForEach(HotkeyAction.queueActions) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+                .labelsHidden()
+            }
+            .padding(.top, 4)
+        }
     }
 
     private func section(_ title: String, actions: [HotkeyAction]) -> some View {

@@ -115,6 +115,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case openLauncher
     case showOverview
     case toggleInvisibleStrip
+    case toggleRecording
+    case screenshotWindow
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
@@ -139,6 +141,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .openLauncher: return "Open the launcher"
         case .showOverview: return "Show Mission Control"
         case .toggleInvisibleStrip: return "Hide or show the strip (invisible mode)"
+        case .toggleRecording: return "Start or stop recording the screen"
+        case .screenshotWindow: return "Take a picture of the window"
         default:
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
@@ -164,13 +168,14 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
          .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search,
-         .openLauncher, .showOverview, .toggleInvisibleStrip]
+         .openLauncher, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
     /// picked out first.
     static var doubleTapActions: [HotkeyAction] {
-        [.openLauncher, .showOverview, .search, .toggleInvisibleStrip, .toggleMaximize,
+        [.openLauncher, .showOverview, .search, .toggleInvisibleStrip, .toggleRecording,
+         .screenshotWindow, .toggleMaximize,
          .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .sortByWorkspace,
          .moveToStart, .moveToEnd]
     }
@@ -199,6 +204,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask)
         case .showOverview: return KeyCombo(keyCode: kVK_ANSI_O, modifiers: superMask)
         case .toggleInvisibleStrip: return KeyCombo(keyCode: kVK_ANSI_I, modifiers: superMask)
+        case .toggleRecording: return KeyCombo(keyCode: kVK_ANSI_C, modifiers: superMask)
+        case .screenshotWindow: return KeyCombo(keyCode: kVK_ANSI_X, modifiers: superMask)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -298,6 +305,10 @@ struct Preferences: Codable, Equatable {
     /// there but out of sight, and a change is announced by the popup alone.
     var invisibleStrip: Bool = false
 
+    /// Extra keys that only mean something in aiming mode, on top of the shortcuts it already
+    /// answers to without their super key. Keyed by virtual key code.
+    var aimBindings: [String: HotkeyAction] = [:]
+
     /// What a second tap of the super key does, straight after the first one opened aiming mode.
     /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
     var superDoubleTapAction: HotkeyAction? = .search
@@ -349,6 +360,7 @@ struct Preferences: Codable, Equatable {
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
         launcher = value(.launcher, defaults.launcher)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)
+        aimBindings = value(.aimBindings, defaults.aimBindings)
         flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)
         flashFocusedWindowDuration = value(.flashFocusedWindowDuration, defaults.flashFocusedWindowDuration)
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil

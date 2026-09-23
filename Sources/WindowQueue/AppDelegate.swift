@@ -235,7 +235,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The mode has the keyboard to itself, so a shortcut works with or without its super
             // key: `G` groups the aimed windows just as `⌥G` does.
             let bare = flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift]).isEmpty
-            let action = HotkeyAction.allCases.first { prefs.combo(for: $0).matches(keyCode: keyCode, flags: flags) }
+            // A key the user bound for aiming mode alone comes first: it is the more specific
+            // answer, and it is the one they set deliberately.
+            let action = (bare ? prefs.aimBindings["\(keyCode)"] : nil)
+                ?? HotkeyAction.allCases.first { prefs.combo(for: $0).matches(keyCode: keyCode, flags: flags) }
                 ?? (bare ? HotkeyAction.allCases.first { action in
                     let combo = prefs.combo(for: action)
                     return combo.keyCode == UInt32(keyCode) && combo.modifiers == prefs.superModifier.carbonMask
@@ -576,6 +579,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions.append(AimAction(kind: .shortcut(.openLauncher), title: store.prefs.launcher.title,
                                  symbol: "magnifyingglass"))
         actions.append(AimAction(kind: .shortcut(.showOverview), title: "Overview", symbol: "square.grid.3x3"))
+        actions.append(AimAction(kind: .shortcut(.screenshotWindow), title: "Screenshot", symbol: "camera"))
+        actions.append(AimAction(kind: .shortcut(.toggleRecording),
+                                 title: ScreenCapture.shared.isRecording ? "Stop" : "Record",
+                                 symbol: ScreenCapture.shared.isRecording ? "stop.circle" : "record.circle"))
         actions.append(AimAction(kind: .shortcut(.toggleInvisibleStrip),
                                  title: store.prefs.invisibleStrip ? "Show strip" : "Hide strip",
                                  symbol: store.prefs.invisibleStrip ? "eye" : "eye.slash"))
@@ -759,6 +766,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Starts recording the screen, or ends the recording running, and says which.
+    private func toggleRecording() {
+        let result = ScreenCapture.shared.toggleRecording()
+        let combo = store.prefs.combo(for: .toggleRecording).displayString
+        if result.started {
+            toast?.showCentred(title: "Recording the screen",
+                               subtitle: "\(combo) stops it and saves the file")
+        } else {
+            toast?.showCentred(title: "Recording saved",
+                               subtitle: result.url?.deletingPathExtension().lastPathComponent
+                                   ?? "The recording has been written")
+        }
+    }
+
+    /// Takes a picture of each of these windows, and says how many were written.
+    private func screenshot(_ windows: [ManagedWindow]) {
+        guard !windows.isEmpty else { return }
+        guard ScreenRecordingAccess.isGranted else {
+            toast?.showCentred(title: "Screen Recording access needed",
+                               subtitle: "System Settings › Privacy & Security › Screen Recording")
+            return
+        }
+        // Behind another window, a window photographs as whatever is on top of it, so each one is
+        // brought forward first — the aimed windows, in the order they sit in the queue.
+        for window in windows { window.element?.perform(kAXRaiseAction) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            let written = ScreenCapture.shared.screenshot(windows)
+            guard let self else { return }
+            guard let first = written.first else {
+                self.toast?.showCentred(title: "Nothing captured",
+                                        subtitle: "The window could not be photographed")
+                return
+            }
+            self.toast?.showCentred(
+                title: written.count == 1 ? "Screenshot saved" : "\(written.count) screenshots saved",
+                subtitle: first.deletingLastPathComponent().lastPathComponent)
+        }
+    }
+
     /// Turns invisible mode on or off, says which it now is, and gives the windows the room back —
     /// or takes it away — since the strip's reservation has just changed.
     private func toggleInvisibleStrip() {
@@ -796,6 +842,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             noteTiled(placed, layout: layout)
         }
         if let id = model.maximizedID, let window = model.windows.first(where: { $0.id == id }) {
+            WindowTiler.fill(window, in: area, gaps: gaps)
+        }
+
+        // Windows that were maximized and have not been touched since are still where WindowQueue
+        // put them, so they take the new room too. One the user has moved or resized is theirs
+        // again, and is left exactly as they left it.
+        for window in model.windows where window.id != model.maximizedID {
+            guard framesBeforeMaximize[window.id] != nil,
+                  let current = WindowTiler.frame(of: window)
+            else { continue }
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+            let inAX = CGRect(x: current.minX, y: primaryHeight - current.maxY,
+                              width: current.width, height: current.height)
+            guard WindowTiler.placed(window.id, at: inAX) else { continue }
             WindowTiler.fill(window, in: area, gaps: gaps)
         }
     }
@@ -862,6 +922,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleInvisibleStrip:
                 toggleInvisibleStrip()
                 return
+            // Recording is about the screen, not about a window: the mode stays open so the same
+            // key can stop it again.
+            case .toggleRecording:
+                toggleRecording()
+                return
+            case .screenshotWindow:
+                let windows = model.aimedWindows
+                endAiming(commit: false)
+                screenshot(windows)
+                return
             // Both hand the keyboard to something else, so the mode ends first and takes its grab
             // with it — a launcher that cannot be typed into is no launcher.
             case .openLauncher, .showOverview:
@@ -927,6 +997,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SystemLaunchers.showMissionControl()
         case .toggleInvisibleStrip:
             toggleInvisibleStrip()
+        case .toggleRecording:
+            toggleRecording()
+        case .screenshotWindow:
+            screenshot(model.selectedWindow.map { [$0] } ?? [])
         default:
             break
         }

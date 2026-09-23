@@ -3,24 +3,30 @@ import SwiftUI
 
 /// Click-to-record view for a single shortcut. Captures the next key press with modifiers.
 struct ShortcutRecorder: NSViewRepresentable {
-    let combo: KeyCombo
+    let combo: KeyCombo?
+    /// Aiming mode has the keyboard to itself, so its own keys are bare ones; a global shortcut
+    /// cannot be, and there a bare key is refused.
+    var allowsBareKey = false
     let onChange: (KeyCombo) -> Void
 
     func makeNSView(context: Context) -> RecorderView {
         let view = RecorderView()
         view.onChange = onChange
         view.combo = combo
+        view.allowsBareKey = allowsBareKey
         return view
     }
 
     func updateNSView(_ view: RecorderView, context: Context) {
         view.onChange = onChange
         view.combo = combo
+        view.allowsBareKey = allowsBareKey
     }
 
     final class RecorderView: NSView {
         var onChange: ((KeyCombo) -> Void)?
         var combo: KeyCombo? { didSet { needsDisplay = true } }
+        var allowsBareKey = false
         private var isRecording = false { didSet { needsDisplay = true } }
 
         override var acceptsFirstResponder: Bool { true }
@@ -43,7 +49,9 @@ struct ShortcutRecorder: NSViewRepresentable {
                 window?.makeFirstResponder(nil)
                 return
             }
-            guard let recorded = KeyCombo(event: event) else {
+            guard let recorded = KeyCombo(event: event)
+                ?? (allowsBareKey ? KeyCombo(keyCode: UInt32(event.keyCode), modifiers: 0) : nil)
+            else {
                 NSSound.beep() // bare keys cannot be global shortcuts
                 return
             }

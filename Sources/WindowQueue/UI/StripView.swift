@@ -15,6 +15,7 @@ struct StripView: View {
     @ObservedObject var model: WindowQueueModel
     @ObservedObject var store: PreferencesStore
     @ObservedObject var screen: StripScreenState
+    @ObservedObject var capture = ScreenCapture.shared
     var onSelect: (ManagedWindow) -> Void
     /// Called with the window being held and how far it has been dragged, and with nil when the
     /// hold ends, so the popup can stay up and follow the icon.
@@ -288,7 +289,28 @@ struct StripView: View {
         }
     }
 
+    @ViewBuilder
     private var spaceBadge: some View {
+        // While the screen is being recorded the badge says so instead: it is the one thing more
+        // worth knowing at a glance than which workspace this is.
+        if capture.isRecording {
+            Image(systemName: "record.circle.fill")
+                .font(.system(size: prefs.iconSize * 0.6, weight: .semibold))
+                .foregroundStyle(Color.red)
+                .symbolEffect(.pulse)
+                .frame(width: prefs.iconSize, height: prefs.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
+                        .fill(Color.red.opacity(0.16))
+                )
+                .padding(4)
+                .help("Recording the screen")
+        } else {
+            workspaceBadge
+        }
+    }
+
+    private var workspaceBadge: some View {
         Text((screen.spaceIndex ?? model.currentSpaceIndex).map(String.init) ?? "–")
             .font(.system(size: prefs.iconSize * 0.55, weight: .semibold, design: .rounded))
             .foregroundStyle(badgeForeground)
