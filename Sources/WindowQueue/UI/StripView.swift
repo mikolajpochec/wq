@@ -114,12 +114,12 @@ struct StripView: View {
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
         .background(alignment: side.isVertical ? .top : .leading) { maximizedGroupBackground }
         .background(
-            RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
+            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .fill(.ultraThinMaterial)
                 .opacity(prefs.stripOpacity)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
+            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
         // On a monitor that is not the selected one the strip stays readable but steps back.
@@ -207,7 +207,7 @@ struct StripView: View {
             .foregroundStyle(badgeForeground)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
                     .fill(badgeFill)
             )
             .animation(.easeOut(duration: 0.25), value: screen.backdropIsLight)
@@ -246,10 +246,10 @@ struct StripView: View {
                 ForEach(aimedRuns, id: \.lowerBound) { run in
                     let start = layout.topOffset(ofWindowAt: run.lowerBound)
                     let length = layout.topOffset(ofWindowAt: run.upperBound) + thickness - start
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                         .fill(Color.orange.opacity(0.28))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                                 .strokeBorder(Color.orange, lineWidth: 2.5)
                         )
                         .frame(width: side.isVertical ? thickness : length,
@@ -266,7 +266,7 @@ struct StripView: View {
     private var emptySlotMarker: some View {
         let long = prefs.iconSize
         let short = StripMetrics.slotThickness(prefs: prefs)
-        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous)
         return DiagonalStripes(spacing: 5)
             .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.2)
             .clipShape(shape)
@@ -319,7 +319,7 @@ struct StripView: View {
                 let lean = (back - middle) * step
                 icon(for: window)
                     .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous))
                     .saturation(1 - back * 0.35)
                     .opacity(1 - back * 0.28)
                     .scaleEffect(1 - back * 0.1, anchor: .center)
@@ -374,10 +374,10 @@ struct StripView: View {
         if let span = maximizedGroupSpan {
             let selected = isMaximizedGroupSelected
             let thickness = StripMetrics.rowHeight(prefs: prefs) + 4
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
                 .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.09))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
                         .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5)
                 )
                 .frame(width: side.isVertical ? thickness : span.end - span.start,
@@ -410,11 +410,11 @@ struct StripView: View {
         }
         .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .fill(highlight?.opacity(0.28) ?? (covered ? Color.blue.opacity(0.22) : .clear))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
         .contentShape(Rectangle())
@@ -464,7 +464,8 @@ struct StripView: View {
         if let image = window.icon {
             Image(nsImage: image).resizable().interpolation(.high)
         } else {
-            RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.3))
+            RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs))
+                .fill(Color.secondary.opacity(0.3))
         }
     }
 
@@ -530,7 +531,13 @@ struct StripView: View {
 enum StripMetrics {
     static let spacing: CGFloat = 6
     static let padding: CGFloat = 6
-    static let corner: CGFloat = 12
+    /// Corners follow the size of what they round: the strip's own, a row's highlight, the
+    /// workspace badge, the empty slot. A fixed radius looks wrong the moment the icons change size.
+    static func corner(prefs: Preferences) -> CGFloat { thickness(prefs: prefs) * 0.28 }
+    static func rowCorner(prefs: Preferences) -> CGFloat { rowHeight(prefs: prefs) * 0.24 }
+    static func badgeCorner(prefs: Preferences) -> CGFloat { prefs.iconSize * 0.27 }
+    static func iconCorner(prefs: Preferences) -> CGFloat { prefs.iconSize * 0.23 }
+    static func groupCorner(prefs: Preferences) -> CGFloat { (rowHeight(prefs: prefs) + 4) * 0.3 }
     /// Shared timing so the panel resize and the SwiftUI content move together.
     static let layoutAnimation: Animation = .spring(response: 0.32, dampingFraction: 0.82)
     static let layoutDuration: TimeInterval = 0.32
