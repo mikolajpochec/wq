@@ -79,11 +79,14 @@ struct StripView: View {
     }
 
     /// The point aiming mode grows the strip from: its screen edge, at the end it is aligned to.
-    /// Which way the folded page leans, so it opens outwards from its own edge of the screen.
+    /// Which way the folded page leans while it is shut.
+    ///
+    /// Hinged on the screen edge and lying over the screen, so opening sweeps it out of the middle
+    /// and down onto its edge — a page being turned, rather than a panel unfolding off the side.
     static func foldedAngle(for side: StripSide) -> Double {
         switch side {
-        case .left, .top: return -88
-        case .right, .bottom: return 88
+        case .left, .top: return 100
+        case .right, .bottom: return -100
         }
     }
 
@@ -195,8 +198,11 @@ struct StripView: View {
         // aiming opens it. The perspective is what makes it read as opening rather than squashing.
         .rotation3DEffect(.degrees(screen.isUnfolded ? 0 : Self.foldedAngle(for: side)),
                           axis: side.isVertical ? (x: 0, y: 1, z: 0) : (x: 1, y: 0, z: 0),
-                          anchor: scaleAnchor, perspective: 0.6)
-        .animation(.spring(response: StripMetrics.foldDuration, dampingFraction: 0.82),
+                          anchor: scaleAnchor, perspective: 0.9)
+        // Past ninety degrees the page is face down over the screen, so it fades out rather than
+        // showing its back, and the last of the turn is what brings it into view.
+        .opacity(screen.isUnfolded ? 1 : 0)
+        .animation(.spring(response: StripMetrics.foldDuration, dampingFraction: 0.78),
                    value: screen.isUnfolded)
         // Only the strip the aim is actually on grows: stepped into a group, the aim walks the
         // group's own strip, and growing this one too would just push the pair around.
