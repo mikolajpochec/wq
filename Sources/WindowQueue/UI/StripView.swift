@@ -306,17 +306,21 @@ struct StripView: View {
         let peek = Array(windows.prefix(StripMetrics.stackPeek))
         let step = StripMetrics.stackStep
         let size = prefs.iconSize
-        return ZStack(alignment: side.isVertical ? .top : .leading) {
+        // The cascade leans both ways from the middle, so the tile sits on the strip's centre line
+        // like every other icon rather than hanging off one end.
+        let middle = CGFloat(peek.count - 1) / 2
+        return ZStack {
             // Drawn back to front, so the nearest card is the one on top.
             ForEach(Array(peek.enumerated().reversed()), id: \.element.id) { depth, window in
                 let back = CGFloat(depth)
+                let lean = (back - middle) * step
                 icon(for: window)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .saturation(1 - back * 0.35)
                     .opacity(1 - back * 0.28)
                     .scaleEffect(1 - back * 0.1, anchor: .center)
-                    .offset(x: side.isVertical ? 0 : back * step, y: side.isVertical ? back * step : 0)
+                    .offset(x: side.isVertical ? 0 : lean, y: side.isVertical ? lean : 0)
             }
         }
         .frame(width: side.isVertical ? size : size + step * CGFloat(max(peek.count - 1, 0)),
@@ -407,7 +411,7 @@ struct StripView: View {
                 icon(for: window)
                     .frame(width: prefs.iconSize, height: prefs.iconSize)
                 Text(label(for: window))
-                    .font(.system(size: max(7, prefs.iconSize * 0.27), weight: .semibold))
+                    .font(.system(size: max(9, prefs.iconSize * 0.36), weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(.white)
