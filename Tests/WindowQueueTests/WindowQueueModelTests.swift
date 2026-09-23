@@ -193,3 +193,17 @@ extension WindowQueueModelTests {
         XCTAssertFalse(model.isCovered(model.windows[0]))
     }
 }
+
+extension WindowQueueModelTests {
+    func testMaximizedWindowMovesWithTheWindowsItCovers() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 20), window(4, space: 20)])
+        model.select(id: 1, announce: false)
+        model.beginFocus(on: 1)
+        XCTAssertEqual(model.maximizedGroupIDs, [1, 2])
+
+        model.move(by: 1)
+        XCTAssertEqual(ids(model), [3, 1, 2, 4])
+        model.move(id: 1, toVisiblePosition: 0)
+        XCTAssertEqual(ids(model), [1, 2, 3, 4])
+    }
+}

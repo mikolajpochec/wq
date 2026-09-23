@@ -147,9 +147,15 @@ final class WindowQueueModel: ObservableObject {
 
     /// Moves the whole aimed run one slot along the queue, keeping it together and aimed.
     func moveAimedGroup(by delta: Int) {
+        moveGroup(aimedWindows.map(\.id), by: delta)
+    }
+
+    /// Moves a set of windows one slot along the queue, keeping them together.
+    func moveGroup(_ groupIDs: [CGWindowID], by delta: Int) {
         let visible = visibleWindows
-        let group = aimedWindows
-        let ids = Set(group.map(\.id))
+        let ids = Set(groupIDs)
+        let group = visible.filter { ids.contains($0.id) }
+        guard !group.isEmpty else { return }
         guard let first = visible.firstIndex(where: { ids.contains($0.id) }) else { return }
         let destination = min(max(first + delta, 0), visible.count - group.count)
         guard destination != first else { return }
@@ -363,8 +369,21 @@ final class WindowQueueModel: ObservableObject {
 
     // MARK: - Reordering
 
+    /// The maximized window and the windows it covers, which move through the queue as one.
+    var maximizedGroupIDs: [CGWindowID] {
+        guard let maximizedID else { return [] }
+        let group = visibleWindows.filter { $0.id == maximizedID || isCovered($0) }
+        return group.count > 1 ? group.map(\.id) : []
+    }
+
     /// Swaps the selected window with its neighbour `delta` positions away in the visible slice.
     func move(by delta: Int) {
+        // A maximized window carries the windows it covers with it; they are one block in the queue.
+        let group = maximizedGroupIDs
+        if selectedID == maximizedID, !group.isEmpty {
+            moveGroup(group, by: delta)
+            return
+        }
         let indices = visibleIndices
         guard let position = selectedVisiblePosition else { return }
         let target = position + delta
@@ -578,6 +597,11 @@ final class WindowQueueModel: ObservableObject {
     /// Moves one window to an absolute slot within the visible slice, leaving windows the current
     /// scope hides where they are.
     func move(id: CGWindowID, toVisiblePosition target: Int) {
+        let group = maximizedGroupIDs
+        if id == maximizedID, !group.isEmpty {
+            move(ids: group, toVisiblePosition: target)
+            return
+        }
         let indices = visibleIndices
         guard let position = visibleWindows.firstIndex(where: { $0.id == id }),
               indices.indices.contains(target),
