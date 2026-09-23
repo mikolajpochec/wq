@@ -14,11 +14,14 @@ struct StripLayout {
         case window(ManagedWindow)
         /// Where the windows of an empty workspace the user is on would go.
         case emptySlot
+        /// The windows a maximized window covers, collapsed into one tile.
+        case hiddenStack(windows: [ManagedWindow])
 
         var id: String {
             switch self {
             case .badge: return "badge"
             case .emptySlot: return "empty-slot"
+            case .hiddenStack: return "hidden-stack"
             case .window(let window): return "window-\(window.id)"
             }
         }
@@ -33,7 +36,8 @@ struct StripLayout {
     private let heights: [CGFloat]
     /// Offset from the top of the strip to the top edge of each element.
     private let tops: [CGFloat]
-    /// Index into `elements` for each window, in queue order.
+    /// Index into `elements` for each window, in queue order. Windows collapsed into the hidden
+    /// stack all point at that one element.
     private let windowElements: [Int]
 
     let totalHeight: CGFloat
@@ -44,10 +48,26 @@ struct StripLayout {
         case end
     }
 
-    init(windows: [ManagedWindow], prefs: Preferences, slot: SlotPlacement? = nil) {
+    /// - Parameter collapsed: windows drawn as one stacked tile instead of a row each.
+    init(windows: [ManagedWindow], prefs: Preferences, slot: SlotPlacement? = nil,
+         collapsed: Set<CGWindowID> = []) {
         var elements: [Element] = []
         if prefs.showSpaceBadge { elements.append(.badge) }
-        elements.append(contentsOf: windows.map { .window($0) })
+        var windowElements: [Int] = []
+        var stackElement: Int?
+        let hidden = windows.filter { collapsed.contains($0.id) }
+        for window in windows {
+            if collapsed.contains(window.id) {
+                if stackElement == nil {
+                    stackElement = elements.count
+                    elements.append(.hiddenStack(windows: hidden))
+                }
+                windowElements.append(stackElement!)
+            } else {
+                windowElements.append(elements.count)
+                elements.append(.window(window))
+            }
+        }
         switch slot {
         case .before(let id):
             let index = elements.firstIndex { $0.window?.id == id } ?? elements.count
@@ -63,6 +83,7 @@ struct StripLayout {
             case .badge: return prefs.iconSize
             case .window: return StripMetrics.rowHeight(prefs: prefs)
             case .emptySlot: return StripMetrics.slotLength(prefs: prefs)
+            case .hiddenStack: return StripMetrics.stackLength(prefs: prefs)
             }
         }
 
@@ -76,7 +97,12 @@ struct StripLayout {
         self.elements = elements
         self.heights = heights
         self.tops = tops
-        self.windowElements = elements.indices.filter { elements[$0].window != nil }
+        // The empty slot shifts the elements after it, so the map is built against the final list.
+        let slotIndex = elements.firstIndex { if case .emptySlot = $0 { return true } else { return false } }
+        self.windowElements = windowElements.map { index in
+            guard let slotIndex, index >= slotIndex else { return index }
+            return index + 1
+        }
         // The trailing spacing of the last element is not part of the content.
         totalHeight = elements.isEmpty
             ? StripMetrics.padding * 2
@@ -84,6 +110,14 @@ struct StripLayout {
     }
 
     var windowCount: Int { windowElements.count }
+
+    /// Windows drawn inside the hidden stack, in queue order.
+    var hiddenWindows: [ManagedWindow] {
+        for element in elements {
+            if case .hiddenStack(let windows) = element { return windows }
+        }
+        return []
+    }
 
     func topOffset(ofWindowAt index: Int) -> CGFloat {
         guard windowElements.indices.contains(index) else { return StripMetrics.padding }
@@ -96,7 +130,8 @@ struct StripLayout {
         return tops[element] + heights[element] / 2
     }
 
-    /// The window whose band contains `offset`, measured from the top of the strip content.
+    /// The window whose band contains `offset`, measured from the top of the strip content. A point
+    /// on the hidden stack answers with the first window inside it.
     func windowIndex(atOffsetFromTop offset: CGFloat) -> Int? {
         for (position, element) in windowElements.enumerated() {
             // The band includes the spacing below the row, so the gaps between icons stay live.

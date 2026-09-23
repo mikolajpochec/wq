@@ -245,6 +245,13 @@ struct Preferences: Codable, Equatable {
     /// Maximizing a window puts it first on its workspace and dims the rest of that workspace in the
     /// strip, which cycling then skips until the window is restored.
     var focusMaximizedWindow: Bool = true
+    /// Draw the covered windows as one cascading tile with their number, rather than leaving a row
+    /// for each of them.
+    var collapseCoveredWindows: Bool = true
+
+    /// A line of the window's title under its icon in the strip, for telling apart several windows
+    /// of the same application. The row keeps its size; the icon gives up the room.
+    var showWindowLabels: Bool = false
 
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
@@ -286,6 +293,8 @@ struct Preferences: Codable, Equatable {
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
+        collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
+        showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
     }
 
     init() {}

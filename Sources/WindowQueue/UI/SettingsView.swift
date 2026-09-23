@@ -79,7 +79,20 @@ struct SettingsView: View {
             Section("Maximized windows") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Focus on a maximized window", isOn: $store.prefs.focusMaximizedWindow)
-                    caption("Maximizing a window moves it to the front of its workspace in the queue and tints the workspace's other windows blue in the strip. Cycling then stays on the maximized window until it is restored, which puts the queue back as it was.")
+                    caption("Maximizing a window moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was.")
+                }
+                if store.prefs.focusMaximizedWindow {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Collapse the windows it covers", isOn: $store.prefs.collapseCoveredWindows)
+                        caption("The covered windows fold into one tile beside it, showing the first few icons and how many there are. Off, they keep a row each and are tinted instead.")
+                    }
+                }
+            }
+
+            Section("Strip labels") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
+                    caption("Tells apart several windows of the same application. The icon shrinks to make room, so the strip stays the same size.")
                 }
             }
 

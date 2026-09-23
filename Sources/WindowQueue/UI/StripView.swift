@@ -86,6 +86,9 @@ struct StripView: View {
                     emptySlotMarker
                         .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
                         .transition(.scale(scale: 0.5).combined(with: .opacity))
+                case .hiddenStack(let windows):
+                    hiddenStackTile(for: windows)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
                 case .window(let window) where window.id == model.slotFilledID:
                     row(for: window)
                         .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
@@ -103,11 +106,13 @@ struct StripView: View {
         .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
         .animation(.easeOut(duration: 0.2), value: model.maximizedID)
+        .animation(StripMetrics.layoutAnimation, value: collapsedIDs)
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? prefs.stripWidth : nil,
                height: side.isVertical ? nil : prefs.stripWidth)
         // Behind the icons but above the strip's own background.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
+        .background(alignment: side.isVertical ? .top : .leading) { maximizedGroupBackground }
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -148,7 +153,15 @@ struct StripView: View {
     // MARK: - Layout
 
     private func layout(of windows: [ManagedWindow]) -> StripLayout {
-        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement)
+        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement, collapsed: collapsedIDs)
+    }
+
+    /// Windows the maximized one covers, while they are meant to collapse into one tile.
+    private var collapsedIDs: Set<CGWindowID> {
+        guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil,
+              draggingID == nil
+        else { return [] }
+        return Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
     }
 
     /// Geometry of the committed queue. Drag targeting measures against this rather than the preview
@@ -281,9 +294,75 @@ struct StripView: View {
         }
     }
 
-    /// A window the maximized one is covering: still in the queue, just not in the way.
+    /// A window the maximized one is covering and which is still drawn as its own row: only when
+    /// the windows are not being collapsed into the stack tile.
     private func isCovered(_ window: ManagedWindow) -> Bool {
-        prefs.focusMaximizedWindow && model.isCovered(window)
+        prefs.focusMaximizedWindow && collapsedIDs.isEmpty && model.isCovered(window)
+    }
+
+    /// The covered windows as one tile: the first few icons cascading behind each other, fading as
+    /// they go back, with the number of windows hidden.
+    private func hiddenStackTile(for windows: [ManagedWindow]) -> some View {
+        let peek = Array(windows.prefix(StripMetrics.stackPeek))
+        let step = StripMetrics.stackStep
+        let size = prefs.iconSize
+        return ZStack(alignment: side.isVertical ? .top : .leading) {
+            // Drawn back to front, so the nearest card is the one on top.
+            ForEach(Array(peek.enumerated().reversed()), id: \.element.id) { depth, window in
+                let back = CGFloat(depth)
+                icon(for: window)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .saturation(1 - back * 0.35)
+                    .opacity(1 - back * 0.28)
+                    .scaleEffect(1 - back * 0.1, anchor: .center)
+                    .offset(x: side.isVertical ? 0 : back * step, y: side.isVertical ? back * step : 0)
+            }
+        }
+        .frame(width: side.isVertical ? size : size + step * CGFloat(max(peek.count - 1, 0)),
+               height: side.isVertical ? size + step * CGFloat(max(peek.count - 1, 0)) : size)
+        .overlay(alignment: .bottomTrailing) { hiddenCountBadge(windows.count) }
+        .padding(4)
+        .contentShape(Rectangle())
+        .help("\(windows.count) window\(windows.count == 1 ? "" : "s") behind the maximized one")
+    }
+
+    private func hiddenCountBadge(_ count: Int) -> some View {
+        Text("+\(count)")
+            .font(.system(size: prefs.iconSize * 0.34, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.accentColor.opacity(0.95)))
+            .offset(x: 3, y: 3)
+    }
+
+    /// The shape tying the maximized window to the tile of what it covers, so it is plain which
+    /// window the hidden ones are behind.
+    @ViewBuilder
+    private var maximizedGroupBackground: some View {
+        let visible = model.visibleWindows
+        if !collapsedIDs.isEmpty,
+           let maximized = visible.firstIndex(where: { $0.id == model.maximizedID }),
+           let firstHidden = visible.firstIndex(where: { collapsedIDs.contains($0.id) }) {
+            let layout = previewLayout
+            let first = min(maximized, firstHidden)
+            let last = max(maximized, firstHidden)
+            let start = layout.topOffset(ofWindowAt: first)
+            let end = layout.topOffset(ofWindowAt: last)
+                + (last == firstHidden ? StripMetrics.stackLength(prefs: prefs) : StripMetrics.rowHeight(prefs: prefs))
+            let thickness = StripMetrics.rowHeight(prefs: prefs) + 4
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.accentColor.opacity(0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                )
+                .frame(width: side.isVertical ? thickness : end - start,
+                       height: side.isVertical ? end - start : thickness)
+                .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
+                .animation(StripMetrics.layoutAnimation, value: collapsedIDs)
+        }
     }
 
     private func row(for window: ManagedWindow) -> some View {
@@ -298,7 +377,7 @@ struct StripView: View {
         let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
         let covered = isCovered(window)
         return ZStack(alignment: .bottomTrailing) {
-            icon(for: window)
+            iconWithLabel(for: window)
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
                 .opacity(window.isMinimized ? 0.45 : covered ? 0.5 : 1)
                 // Behind the maximized window, and out of the way until it is restored.
@@ -315,6 +394,35 @@ struct StripView: View {
         )
         .contentShape(Rectangle())
         .help(window.displayTitle)
+    }
+
+    /// The icon, and under it a line of the window's title when labels are on. The pair is drawn
+    /// inside the room one icon had, so turning labels on does not make the strip any longer.
+    @ViewBuilder
+    private func iconWithLabel(for window: ManagedWindow) -> some View {
+        if prefs.showWindowLabels {
+            VStack(spacing: 1) {
+                icon(for: window)
+                    .frame(width: prefs.iconSize * 0.68, height: prefs.iconSize * 0.68)
+                Text(label(for: window))
+                    .font(.system(size: max(7, prefs.iconSize * 0.25), weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.secondary)
+                    .frame(width: prefs.iconSize)
+            }
+        } else {
+            icon(for: window)
+        }
+    }
+
+    /// What the label says: the window's own title, which is what tells two windows of the same
+    /// application apart, falling back to the application's name.
+    private func label(for window: ManagedWindow) -> String {
+        let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return window.appName }
+        // Titles often start with a marker or a bullet the app draws itself; it says nothing here.
+        return String(title.drop { !$0.isLetter && !$0.isNumber })
     }
 
     @ViewBuilder
@@ -400,6 +508,16 @@ enum StripMetrics {
     /// window's place; the dashes and hatching are what tell it apart.
     static func slotThickness(prefs: Preferences) -> CGFloat { prefs.iconSize }
     static func slotLength(prefs: Preferences) -> CGFloat { slotThickness(prefs: prefs) + 8 }
+
+    /// How far the cascade of hidden windows leans out from the icon under it.
+    static let stackStep: CGFloat = 5
+    /// Icons drawn in the cascade, however many windows are hidden.
+    static let stackPeek = 3
+
+    /// The hidden stack takes a row plus the lean of the cards behind it.
+    static func stackLength(prefs: Preferences) -> CGFloat {
+        rowHeight(prefs: prefs) + stackStep * CGFloat(stackPeek - 1)
+    }
 
 
 }
