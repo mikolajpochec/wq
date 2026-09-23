@@ -185,8 +185,9 @@ struct StripView: View {
         if draggingStack {
             let moving = collapsedIDs
             let group = windows.filter { moving.contains($0.id) }
+            let ahead = windows.prefix(dragTargetIndex).count { moving.contains($0.id) }
             windows.removeAll { moving.contains($0.id) }
-            windows.insert(contentsOf: group, at: min(max(dragTargetIndex, 0), windows.count))
+            windows.insert(contentsOf: group, at: min(max(dragTargetIndex - ahead, 0), windows.count))
             return windows
         }
 
@@ -367,7 +368,9 @@ struct StripView: View {
     /// strip, or nil when nothing is collapsed.
     private var maximizedGroupSpan: (start: CGFloat, end: CGFloat)? {
         let visible = model.visibleWindows
-        guard !collapsedIDs.isEmpty,
+        // While the tile is being carried around, the shape joining it to the maximized window
+        // would stretch across the whole strip; it comes back when the tile is dropped.
+        guard !draggingStack, !collapsedIDs.isEmpty,
               let maximized = visible.firstIndex(where: { $0.id == model.maximizedID }),
               let firstHidden = visible.firstIndex(where: { collapsedIDs.contains($0.id) })
         else { return nil }
@@ -514,9 +517,11 @@ struct StripView: View {
 
     private func dragEnded(offset: CGFloat) {
         if draggingStack {
-            let ids = model.visibleWindows.filter { collapsedIDs.contains($0.id) }.map(\.id)
+            let moving = collapsedIDs
+            let ids = model.visibleWindows.filter { moving.contains($0.id) }.map(\.id)
+            let ahead = model.visibleWindows.prefix(dragTargetIndex).count { moving.contains($0.id) }
             if abs(offset) >= 4 || dragTargetIndex != dragOriginIndex {
-                model.move(ids: ids, toVisiblePosition: dragTargetIndex)
+                model.move(ids: ids, toVisiblePosition: max(dragTargetIndex - ahead, 0))
             }
             endDrag()
             return
