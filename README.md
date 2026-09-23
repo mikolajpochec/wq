@@ -29,6 +29,14 @@ always-on-top strip showing that list, and workspace switching by number.
 - Fullscreening a window (`⌥F`, again to restore) also focuses the queue on it: it moves to the front of
   its workspace, the workspace's other windows are tinted blue in the strip, and cycling skips them
   until the window is restored, which puts the order back. Off in Settings › General.
+- `⌥G` puts the aimed windows in a **group**: the strip shows them as one entry, and stepping into it
+  — with the cycle shortcuts, or by clicking it — selects its first window and lists the group beside
+  the strip. Resting the pointer on the entry peeks at the list without stepping in. `⌥G` again, with
+  the selection inside a group, breaks it up. The queue itself is untouched throughout.
+- Tiling from aiming mode leaves the windows in a **tiled group**, marked in the strip. Reordering
+  them in the queue lays them out again in the new order — the quick way to change which window is
+  the main one — and moving or resizing any of them by hand frees the group where it stands. Going
+  fullscreen and back does not.
 - `⌥H` minimizes the selected window.
 - With several windows aimed at, `⌥M`, `⌥H`, `⌥Q`, `⌥⇧↖`, `⌥⇧↘` and `⌥⇧1`…`⌥⇧9` act on all of them
   at once, and a popup in the middle of the screen says what happened.
