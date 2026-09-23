@@ -87,6 +87,16 @@ final class SpacesBridge {
         return id
     }
 
+    /// The workspaces of the display a workspace lives on, in Mission Control order.
+    ///
+    /// Each display owns its own desktops, so a workspace to put a layout on has to come from the
+    /// same monitor — a desktop on the other screen is not somewhere the windows can go.
+    func spacesSharingDisplay(with space: UInt64) -> [UInt64] {
+        guard let display = displays().first(where: { $0.userSpaces.contains { $0.id == space } })
+        else { return [] }
+        return display.userSpaces.map(\.id)
+    }
+
     /// Takes a workspace away again. Only for one this app made and could not use.
     func destroySpace(_ id: UInt64) {
         guard isAvailable else { return }

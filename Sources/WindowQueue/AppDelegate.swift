@@ -657,9 +657,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if wantsOwnWorkspace, let fresh = SpacesBridge.shared.createSpace() {
             target = fresh
             Diagnostics.note("tiling on a new workspace \(fresh)")
+        } else if wantsOwnWorkspace, let here = target,
+                  let empty = nearestEmptyWorkspace(from: here, ignoring: tiled) {
+            // macOS would not add a desktop, but an empty one on the same monitor does just as well.
+            target = empty
+            Diagnostics.note("tiling on empty workspace \(empty)")
         } else if wantsOwnWorkspace {
             toast?.showCentred(title: "Tiled where they are",
-                               subtitle: "macOS would not add a workspace for the layout")
+                               subtitle: "No empty workspace on this monitor, and macOS would not add one")
         }
 
         guard let last = windows.last, let target else {
@@ -700,6 +705,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.enumerator?.refresh()
             self.finishTiling(ready, layout: layout)
         }
+    }
+
+    /// The nearest workspace with nothing on it, on the same monitor as `space` — the layout can
+    /// only go somewhere its windows can actually be moved to, and each display owns its desktops.
+    /// - Parameter ignoring: windows about to leave anyway, which do not make a workspace occupied.
+    private func nearestEmptyWorkspace(from space: UInt64, ignoring leaving: Set<CGWindowID> = []) -> UInt64? {
+        let spaces = SpacesBridge.shared.spacesSharingDisplay(with: space)
+        guard let origin = spaces.firstIndex(of: space) else { return nil }
+        let occupied = Set(model.windows
+            .filter { !$0.isMinimized && !leaving.contains($0.id) }
+            .compactMap(\.spaceID))
+        return spaces.enumerated()
+            .filter { $0.offset != origin && !occupied.contains($0.element) }
+            .min { abs($0.offset - origin) < abs($1.offset - origin) }?
+            .element
     }
 
     /// While a layout is being applied, the frame changes it causes are ours, not the user's.
