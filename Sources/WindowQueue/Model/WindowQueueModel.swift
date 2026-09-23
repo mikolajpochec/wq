@@ -307,8 +307,12 @@ final class WindowQueueModel: ObservableObject {
 
     /// 1-based workspace number a window sits on, or nil for a minimised or unplaced window.
     func workspaceNumber(of window: ManagedWindow) -> Int? {
-        guard let space = window.spaceID, let index = spaceOrder.firstIndex(of: space) else { return nil }
-        return index + 1
+        window.spaceID.flatMap { workspaceNumber(ofSpace: $0) }
+    }
+
+    /// The number the strip — and Mission Control — gives this workspace.
+    func workspaceNumber(ofSpace space: UInt64) -> Int? {
+        spaceOrder.firstIndex(of: space).map { $0 + 1 }
     }
 
     // MARK: - Groups

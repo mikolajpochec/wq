@@ -658,18 +658,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // aimed window is on holds nothing but windows of this layout, the rest are carried over to
         // it. Only strangers there force the layout to look for a workspace of its own.
         if strangersAtHome {
-            if let best = workspaceForLayout(of: windows, from: home), best.holds > 0 {
+            if let best = workspaceForLayout(of: windows, from: home) {
                 // A workspace already holding nothing but windows of this layout is the cheapest
-                // place for it: the rest are carried over to them instead of everything moving.
+                // place for it: the rest are carried over to them. Failing that, the nearest one
+                // with nothing on it — counted in the numbers the strip shows, which are the
+                // numbers Mission Control shows.
                 target = best.space
-                Diagnostics.note("tiling on workspace \(best.space), which already holds \(best.holds) of them")
-            } else if let fresh = SpacesBridge.shared.createSpace() {
-                target = fresh
-                Diagnostics.note("tiling on a new workspace \(fresh)")
-            } else if let best = workspaceForLayout(of: windows, from: home) {
-                // macOS would not add a desktop, but an empty one on the same monitor does as well.
-                target = best.space
-                Diagnostics.note("tiling on empty workspace \(best.space)")
+                Diagnostics.note("tiling on workspace \(model.workspaceNumber(ofSpace: best.space).map(String.init) ?? "?")"
+                                 + " (space \(best.space)), which already holds \(best.holds) of them")
             } else {
                 toast?.showCentred(title: "Tiled where they are",
                                    subtitle: "No workspace on this monitor is free for the layout, and macOS would not add one")
@@ -747,7 +743,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func workspaceForLayout(of windows: [ManagedWindow],
                                     from home: UInt64?) -> (space: UInt64, holds: Int)? {
         guard let home else { return nil }
-        let spaces = SpacesBridge.shared.spacesSharingDisplay(with: home)
+        // This monitor's workspaces, in the order the user counts them — the strip's numbers and
+        // Mission Control's are the same numbers, and "the next one along" has to mean that.
+        let onThisDisplay = Set(SpacesBridge.shared.spacesSharingDisplay(with: home))
+        let spaces = model.spaceOrder.filter { onThisDisplay.contains($0) }
         guard let origin = spaces.firstIndex(of: home) else { return nil }
         let tiled = Set(windows.map(\.id))
 
@@ -1363,6 +1362,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            siblingCount: model.windows.count { $0.pid == window.pid })
 
         if let successor { model.select(id: successor.id, announce: false) }
+        // Closing the last window here leaves an empty workspace, and macOS likes to answer that by
+        // activating some other application — which, with switching-on-activate off, can carry us
+        // somewhere else entirely. The user closed a window; they did not ask to travel.
+        if onCurrentSpace, successor == nil, let here = model.currentSpaceID {
+            holdSpace = (here, Date().addingTimeInterval(2))
+            Diagnostics.note("holding workspace \(here) after closing its last window")
+        }
         // Closing the last window of a workspace can make macOS move another one here, and that has
         // to show up in the queue rather than leaving the strip claiming the workspace is empty.
         for delay in [0.4, 1.2] {
@@ -1475,20 +1481,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Changes workspace using the configured strategy, falling back through the others.
     private func switchToSpace(_ index: Int) {
+        let target = SpacesBridge.shared.userSpaceID(atIndex: index)
+        lastSpaceRequest = Date()
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
-            if focusWindow(onSpaceIndex: index) { return }
+            if focusWindow(onSpaceIndex: index) { break }
             // Nothing to focus there: carry a window of our own over instead, and only fall back to
             // the system shortcut if that is unavailable.
-            if let space = SpacesBridge.shared.userSpaceID(atIndex: index),
-               SpaceSwitcher.jump(toSpace: space) { return }
+            if let target, SpaceSwitcher.jump(toSpace: target) { break }
             SpaceSwitcher.sendSystemShortcut(index: index)
         case .systemShortcut:
             SpaceSwitcher.sendSystemShortcut(index: index)
         case .privateAPI:
             SpacesBridge.shared.switchToSpace(index: index)
         }
+        // Every one of these can quietly do nothing — an empty workspace has no window to focus,
+        // and the WindowServer call is refused often enough that it cannot be taken on trust. The
+        // user asked to be somewhere, so check they got there and try the other ways if not.
+        guard let target else { return }
+        ensureArrived(at: target, index: index, attempt: 0)
     }
+
+    /// Checks the workspace switch actually happened, and tries the next way of doing it if not.
+    private func ensureArrived(at target: UInt64, index: Int, attempt: Int) {
+        guard attempt < 3 else {
+            Diagnostics.note("workspace \(index): could not switch")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            let current = SpacesBridge.shared.currentSpaceID
+            guard current != target else {
+                self.refreshSpaceState()
+                return
+            }
+            Diagnostics.note("workspace \(index): still on \(current.map(String.init) ?? "none"), trying again")
+            switch attempt {
+            case 0: _ = SpaceSwitcher.jump(toSpace: target)
+            case 1: SpacesBridge.shared.switchToSpace(index: index)
+            default: SpaceSwitcher.sendSystemShortcut(index: index)
+            }
+            self.ensureArrived(at: target, index: index, attempt: attempt + 1)
+        }
+    }
+
+    /// When the user last asked to change workspace, so a switch macOS makes on its own can be told
+    /// from one they asked for.
+    private var lastSpaceRequest = Date.distantPast
+    /// The workspace to stay on: emptied by closing its last window, and left only when the user
+    /// says so.
+    private var holdSpace: (id: UInt64, until: Date)?
 
     /// Activating a window that already lives on a workspace makes macOS animate over to it.
     private func focusWindow(onSpaceIndex index: Int) -> Bool {
@@ -1503,10 +1545,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshSpaceState() {
+        keepHeldWorkspace()
         model.currentSpaceID = SpacesBridge.shared.currentSpaceID
         model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
         model.currentSpaceIsFullscreen = SpacesBridge.shared.isCurrentSpaceFullscreen
         model.spaceOrder = SpacesBridge.shared.userSpaceIDs
+    }
+
+    /// Takes us back to the workspace emptied by a close, if macOS moved us off it by itself.
+    private func keepHeldWorkspace() {
+        guard let hold = holdSpace else { return }
+        guard Date() < hold.until else {
+            holdSpace = nil
+            return
+        }
+        // A switch the user asked for wins: this is only for the ones nobody asked for.
+        guard lastSpaceRequest < Date().addingTimeInterval(-0.5) else {
+            holdSpace = nil
+            return
+        }
+        let current = SpacesBridge.shared.currentSpaceID
+        guard let current, current != hold.id else { return }
+        holdSpace = nil
+        Diagnostics.note("macOS moved us to \(current) after a close; going back to \(hold.id)")
+        if !SpaceSwitcher.jump(toSpace: hold.id) {
+            SpacesBridge.shared.switchToSpace(id: hold.id)
+        }
     }
 
     // MARK: - Debug commands
