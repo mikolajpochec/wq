@@ -64,7 +64,7 @@ final class AimHighlightOverlay {
     }
 
     /// The outline itself: orange, like the aim on the strip, and brighter for the window the aim
-    /// is actually on when several are aimed at.
+    /// is actually on when several are aimed at. Nothing is drawn inside it.
     private final class HighlightView: NSView {
         var isCursor = false {
             didSet { if isCursor != oldValue { needsDisplay = true } }
@@ -73,8 +73,7 @@ final class AimHighlightOverlay {
         override func draw(_ dirtyRect: NSRect) {
             let inset = bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
             let path = NSBezierPath(roundedRect: inset, xRadius: 10, yRadius: 10)
-            NSColor.systemOrange.withAlphaComponent(isCursor ? 0.16 : 0.08).setFill()
-            path.fill()
+            // An outline only: a tint over the window would hide the very thing being pointed at.
             NSColor.systemOrange.withAlphaComponent(isCursor ? 1 : 0.65).setStroke()
             path.lineWidth = lineWidth
             path.stroke()
