@@ -1323,7 +1323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// app. The focused window is raised last, so it stays the one on top.
     private func raiseLayout(of window: ManagedWindow) {
         guard let group = model.tiledGroup(of: window.id) else { return }
-        let others = model.tiledWindowsInQueueOrder(group).filter { $0.id != window.id }
+        // Only the ones on the workspace in view: raising a window that lives elsewhere would drag
+        // its workspace, or the window itself, into what the user is looking at.
+        let others = model.tiledWindowsInQueueOrder(group).filter {
+            $0.id != window.id && $0.spaceID != nil && $0.spaceID == window.spaceID
+        }
         guard !others.isEmpty else { return }
         WindowTiler.raise(others)
         window.element?.perform(kAXRaiseAction)
