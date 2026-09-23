@@ -808,7 +808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
                         aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
-                        aiming: aiming)
+                        maximizedID: model.maximizedID, aiming: aiming)
     }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.

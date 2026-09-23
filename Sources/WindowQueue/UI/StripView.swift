@@ -53,6 +53,9 @@ struct StripView: View {
             // Centred, the strip shifts to leave room for a group's strip below it, so the two are
             // centred as one; see `StripController.contentStart`.
             .offset(x: side.isVertical ? 0 : -companionShift, y: side.isVertical ? -companionShift : 0)
+            // Making room for a group's strip is a slide, not a jump; the group's own panel moves
+            // on the same timing.
+            .animation(.easeOut(duration: StripMetrics.layoutDuration), value: screen.companionLength)
             // The margin is a gap from the screen edge, not from the end of the strip: aligned to
             // the start or the end, the strip lines up with the windows beside it.
             .padding(side.isVertical ? .top : .leading, prefs.stripAlignment == .start ? 0 : prefs.stripMargin)

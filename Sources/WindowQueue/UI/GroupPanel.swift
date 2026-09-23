@@ -14,6 +14,8 @@ final class GroupPanelState: ObservableObject {
     @Published var aimedIDs: Set<CGWindowID> = []
     /// Windows a fullscreen window in this group is covering, folded into one tile here.
     @Published var coveredIDs: Set<CGWindowID> = []
+    /// The fullscreen window, which is drawn as one thing with the tile of what it covers.
+    @Published var maximizedID: CGWindowID?
     /// Aiming mode grows the strip; this one grows with it.
     @Published var scale: CGFloat = 1
 }
@@ -76,6 +78,7 @@ struct GroupPanelView: View {
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the panel's background, exactly as on the main strip.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
+        .background(alignment: side.isVertical ? .top : .leading) { maximizedGroupBackground }
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -151,6 +154,51 @@ struct GroupPanelView: View {
         }
     }
 
+    /// The stretch the fullscreen window and the tile of what it covers take together, so the two
+    /// are drawn — and selected — as one thing, the way the main strip draws them.
+    private var maximizedGroupSpan: (start: CGFloat, end: CGFloat)? {
+        guard !state.coveredIDs.isEmpty, let maximized = state.maximizedID else { return nil }
+        let places = entries
+        guard let window = places.firstIndex(where: {
+            if case .window(let one) = $0 { return one.id == maximized }
+            return false
+        }), let cascade = places.firstIndex(where: {
+            if case .cascade = $0 { return true }
+            return false
+        }) else { return nil }
+        let row = StripMetrics.rowHeight(prefs: prefs)
+        let step = row + StripMetrics.spacing
+        let first = min(window, cascade)
+        let last = max(window, cascade)
+        return (StripMetrics.padding + CGFloat(first) * step,
+                StripMetrics.padding + CGFloat(last) * step + row)
+    }
+
+    /// The fullscreen window and the windows it covers are one thing, so one selection covers both.
+    private var isMaximizedGroupSelected: Bool {
+        state.maximizedID != nil && state.selectedID == state.maximizedID && !state.coveredIDs.isEmpty
+    }
+
+    /// The shape tying the fullscreen window to the tile of what it covers.
+    @ViewBuilder
+    private var maximizedGroupBackground: some View {
+        if let span = maximizedGroupSpan {
+            let selected = isMaximizedGroupSelected
+            let thickness = StripMetrics.rowHeight(prefs: prefs) + 4
+            RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
+                .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.09))
+                .overlay(
+                    RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
+                        .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                )
+                .frame(width: side.isVertical ? thickness : span.end - span.start,
+                       height: side.isVertical ? span.end - span.start : thickness)
+                .offset(x: side.isVertical ? 0 : span.start, y: side.isVertical ? span.start : 0)
+                .animation(StripMetrics.layoutAnimation, value: state.coveredIDs)
+                .animation(.easeOut(duration: 0.16), value: selected)
+        }
+    }
+
     /// The windows that get a row of their own here: the covered ones share the cascade tile.
     private var rows: [ManagedWindow] {
         state.windows.filter { !state.coveredIDs.contains($0.id) }
@@ -203,7 +251,9 @@ struct GroupPanelView: View {
         // A run of several aimed windows is drawn as one highlight behind them all, so its rows
         // carry none of their own.
         let aimed = window.id == state.aimingID && !isAimingRun
+        // The fullscreen window is highlighted together with its cascade, not as a row of its own.
         let selected = window.id == state.selectedID && !aimed && !isAimingRun
+            && !(isMaximizedGroupSelected && window.id == state.maximizedID)
         let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
@@ -271,6 +321,8 @@ final class GroupPanelController {
     private var panel: OverlayPanel?
     private var hosting: GroupHostingView?
     private var hoveredID: CGWindowID?
+    /// The panel is fading away; a show in the meantime catches it and brings it back.
+    private var isHiding = false
 
     /// Screen rect of the strip's content and the edge it lives on, so the group's strip can carry
     /// on in the same line rather than sitting beside it.
@@ -290,7 +342,8 @@ final class GroupPanelController {
 
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool,
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
-              coveredIDs: Set<CGWindowID> = [], aiming: Bool = false) {
+              coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
+              aiming: Bool = false) {
         guard windows.count > 1 else {
             hide()
             return
@@ -302,6 +355,7 @@ final class GroupPanelController {
         state.aimingID = aimingID
         state.aimedIDs = aimedIDs
         state.coveredIDs = coveredIDs
+        state.maximizedID = maximizedID
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
 
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
@@ -336,20 +390,80 @@ final class GroupPanelController {
         let size = store.prefs.stripSide.isVertical
             ? NSSize(width: thickness * scale, height: along * state.scale)
             : NSSize(width: along * state.scale, height: thickness * scale)
-        panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
-        if !panel.isVisible {
-            panel.orderFrontRegardless()
-            OverlaySpace.shared.adopt(panel)
+        let target = NSRect(origin: origin(for: size), size: size)
+
+        if panel.isVisible {
+            // A fade on the way out was under way, or the group changed size: either way the panel
+            // travels to its new place rather than jumping there, in step with the main strip.
+            isHiding = false
+            guard panel.frame != target || panel.alphaValue < 1 else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = StripMetrics.layoutDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrame(target, display: true)
+            }
+            return
+        }
+
+        // Opening: the strip unfolds out of the end of the main one, so the two read as one bar
+        // growing rather than a second one appearing on top of the windows.
+        isHiding = false
+        panel.alphaValue = 0
+        panel.setFrame(folded(target), display: false)
+        panel.orderFrontRegardless()
+        OverlaySpace.shared.adopt(panel)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = StripMetrics.layoutDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(target, display: true)
         }
     }
 
-    func hide() {
-        panel?.orderOut(nil)
-        state.windows = []
-        if hoveredID != nil {
-            hoveredID = nil
-            onHover?(nil)
+    /// The panel as it starts and ends its life: folded away against the main strip.
+    private func folded(_ target: NSRect) -> NSRect {
+        let share: CGFloat = 0.25
+        if store.prefs.stripSide.isVertical {
+            let height = target.height * share
+            // Aligned to the end, the group's strip sits above the main one and folds downwards.
+            let y = isBeforeStrip ? target.minY : target.maxY - height
+            return NSRect(x: target.minX, y: y, width: target.width, height: height)
         }
+        let width = target.width * share
+        let x = isBeforeStrip ? target.maxX - width : target.minX
+        return NSRect(x: x, y: target.minY, width: width, height: target.height)
+    }
+
+    /// The group's strip goes in front of the main one when the strip is aligned to the end.
+    private var isBeforeStrip: Bool { store.prefs.stripAlignment == .end }
+
+    func hide() {
+        guard let panel, panel.isVisible, !isHiding else {
+            clearHover()
+            state.windows = []
+            return
+        }
+        isHiding = true
+        clearHover()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = StripMetrics.layoutDuration * 0.6
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(folded(panel.frame), display: true)
+        } completionHandler: { [weak self] in
+            guard let self, self.isHiding else { return }
+            self.isHiding = false
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            self.state.windows = []
+        }
+    }
+
+    private func clearHover() {
+        guard hoveredID != nil else { return }
+        hoveredID = nil
+        onHover?(nil)
     }
 
     /// Names the window under the pointer, the way hovering the main strip does.
