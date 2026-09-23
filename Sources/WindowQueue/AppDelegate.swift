@@ -658,11 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // aimed window is on holds nothing but windows of this layout, the rest are carried over to
         // it. Only strangers there force the layout to look for a workspace of its own.
         if strangersAtHome {
-            if !canGatherAll(windows) {
-                Diagnostics.note("tiling in place: these apps have windows that would travel too")
-                toast?.showCentred(title: "Tiled where they are",
-                                   subtitle: "These apps have other windows, and an application moves between workspaces as a whole")
-            } else if let best = workspaceForLayout(of: windows, from: home), best.holds > 0 {
+            if let best = workspaceForLayout(of: windows, from: home), best.holds > 0 {
                 // A workspace already holding nothing but windows of this layout is the cheapest
                 // place for it: the rest are carried over to them instead of everything moving.
                 target = best.space
@@ -684,25 +680,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             finishTiling(windows, layout: layout)
             return
         }
-        var group = windows
+        if !windows.contains(where: { $0.spaceID != target }), target == model.currentSpaceID {
+            finishTiling(windows, layout: layout)
+            return
+        }
+
+        // The WindowServer moves what it is willing to move; an application whose other windows
+        // would travel with it is left for the trick below.
         if windows.contains(where: { $0.spaceID != target }) {
             let result = spaceMover.move(windows, to: target, queue: model.windows)
             model.relocate(result.arrived.map(\.id), toSpace: target)
-            group = result.arrived
-            // Even with the check above a move can come up short; the layout is worth more than the
-            // workspace it was going to live on, so it happens where the windows are.
-            if group.count < windows.count {
-                Diagnostics.note("tiling in place: \(group.count) of \(windows.count) reached \(target)")
-                group = windows
-                // Wherever most of them ended up is where the layout does the least travelling.
-                let spaces = model.windows.filter { tiled.contains($0.id) }.compactMap(\.spaceID)
-                target = Dictionary(grouping: spaces, by: { $0 })
-                    .max { $0.value.count < $1.value.count }?.key
-                    ?? model.currentSpaceID ?? home ?? target
-            }
-        } else if target == model.currentSpaceID {
-            finishTiling(windows, layout: layout)
-            return
         }
 
         // Go there, then give the windows time to show up in their apps' window lists: one that
@@ -713,24 +700,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             focus(last, warpCursor: false)
         }
         let wanted = windows
+        let destination = target
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
-            // Anything the WindowServer would not move is asked to come here the other way: with
-            // the workspace now in view, activating the window's application brings that one window
-            // over. Whatever still refuses is tiled where it is, which is the old behaviour.
-            let here = SpacesBridge.shared.spaces(forWindows: wanted.map(\.id))
-            let current = SpacesBridge.shared.currentSpaceID
-            var gathered = group
-            if current == target {
-                for window in wanted where here[window.id] != target && !gathered.contains(window) {
-                    if self.spaceMover.pullToCurrentSpace(window) {
-                        self.model.relocate([window.id], toSpace: target)
-                        gathered.append(window)
-                    }
+            // Whatever is still elsewhere is asked to come here the other way: with the workspace
+            // now in view, activating a window's application brings that one window over.
+            if SpacesBridge.shared.currentSpaceID == destination {
+                let before = SpacesBridge.shared.spaces(forWindows: wanted.map(\.id))
+                for window in wanted where before[window.id] != destination {
+                    _ = self.spaceMover.pullToCurrentSpace(window)
                 }
-                // Back in queue order: the layout reads along the strip, not along the rescue.
-                let order = wanted.map(\.id)
-                gathered.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
+            }
+
+            let now = SpacesBridge.shared.spaces(forWindows: wanted.map(\.id))
+            // A window whose workspace cannot be read at all is taken at its word and tiled: it is
+            // on screen, which is what the layout needs of it.
+            var gathered = wanted.filter { now[$0.id] == nil || now[$0.id] == destination }
+            self.model.relocate(gathered.map(\.id), toSpace: destination)
+            if gathered.count < 2 {
+                // Nothing was gained by travelling; the layout happens where the windows are.
+                Diagnostics.note("tiling in place: only \(gathered.count) of \(wanted.count) reached \(destination)")
+                gathered = wanted
+            } else if gathered.count < wanted.count {
+                let stranded = wanted.count - gathered.count
+                Diagnostics.note("tiling without \(stranded) window(s) that would not move")
+                self.toast?.showCentred(title: "Tiled \(gathered.count) windows",
+                                        subtitle: "\(stranded) would not leave its workspace")
             }
             let ready = gathered.map { window -> ManagedWindow in
                 var copy = window
@@ -739,20 +734,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.enumerator?.refresh()
             self.finishTiling(ready, layout: layout)
-        }
-    }
-
-    /// Whether every one of these windows could be moved to another workspace together. An
-    /// application travels between workspaces as a whole, so a window whose app has other windows
-    /// outside the layout cannot go anywhere on its own.
-    private func canGatherAll(_ windows: [ManagedWindow]) -> Bool {
-        guard spaceMover.isAvailable else { return false }
-        // Where the WindowServer moves windows one by one, nothing else travels with them.
-        if spaceMover.movesSingleWindows { return true }
-        let selected = Set(windows.map(\.id))
-        let pids = Set(windows.map(\.pid))
-        return !model.windows.contains { window in
-            pids.contains(window.pid) && !selected.contains(window.id) && !window.isMinimized
         }
     }
 
