@@ -56,9 +56,6 @@ final class WindowSpaceMover {
         // something the call itself says, so the windows' spaces are read back afterwards and
         // anything that did not move falls through to moving its application.
         let stragglers = moveIndividually(windows, to: target)
-        if stragglers.count < windows.count {
-            Diagnostics.note("space mover: moved \(windows.count - stragglers.count) window(s) one by one")
-        }
 
         for (pid, group) in Dictionary(grouping: stragglers, by: \.pid) {
             let away = group.filter { $0.spaceID != target }
@@ -100,8 +97,19 @@ final class WindowSpaceMover {
         let away = windows.filter { $0.spaceID != target }
         guard !away.isEmpty else { return [] }
         moveWindows(connectionID, away.map { NSNumber(value: $0.id) } as CFArray, target)
-        let now = SpacesBridge.shared.spaces(forWindows: away.map(\.id))
-        return away.filter { now[$0.id] != target }
+
+        // The WindowServer moves the windows on its own schedule, and asking where they are the
+        // instant after asking them to move answers with where they were. A few short looks give it
+        // time to catch up; anything still behind really is not coming this way.
+        var left = away
+        for _ in 0..<6 {
+            let now = SpacesBridge.shared.spaces(forWindows: left.map(\.id))
+            left = left.filter { now[$0.id] != target }
+            if left.isEmpty { break }
+            usleep(40_000)
+        }
+        Diagnostics.note("space mover: one by one, \(away.count - left.count) of \(away.count) reached \(target)")
+        return left
     }
 
     /// The window's accessibility element as its app lists it now. A window that arrived from a
