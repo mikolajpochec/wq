@@ -122,6 +122,8 @@ final class StripController {
     /// The pointer is over the tile the covered windows are collapsed into, with how many there are,
     /// or over it no longer.
     var onHiddenStackHold: (([ManagedWindow]) -> Void)?
+    /// The pointer is over a group's entry, or over it no longer.
+    var onGroupHold: ((Int?) -> Void)?
 
     /// Keyed by display id. Panels are kept while hidden so coming back is instant and nothing is
     /// rebuilt when a screen switches to a fullscreen space and back.
@@ -344,8 +346,12 @@ final class StripController {
     }
 
     private var contentLayout: StripLayout {
-        StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement,
-                    collapsed: collapsedIDs)
+        var groups: [CGWindowID: Int] = [:]
+        for group in model.groups {
+            for id in group.ids { groups[id] = group.id }
+        }
+        return StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement,
+                           collapsed: collapsedIDs, groups: groups)
     }
 
     /// Windows drawn as one collapsed tile, which has to match what `StripView` draws.
@@ -402,6 +408,15 @@ final class StripController {
         }
 
         let hovered = point.flatMap { window(at: $0, in: strip.hosting) }
+        // A group shows its windows in the panel beside the strip rather than a name popup.
+        if let hovered, let group = model.group(of: hovered.id) {
+            guard hoveredID != hovered.id else { return }
+            hoveredID = hovered.id
+            onHold(nil)
+            onGroupHold?(group.id)
+            return
+        }
+        onGroupHold?(nil)
 
         guard hovered?.id != hoveredID else { return }
         hoveredID = hovered?.id

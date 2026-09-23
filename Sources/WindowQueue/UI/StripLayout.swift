@@ -16,12 +16,15 @@ struct StripLayout {
         case emptySlot
         /// The windows a maximized window covers, collapsed into one tile.
         case hiddenStack(windows: [ManagedWindow])
+        /// A group of windows, which the strip shows as a single entry.
+        case group(id: Int, windows: [ManagedWindow])
 
         var id: String {
             switch self {
             case .badge: return "badge"
             case .emptySlot: return "empty-slot"
             case .hiddenStack: return "hidden-stack"
+            case .group(let id, _): return "group-\(id)"
             case .window(let window): return "window-\(window.id)"
             }
         }
@@ -48,15 +51,29 @@ struct StripLayout {
         case end
     }
 
-    /// - Parameter collapsed: windows drawn as one stacked tile instead of a row each.
+    /// - Parameters:
+    ///   - collapsed: windows drawn as one stacked tile instead of a row each.
+    ///   - groups: windows that belong to a group, by group number, drawn as one entry each.
     init(windows: [ManagedWindow], prefs: Preferences, slot: SlotPlacement? = nil,
-         collapsed: Set<CGWindowID> = []) {
+         collapsed: Set<CGWindowID> = [], groups: [CGWindowID: Int] = [:]) {
         var elements: [Element] = []
         if prefs.showSpaceBadge { elements.append(.badge) }
         var windowElements: [Int] = []
         var stackElement: Int?
         let hidden = windows.filter { collapsed.contains($0.id) }
+        var groupElements: [Int: Int] = [:]
         for window in windows {
+            if let number = groups[window.id], !collapsed.contains(window.id) {
+                if let existing = groupElements[number] {
+                    windowElements.append(existing)
+                } else {
+                    let members = windows.filter { groups[$0.id] == number }
+                    groupElements[number] = elements.count
+                    windowElements.append(elements.count)
+                    elements.append(.group(id: number, windows: members))
+                }
+                continue
+            }
             if collapsed.contains(window.id) {
                 if stackElement == nil {
                     stackElement = elements.count
@@ -84,7 +101,7 @@ struct StripLayout {
             case .badge: return StripMetrics.rowHeight(prefs: prefs)
             case .window: return StripMetrics.rowHeight(prefs: prefs)
             case .emptySlot: return StripMetrics.slotLength(prefs: prefs)
-            case .hiddenStack: return StripMetrics.stackLength(prefs: prefs)
+            case .hiddenStack, .group: return StripMetrics.stackLength(prefs: prefs)
             }
         }
 

@@ -93,6 +93,9 @@ struct StripView: View {
                     emptySlotMarker
                         .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
                         .transition(.scale(scale: 0.5).combined(with: .opacity))
+                case .group(let id, let windows):
+                    groupTile(id: id, windows: windows)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 case .hiddenStack(let windows):
                     hiddenStackTile(for: windows)
                         // Kept in the layout while it is dragged; the floating copy stands in.
@@ -163,7 +166,17 @@ struct StripView: View {
     // MARK: - Layout
 
     private func layout(of windows: [ManagedWindow]) -> StripLayout {
-        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement, collapsed: collapsedIDs)
+        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement,
+                    collapsed: collapsedIDs, groups: groupNumbers)
+    }
+
+    /// Which group each window belongs to, for the layout to fold them into one entry.
+    private var groupNumbers: [CGWindowID: Int] {
+        var numbers: [CGWindowID: Int] = [:]
+        for group in model.groups {
+            for id in group.ids { numbers[id] = group.id }
+        }
+        return numbers
     }
 
     /// Windows the maximized one covers, while they are meant to collapse into one tile.
@@ -287,6 +300,47 @@ struct StripView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.isVertical ? .top : .leading)
             .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.aimedIDs)
         }
+    }
+
+    /// A group as the strip shows it: the members' icons stacked, their number, and a mark that it
+    /// is open — its windows are listed in the panel beside the strip.
+    private func groupTile(id: Int, windows: [ManagedWindow]) -> some View {
+        let isOpen = model.openGroupID == id
+        let holdsSelection = windows.contains { $0.id == model.selectedID }
+        return ZStack {
+            ForEach(Array(windows.prefix(StripMetrics.stackPeek).enumerated().reversed()), id: \.element.id) { depth, window in
+                let back = CGFloat(depth)
+                let lean = (back - CGFloat(min(windows.count, StripMetrics.stackPeek) - 1) / 2) * StripMetrics.stackStep
+                icon(for: window)
+                    .frame(width: prefs.iconSize, height: prefs.iconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous))
+                    .saturation(1 - back * 0.25)
+                    .opacity(1 - back * 0.2)
+                    .scaleEffect(1 - back * 0.08)
+                    .offset(x: side.isVertical ? 0 : lean, y: side.isVertical ? lean : 0)
+            }
+        }
+        .frame(width: prefs.iconSize, height: prefs.iconSize)
+        .overlay(alignment: .bottomTrailing) {
+            Text("\(windows.count)")
+                .font(.system(size: max(8, prefs.iconSize * 0.3), weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 3)
+                .background(Capsule().fill(Color.accentColor.opacity(0.95)))
+                .offset(x: 3, y: 3)
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .fill(holdsSelection ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .strokeBorder(holdsSelection ? Color.accentColor : Color.primary.opacity(0.25),
+                              style: StrokeStyle(lineWidth: 1.5, dash: isOpen ? [] : [4, 3]))
+        )
+        .contentShape(Rectangle())
+        .help("Group of \(windows.count) windows")
     }
 
     /// Marks a window still held in a layout. Any resize or move of it frees the whole group, so

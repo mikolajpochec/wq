@@ -216,6 +216,62 @@ final class WindowQueueModel: ObservableObject {
         return index + 1
     }
 
+    // MARK: - Groups
+
+    /// Windows kept together under one entry in the strip. The queue keeps every window in its own
+    /// place; a group only changes how the strip shows them and how cycling walks past them.
+    struct WindowGroup: Identifiable, Equatable {
+        let id: Int
+        var ids: [CGWindowID]
+    }
+
+    @Published private(set) var groups: [WindowGroup] = []
+    /// The group whose windows are on show beside the strip, because the selection is inside it.
+    @Published private(set) var openGroupID: Int?
+
+    func group(of id: CGWindowID) -> WindowGroup? {
+        groups.first { $0.ids.contains(id) }
+    }
+
+    var openGroup: WindowGroup? {
+        openGroupID.flatMap { id in groups.first { $0.id == id } }
+    }
+
+    /// The group's windows in queue order.
+    func members(of group: WindowGroup) -> [ManagedWindow] {
+        let ids = Set(group.ids)
+        return windows.filter { ids.contains($0.id) }
+    }
+
+    /// Puts windows in a group of their own, taking them out of any group they were in.
+    @discardableResult
+    func makeGroup(_ ids: [CGWindowID]) -> WindowGroup? {
+        let moving = Set(ids)
+        for index in groups.indices { groups[index].ids.removeAll { moving.contains($0) } }
+        groups.removeAll { $0.ids.count < 2 }
+        guard ids.count > 1 else { return nil }
+        var number = 1
+        while groups.contains(where: { $0.id == number }) { number += 1 }
+        let group = WindowGroup(id: number, ids: ids)
+        groups.append(group)
+        return group
+    }
+
+    /// Breaks up the group a window belongs to; every window stays in the queue where it is.
+    func ungroup(containing id: CGWindowID) {
+        guard let group = group(of: id) else { return }
+        groups.removeAll { $0.id == group.id }
+        if openGroupID == group.id { openGroupID = nil }
+    }
+
+    /// The first window of each group is the one the queue stops at; the rest are reached by
+    /// stepping into the group, which happens as soon as one of them is selected.
+    private func isSkippedInsideGroup(_ window: ManagedWindow) -> Bool {
+        guard let group = group(of: window.id) else { return false }
+        if group.id == openGroupID { return false }
+        return members(of: group).first?.id != window.id
+    }
+
     // MARK: - Tiled groups
 
     /// Records a layout. The windows leave whatever group they were in before, and a group that
@@ -310,8 +366,7 @@ final class WindowQueueModel: ObservableObject {
     /// Windows cycling can reach: everything, less the ones a maximized window is covering.
     /// Everything except the windows a maximized window covers.
     private var cyclableWindows: [ManagedWindow] {
-        guard maximizedID != nil else { return visibleWindows }
-        return visibleWindows.filter { !isCovered($0) }
+        visibleWindows.filter { !isCovered($0) && !isSkippedInsideGroup($0) }
     }
 
     // MARK: - Reconciliation
@@ -363,6 +418,13 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        // A window that has gone leaves its group; one window is not a group.
+        if !groups.isEmpty {
+            let present = Set(windows.map(\.id))
+            for index in groups.indices { groups[index].ids.removeAll { !present.contains($0) } }
+            groups.removeAll { $0.ids.count < 2 }
+            if let openGroupID, !groups.contains(where: { $0.id == openGroupID }) { self.openGroupID = nil }
+        }
         // A tiled window that has gone leaves its group; below two there is no layout left.
         if !tiledGroups.isEmpty {
             let present = Set(windows.map(\.id))
@@ -429,6 +491,8 @@ final class WindowQueueModel: ObservableObject {
 
     func select(id: CGWindowID, announce: Bool) {
         guard let window = windows.first(where: { $0.id == id }) else { return }
+        // Selecting a window inside a group steps into it, and selecting anything else steps out.
+        openGroupID = group(of: id)?.id
         if Diagnostics.isEnabled, selectedID != id {
             Diagnostics.note("select \(window.appName) id=\(id) announce=\(announce)")
         }

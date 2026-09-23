@@ -110,6 +110,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case toggleMaximize
     case maximizeWindow
     case minimizeWindow
+    case toggleGroup
     case search
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
@@ -130,6 +131,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleMaximize: return "Fullscreen window (again to restore)"
         case .maximizeWindow: return "Maximize window"
         case .minimizeWindow: return "Minimize window"
+        case .toggleGroup: return "Group or ungroup windows"
         case .search: return "Search windows"
         default:
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
@@ -155,7 +157,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
-         .toggleMaximize, .maximizeWindow, .minimizeWindow, .closeWindow, .search]
+         .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search]
     }
 
     static var spaceActions: [HotkeyAction] {
@@ -177,6 +179,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleMaximize: return KeyCombo(keyCode: kVK_ANSI_F, modifiers: superMask)
         case .maximizeWindow: return KeyCombo(keyCode: kVK_ANSI_M, modifiers: superMask)
         case .minimizeWindow: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: superMask)
+        case .toggleGroup: return KeyCombo(keyCode: kVK_ANSI_G, modifiers: superMask)
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,

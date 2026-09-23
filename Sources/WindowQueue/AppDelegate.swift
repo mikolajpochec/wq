@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var strip: StripController?
     private var toast: ToastController?
     private lazy var tilingMenu = TilingMenuController(store: store)
+    private lazy var groupPanel = GroupPanelController(store: store)
+    /// A group the pointer is resting on, shown without stepping into it.
+    private var peekedGroupID: Int?
     private let spaceMover = WindowSpaceMover()
     private var settingsWindow: SettingsWindowController?
     private var scrollFocusWork: DispatchWorkItem?
@@ -127,6 +130,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (frame, strip.side)
         }
         toast.everyAnchorProvider = { [weak strip] id in strip?.rowFramesOnEveryStrip(for: id) ?? [] }
+        groupPanel.anchorProvider = { [weak strip] id in
+            guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
+            return (frame, strip.side)
+        }
+        groupPanel.onPick = { [weak self] window in
+            self?.model.select(id: window.id, announce: false)
+            self?.focus(window, warpCursor: false)
+        }
+        strip.onGroupHold = { [weak self] id in
+            guard let self, self.peekedGroupID != id else { return }
+            self.peekedGroupID = id
+            self.syncGroupPanel()
+        }
+        model.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncGroupPanel() }
+            .store(in: &cancellables)
 
         modifierTaps.modifiers = store.prefs.superModifier.eventFlags
         modifierTaps.onTap = { [weak self] in self?.toggleAiming() }
@@ -556,6 +576,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             // Anything that makes sense window by window is applied to every aimed window. (The
             // `where` would only bind to the last pattern, so the count is checked in the body.)
+            case .toggleGroup:
+                toggleGroup()
+                return
             case .maximizeWindow, .minimizeWindow, .closeWindow, .moveToStart, .moveToEnd:
                 if model.aimedWindows.count > 1 {
                     applyToAimedGroup(action)
@@ -601,6 +624,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             maximizeWindow()
         case .minimizeWindow:
             if let window = model.selectedWindow { minimize(window) }
+        case .toggleGroup:
+            toggleGroup()
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -634,6 +659,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Frames windows had before they were maximized, so the same shortcut puts them back.
     private var framesBeforeMaximize: [CGWindowID: NSRect] = [:]
+
+    /// Groups the aimed windows, or breaks up the group the selection is in.
+    private func toggleGroup() {
+        if model.aimingID != nil {
+            let aimed = model.aimedWindows
+            guard aimed.count > 1 else {
+                toast?.showCentred(title: "Aim at two or more windows to group them",
+                                   subtitle: "Shift-click or Shift with the arrows")
+                return
+            }
+            endAiming(commit: false)
+            guard let group = model.makeGroup(aimed.map(\.id)) else { return }
+            model.select(id: aimed[0].id, announce: false)
+            announceGroup("Grouped \(aimed.count) windows as group \(group.id)")
+            return
+        }
+        guard let selected = model.selectedID, let group = model.group(of: selected) else {
+            toast?.showCentred(title: "Nothing to ungroup",
+                               subtitle: "Select a window in a group, or aim at several to make one")
+            return
+        }
+        let count = group.ids.count
+        model.ungroup(containing: selected)
+        announceGroup("Ungrouped \(count) windows")
+    }
+
+    /// Keeps the panel beside the strip in step: the open group, or the one the pointer rests on.
+    private func syncGroupPanel() {
+        let peeked = peekedGroupID.flatMap { id in model.groups.first { $0.id == id } }
+        guard let group = model.openGroup ?? peeked else {
+            groupPanel.hide()
+            return
+        }
+        groupPanel.show(number: group.id, windows: model.members(of: group),
+                        selected: model.selectedID, peek: model.openGroup == nil)
+    }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.
     private func applyToAimedGroup(_ action: HotkeyAction) {
@@ -696,6 +757,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard var window = model.selectedWindow else { return }
         window.element = window.element ?? WindowSpaceMover.element(for: window)
         let area = tilingArea()
+
+        // Fullscreen is a toggle, not a new arrangement: a window in a layout keeps its place in
+        // it, goes fullscreen over the top, and comes back to it. Neither step frees the group.
+        tilingSettledAt = Date().addingTimeInterval(2)
 
         if let previous = framesBeforeMaximize[window.id],
            let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {
