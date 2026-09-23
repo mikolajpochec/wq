@@ -1265,19 +1265,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// aiming uses, in the selection's colour, for a moment.
     private func flashFocus(_ window: ManagedWindow) {
         guard store.prefs.flashFocusedWindow, store.prefs.flashFocusedWindowDuration > 0 else { return }
-        let show = { [weak self] in
-            guard let self, self.model.aimingID == nil,
-                  let current = self.model.windows.first(where: { $0.id == window.id }),
-                  current.spaceID == nil || current.spaceID == self.model.currentSpaceID
-            else { return }
-            self.aimHighlight.flash(current, for: self.store.prefs.flashFocusedWindowDuration)
+        // A window already here is marked at once. One on another workspace is marked when the
+        // travel is over — the switch animation takes as long as it takes, and an outline drawn
+        // while it runs is spent before the window is even on screen. So: wait for the workspace to
+        // actually be the one in view, and give up if it never is.
+        markFocus(window.id, attempt: 0)
+    }
+
+    private func markFocus(_ id: CGWindowID, attempt: Int) {
+        guard model.aimingID == nil, let window = model.windows.first(where: { $0.id == id }) else { return }
+        let arrived = window.spaceID == nil || window.spaceID == model.currentSpaceID
+        if arrived, WindowTiler.frame(of: window) != nil {
+            aimHighlight.flash(window, for: store.prefs.flashFocusedWindowDuration)
+            return
         }
-        // A window already here is marked at once. One on another workspace has to be travelled to
-        // first, and has no frame to draw around until it is on screen, so that one waits a beat.
-        if window.spaceID == nil || window.spaceID == model.currentSpaceID {
-            show()
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: show)
+        guard attempt < 20 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.markFocus(id, attempt: attempt + 1)
         }
     }
 
