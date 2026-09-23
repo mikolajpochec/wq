@@ -135,6 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         toast.everyAnchorProvider = { [weak strip] id in strip?.rowFramesOnEveryStrip(for: id) ?? [] }
         groupPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
+        groupPanel.onHover = { [weak self] window in
+            guard let self else { return }
+            if let window {
+                toast.show(window, pinned: true)
+            } else {
+                toast.endHold()
+            }
+        }
+        groupPanel.onClose = { [weak self] window in self?.close(window) }
         groupPanel.onPick = { [weak self] window in
             self?.model.select(id: window.id, announce: false)
             self?.focus(window, warpCursor: false)

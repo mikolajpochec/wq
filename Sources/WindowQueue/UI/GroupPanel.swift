@@ -147,18 +147,63 @@ struct GroupPanelView: View {
     }
 }
 
+/// Hosting view that reports the pointer, since the panel is never key and SwiftUI's own hover
+/// tracking would never fire in it — the same reason the main strip has one of these.
+private final class GroupHostingView: NSHostingView<GroupPanelView> {
+    var onPointerMoved: ((NSPoint?) -> Void)?
+    var onMiddleClick: ((NSPoint) -> Void)?
+
+    private var tracking: NSTrackingArea?
+
+    required init(rootView: GroupPanelView) {
+        super.init(rootView: rootView)
+    }
+
+    @MainActor @preconcurrency required dynamic init?(coder: NSCoder) {
+        fatalError("unsupported")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onPointerMoved?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onPointerMoved?(nil)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
+        onMiddleClick?(convert(event.locationInWindow, from: nil))
+    }
+}
+
 /// Owns the panel that shows a group's windows beside the strip.
 final class GroupPanelController {
     let state = GroupPanelState()
     private let store: PreferencesStore
     private var panel: OverlayPanel?
-    private var hosting: NSHostingView<GroupPanelView>?
+    private var hosting: GroupHostingView?
+    private var hoveredID: CGWindowID?
 
     /// Screen rect of the strip's content and the edge it lives on, so the group's strip can carry
     /// on in the same line rather than sitting beside it.
     var stripFrameProvider: (() -> (frame: NSRect, side: StripSide)?)?
     /// A window in the panel was clicked.
     var onPick: ((ManagedWindow) -> Void)?
+    /// The pointer came to rest on a window in the panel, or left it.
+    var onHover: ((ManagedWindow?) -> Void)?
+    /// A window in the panel was middle-clicked, which closes it as it does in the strip.
+    var onClose: ((ManagedWindow) -> Void)?
 
     init(store: PreferencesStore) {
         self.store = store
@@ -184,12 +229,20 @@ final class GroupPanelController {
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
         }
-        let hosting = self.hosting ?? NSHostingView(rootView: view)
+        let hosting = self.hosting ?? GroupHostingView(rootView: view)
         hosting.rootView = view
+        if self.hosting == nil {
+            hosting.onPointerMoved = { [weak self] point in self?.pointerMoved(to: point) }
+            hosting.onMiddleClick = { [weak self] point in
+                guard let self, let window = self.window(at: point) else { return }
+                self.onClose?(window)
+            }
+        }
         self.hosting = hosting
 
         let panel = self.panel ?? {
             let panel = OverlayPanel(contentRect: NSRect(origin: .zero, size: hosting.fittingSize))
+            panel.acceptsMouseMovedEvents = true
             panel.contentView = hosting
             return panel
         }()
@@ -205,6 +258,37 @@ final class GroupPanelController {
     func hide() {
         panel?.orderOut(nil)
         state.windows = []
+        if hoveredID != nil {
+            hoveredID = nil
+            onHover?(nil)
+        }
+    }
+
+    /// Names the window under the pointer, the way hovering the main strip does.
+    private func pointerMoved(to point: NSPoint?) {
+        let hovered = point.flatMap { window(at: $0) }
+        guard hovered?.id != hoveredID else { return }
+        hoveredID = hovered?.id
+        onHover?(hovered)
+    }
+
+    /// The window whose row a point in the panel falls on.
+    private func window(at point: NSPoint) -> ManagedWindow? {
+        guard let hosting else { return nil }
+        let prefs = store.prefs
+        let row = StripMetrics.rowHeight(prefs: prefs)
+        let along: CGFloat
+        if prefs.stripSide.isVertical {
+            along = hosting.isFlipped ? point.y : hosting.bounds.height - point.y
+        } else {
+            along = point.x
+        }
+        let offset = along - StripMetrics.padding
+        guard offset >= 0 else { return nil }
+        let index = Int(offset / (row + StripMetrics.spacing))
+        // Windows folded into the cascade are not rows of their own.
+        let rows = state.windows.filter { !state.coveredIDs.contains($0.id) }
+        return rows.indices.contains(index) ? rows[index] : nil
     }
 
     /// How much room the group's strip takes along the strip's own direction, gap included, so the
@@ -223,8 +307,9 @@ final class GroupPanelController {
     /// Screen rect of one window's row in the group's strip, so the name popup points at the icon
     /// the user is actually looking at rather than at the group's entry in the main strip.
     func rowFrame(for id: CGWindowID) -> (frame: NSRect, side: StripSide)? {
+        let rows = state.windows.filter { !state.coveredIDs.contains($0.id) }
         guard let panel, panel.isVisible,
-              let index = state.windows.firstIndex(where: { $0.id == id })
+              let index = rows.firstIndex(where: { $0.id == id })
         else { return nil }
         let prefs = store.prefs
         let row = StripMetrics.rowHeight(prefs: prefs)
