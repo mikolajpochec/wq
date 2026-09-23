@@ -456,6 +456,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case _ where action.moveSpaceIndex != nil:
                 moveWindows(toWorkspace: action.moveSpaceIndex!)
                 return
+            // Fullscreen hides every other window of its workspace, so several windows cannot each
+            // be the one on top: the aim stays as it is and nothing happens.
+            case .toggleMaximize where model.aimedWindows.count > 1:
+                toast?.showCentred(title: "Fullscreen takes one window",
+                                   subtitle: "Aim at a single window, or tile the group with Return")
+                return
             // Anything that makes sense window by window is applied to every aimed window. (The
             // `where` would only bind to the last pattern, so the count is checked in the body.)
             case .maximizeWindow, .minimizeWindow, .closeWindow, .moveToStart, .moveToEnd:
