@@ -137,9 +137,11 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
-        // On a monitor that is not the selected one the strip stays readable but steps back.
+        // On a monitor that is not the selected one the strip stays readable but steps back, and
+        // so does the whole strip while the user is working inside a group.
         .saturation(screen.isActive ? 1 : 0)
-        .opacity(screen.isActive ? 1 : prefs.inactiveStripOpacity)
+        .opacity(screen.isActive ? (model.openGroupID == nil ? 1 : 0.55) : prefs.inactiveStripOpacity)
+        .animation(.easeOut(duration: 0.18), value: model.openGroupID)
         .animation(.easeOut(duration: 0.2), value: screen.isActive)
         .overlay(alignment: side.isVertical ? .top : .leading) { floatingRow }
         .coordinateSpace(name: Self.dragSpace)

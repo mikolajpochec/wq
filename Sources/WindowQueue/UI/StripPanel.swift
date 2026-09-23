@@ -142,6 +142,10 @@ final class StripController {
     private var hoveredID: CGWindowID?
     /// Wheel travel not yet worth a whole step.
     private var scrollTravel: CGFloat = 0
+    /// Room taken by the group's strip, so the two are centred and placed as one.
+    var companionLength: CGFloat = 0 {
+        didSet { if companionLength != oldValue { sync() } }
+    }
 
     init(model: WindowQueueModel,
          store: PreferencesStore,
@@ -381,8 +385,11 @@ final class StripController {
         // Flush with the end it is aligned to; the margin only keeps the other end off the edge.
         let leading = alignment == .start ? 0 : store.prefs.stripMargin
         let trailing = alignment == .end ? 0 : store.prefs.stripMargin
-        let free = max(0, length - leading - trailing - contentLayout.totalHeight)
-        return leading + free * alignment.fraction
+        // A group's strip carries on from this one, and the pair is placed as a whole: centred, the
+        // two share the middle; aligned to the end, the group goes first and this follows it.
+        let free = max(0, length - leading - trailing - contentLayout.totalHeight - companionLength)
+        let ahead = alignment == .end ? companionLength : 0
+        return leading + ahead + free * alignment.fraction
     }
 
     private func mainLength(of rect: NSRect) -> CGFloat {

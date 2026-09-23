@@ -126,7 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        beside: first.id, pinned: true)
         }
         self.strip = strip
-        toast.anchorProvider = { [weak strip] id in
+        toast.anchorProvider = { [weak self, weak strip] id in
+            // A window shown in the group's strip is named there; the group's entry in the main
+            // strip is not where the user is looking.
+            if let inGroup = self?.groupPanel.rowFrame(for: id) { return inGroup }
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
             return (frame, strip.side)
         }
@@ -740,10 +743,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let peeked = peekedGroupID.flatMap { id in model.groups.first { $0.id == id } }
         guard let group = model.openGroup ?? peeked else {
             groupPanel.hide()
+            strip?.companionLength = 0
             return
         }
-        groupPanel.show(number: group.id, windows: model.members(of: group),
-                        selected: model.selectedID, peek: model.openGroup == nil)
+        let windows = model.members(of: group)
+        // The main strip gives up the room first, so both are laid out in their final places.
+        strip?.companionLength = groupPanel.length(for: windows)
+        groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
+                        peek: model.openGroup == nil,
+                        aimingID: model.aimingID, aimedIDs: model.aimedIDs)
     }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.

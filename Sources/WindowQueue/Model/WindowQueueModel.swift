@@ -266,10 +266,14 @@ final class WindowQueueModel: ObservableObject {
 
     /// The first window of each group is the one the queue stops at; the rest are reached by
     /// stepping into the group, which happens as soon as one of them is selected.
-    private func isSkippedInsideGroup(_ window: ManagedWindow) -> Bool {
+    /// - Parameter backwards: which end of a closed group the queue stops at. Walking forwards it
+    ///   is the first window, walking backwards the last, so a group is entered from the side the
+    ///   user arrives from.
+    private func isSkippedInsideGroup(_ window: ManagedWindow, backwards: Bool = false) -> Bool {
         guard let group = group(of: window.id) else { return false }
         if group.id == openGroupID { return false }
-        return members(of: group).first?.id != window.id
+        let members = members(of: group)
+        return (backwards ? members.last?.id : members.first?.id) != window.id
     }
 
     // MARK: - Tiled groups
@@ -365,8 +369,10 @@ final class WindowQueueModel: ObservableObject {
 
     /// Windows cycling can reach: everything, less the ones a maximized window is covering.
     /// Everything except the windows a maximized window covers.
-    private var cyclableWindows: [ManagedWindow] {
-        visibleWindows.filter { !isCovered($0) && !isSkippedInsideGroup($0) }
+    private var cyclableWindows: [ManagedWindow] { cyclableWindows(backwards: false) }
+
+    private func cyclableWindows(backwards: Bool) -> [ManagedWindow] {
+        visibleWindows.filter { !isCovered($0) && !isSkippedInsideGroup($0, backwards: backwards) }
     }
 
     // MARK: - Reconciliation
@@ -504,7 +510,7 @@ final class WindowQueueModel: ObservableObject {
     /// Moves the selection by `delta` positions within the visible slice, wrapping around.
     @discardableResult
     func cycle(by delta: Int) -> ManagedWindow? {
-        let visible = cyclableWindows
+        let visible = cyclableWindows(backwards: delta < 0)
         guard !visible.isEmpty else { return nil }
         let current = visible.firstIndex { $0.id == selectedID } ?? (delta > 0 ? -1 : 0)
         let count = visible.count
