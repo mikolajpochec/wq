@@ -450,6 +450,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case _ where action.moveSpaceIndex != nil:
                 moveWindows(toWorkspace: action.moveSpaceIndex!)
                 return
+            // Anything that makes sense window by window is applied to every aimed window. (The
+            // `where` would only bind to the last pattern, so the count is checked in the body.)
+            case .maximizeWindow, .closeWindow, .moveToStart, .moveToEnd:
+                if model.aimedWindows.count > 1 {
+                    applyToAimedGroup(action)
+                    return
+                }
+                endAiming(commit: false)
             default:
                 endAiming(commit: false)
             }
@@ -521,10 +529,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Frames windows had before they were maximized, so the same shortcut puts them back.
     private var framesBeforeMaximize: [CGWindowID: NSRect] = [:]
 
+    /// Runs an action over every aimed window at once, then leaves aiming mode.
+    private func applyToAimedGroup(_ action: HotkeyAction) {
+        let group = model.aimedWindows
+        guard group.count > 1 else { return }
+        endAiming(commit: false)
+        switch action {
+        case .maximizeWindow:
+            // One after another, so an app that snaps its own frame does not fight the next one.
+            for window in group { maximize(window) }
+        case .closeWindow:
+            for window in group { close(window) }
+        case .moveToStart:
+            model.move(ids: group.map(\.id), toVisiblePosition: 0)
+        case .moveToEnd:
+            model.move(ids: group.map(\.id), toVisiblePosition: model.visibleWindows.count)
+        default:
+            break
+        }
+    }
+
     /// Fills the screen with the selected window, less the strip's room. Nothing else changes: no
     /// way back through the same shortcut, and the rest of the workspace stays where it is.
     private func maximizeWindow() {
-        guard var window = model.selectedWindow else { return }
+        guard let window = model.selectedWindow else { return }
+        maximize(window)
+    }
+
+    private func maximize(_ window: ManagedWindow) {
+        var window = window
         window.element = window.element ?? WindowSpaceMover.element(for: window)
         // Its old frame is still worth keeping: the fullscreen shortcut can put it back later.
         if framesBeforeMaximize[window.id] == nil {
