@@ -210,25 +210,25 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 struct Preferences: Codable, Equatable {
     var scope: QueueScope = .global
     var superModifier: SuperModifier = .option
-    var spaceSwitchMethod: SpaceSwitchMethod = .focusWindow
+    var spaceSwitchMethod: SpaceSwitchMethod = .privateAPI
     /// Ask Rectangle to keep its tiled windows clear of the strip.
     var reserveScreenSpace: Bool = true
     var bindings: [String: KeyCombo] = [:]
 
     var toastEnabled: Bool = true
-    var toastDuration: Double = 2.0
+    var toastDuration: Double = 1.0
 
     var stripDisplay: StripDisplayMode = .highlightActiveScreen
     /// Opacity of the greyed-out strips on inactive screens.
-    var inactiveStripOpacity: Double = 0.65
+    var inactiveStripOpacity: Double = 0.55
     var stripSide: StripSide = .left
     var stripAlignment: StripAlignment = .center
     /// Gap between the strip and the screen edges around it.
-    var stripMargin: Double = 8
+    var stripMargin: Double = 4
     /// No longer set by hand: the strip is as thick as an icon row needs. Kept so an old stored
     /// blob still decodes.
     var stripWidth: Double = 36
-    var iconSize: Double = 26
+    var iconSize: Double = 34
     var showSpaceBadge: Bool = true
     /// Keep the queue grouped by workspace without having to sort it by hand.
     var autoSortByWorkspace: Bool = true
@@ -252,7 +252,7 @@ struct Preferences: Codable, Equatable {
     /// Focus the window under the pointer once the pointer rests on it.
     var focusFollowsMouse: Bool = true
     /// How long the pointer has to rest before the window under it is focused.
-    var focusFollowsMouseDelay: Double = 0.2
+    var focusFollowsMouseDelay: Double = 0.05
     /// Bring the hovered window to the front as well. Off, it takes keyboard focus where it lies.
     var focusFollowsMouseRaises: Bool = false
     /// Trim windows that zoom or tile under the strip after the fact, where the Dock reservation does
@@ -265,8 +265,8 @@ struct Preferences: Codable, Equatable {
     var showWindowPreview: Bool = true
 
     /// Gap left around a tiled or maximized window, at the edge of the screen and between windows.
-    var tileOuterGap: Double = 1
-    var tileInnerGap: Double = 1
+    var tileOuterGap: Double = 0
+    var tileInnerGap: Double = 4
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -280,7 +280,7 @@ struct Preferences: Codable, Equatable {
 
     /// A line of the window's title under its icon in the strip, for telling apart several windows
     /// of the same application. The row keeps its size; the icon gives up the room.
-    var showWindowLabels: Bool = false
+    var showWindowLabels: Bool = true
 
     /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
@@ -291,7 +291,7 @@ struct Preferences: Codable, Equatable {
 
     /// What a second tap of the super key does, straight after the first one opened aiming mode.
     /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
-    var superDoubleTapAction: HotkeyAction?
+    var superDoubleTapAction: HotkeyAction? = .search
 
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {

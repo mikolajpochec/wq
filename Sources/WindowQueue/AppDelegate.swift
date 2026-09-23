@@ -387,11 +387,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // popup and the dimming back for as long as the second tap could still arrive, so the screen
         // does not flash the mode up and take it away again. The keys are grabbed from the off all
         // the same, so nothing typed in between reaches the app in front.
+        // Whatever the aim is on when this runs, not what it was on when the mode opened: the user
+        // can have stepped along the strip in the meantime, and naming the window they left would
+        // undo the popup that step already put up.
         let show = { [weak self] in
             guard let self, self.model.aimingID != nil else { return }
+            self.aimingReveal = nil
             self.syncActionPanel()
             self.dimOverlay?.show()
-            if let aimed { self.toast?.show(aimed, pinned: true, everywhere: true) }
+            if let window = self.model.aimedWindow, self.model.aimedWindows.count == 1 {
+                self.toast?.show(window, pinned: true, everywhere: true)
+            }
         }
         aimingReveal?.cancel()
         guard store.prefs.superDoubleTapAction != nil, !fromPointer else {
@@ -581,6 +587,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Keeps the popup and the tiling menu in step with what is aimed.
     private func aimChanged() {
+        // Moving the aim is the user showing their hand: the mode is theirs, so anything held back
+        // for a possible double tap goes up now, in the state it is in.
+        if let reveal = aimingReveal {
+            reveal.cancel()
+            aimingReveal = nil
+            dimOverlay?.show()
+        }
         syncGroupPanel()
         syncActionPanel()
         let aimed = model.aimedWindows
