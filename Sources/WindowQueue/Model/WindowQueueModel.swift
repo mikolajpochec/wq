@@ -53,6 +53,12 @@ final class WindowQueueModel: ObservableObject {
     /// Where that window sat in the queue before, to put it back.
     private var positionBeforeMaximize: Int?
 
+    /// Windows laid out together and still holding that layout, in the order it was applied. The
+    /// arrangement follows the queue: reorder them and they are laid out again that way.
+    @Published private(set) var tiledIDs: [CGWindowID] = []
+    /// Which arrangement they are in, by name.
+    private(set) var tiledLayout: String?
+
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
 
@@ -205,6 +211,34 @@ final class WindowQueueModel: ObservableObject {
         return index + 1
     }
 
+    // MARK: - Tiled groups
+
+    func setTiled(_ ids: [CGWindowID], layout: String) {
+        guard ids.count > 1 else { return clearTiled() }
+        tiledIDs = ids
+        tiledLayout = layout
+        objectWillChange.send()
+    }
+
+    /// The windows are no longer held in a layout — they keep their frames, they are simply free.
+    func clearTiled() {
+        guard !tiledIDs.isEmpty else { return }
+        tiledIDs = []
+        tiledLayout = nil
+        objectWillChange.send()
+    }
+
+    func isTiled(_ window: ManagedWindow) -> Bool {
+        tiledIDs.contains(window.id)
+    }
+
+    /// The tiled windows in the order the queue has them now, which is the order they should be
+    /// laid out in.
+    var tiledWindowsInQueueOrder: [ManagedWindow] {
+        let tiled = Set(tiledIDs)
+        return windows.filter { tiled.contains($0.id) }
+    }
+
     // MARK: - Focus on one window
 
     /// A window has been maximized: it goes to the head of its workspace's run in the queue, and
@@ -297,6 +331,14 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        // A tiled window that has gone leaves the group; below two there is no layout left.
+        if !tiledIDs.isEmpty {
+            let present = Set(windows.map(\.id))
+            let remaining = tiledIDs.filter { present.contains($0) }
+            if remaining.count != tiledIDs.count {
+                if remaining.count > 1 { tiledIDs = remaining } else { clearTiled() }
+            }
+        }
         // A maximized window that has gone takes the covering with it.
         if let maximizedID, !windows.contains(where: { $0.id == maximizedID }) {
             self.maximizedID = nil

@@ -289,6 +289,18 @@ struct StripView: View {
         }
     }
 
+    /// Marks a window still held in a layout. Any resize or move of it frees the whole group, so
+    /// the mark is also a reminder that the arrangement is only there until the window is touched.
+    private var tiledMark: some View {
+        Image(systemName: "square.grid.2x2.fill")
+            .font(.system(size: max(7, prefs.iconSize * 0.3), weight: .bold))
+            .foregroundStyle(Color.accentColor)
+            .padding(1)
+            .background(Circle().fill(Color.black.opacity(0.5)))
+            .offset(x: 1, y: -1)
+            .help("Tiled — moving or resizing it frees the group")
+    }
+
     /// A dashed, hatched outline the size of an icon: a place a window could go.
     private var emptySlotMarker: some View {
         let long = prefs.iconSize
@@ -450,6 +462,9 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
+        .overlay(alignment: side.isVertical ? .bottomLeading : .topTrailing) {
+            if model.isTiled(window) { tiledMark }
+        }
         .contentShape(Rectangle())
         .help(window.displayTitle)
     }

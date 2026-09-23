@@ -207,3 +207,22 @@ extension WindowQueueModelTests {
         XCTAssertEqual(ids(model), [1, 2, 3, 4])
     }
 }
+
+extension WindowQueueModelTests {
+    func testTiledGroupFollowsTheQueueAndDropsClosedWindows() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.setTiled([1, 2, 3], layout: "Main and stack")
+        XCTAssertTrue(model.isTiled(model.windows[0]))
+
+        model.select(id: 3, announce: false)
+        model.move(by: -2)
+        XCTAssertEqual(model.tiledWindowsInQueueOrder.map(\.id), [3, 1, 2])
+
+        model.reconcile(with: [window(3, space: 10), window(1, space: 10)])
+        XCTAssertEqual(model.tiledIDs, [3, 1])
+
+        model.reconcile(with: [window(3, space: 10)])
+        XCTAssertTrue(model.tiledIDs.isEmpty)
+        XCTAssertNil(model.tiledLayout)
+    }
+}

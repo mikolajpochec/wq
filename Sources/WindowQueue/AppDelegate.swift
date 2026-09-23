@@ -75,6 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { window in toast.show(window) }
             .store(in: &cancellables)
 
+        model.$windows
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.retileIfOrderChanged() }
+            .store(in: &cancellables)
+
         let strip = StripController(
             model: model,
             store: store,
@@ -208,8 +213,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let enumerator = WindowEnumerator(model: self.model)
             let edgeGuard = ScreenEdgeGuard(store: self.store)
-            enumerator.onWindowResized = { element in edgeGuard.windowResized(element) }
-            enumerator.onWindowSettled = { element in edgeGuard.windowSettled(element) }
+            enumerator.onWindowResized = { [weak self] element in
+                edgeGuard.windowResized(element)
+                self?.windowFrameChanged(element)
+            }
+            enumerator.onWindowSettled = { [weak self] element in
+                edgeGuard.windowSettled(element)
+                self?.windowFrameChanged(element)
+            }
             self.enumerator = enumerator
             enumerator.start()
             strip.start()
@@ -417,6 +428,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// While a layout is being applied, the frame changes it causes are ours, not the user's.
+    private var tilingSettledAt = Date.distantPast
+    /// The order the tiled windows were last laid out in, to notice a reorder.
+    private var tiledOrder: [CGWindowID] = []
+
     private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {
         // Only windows with an element can be placed; the layout is picked for the ones that can,
         // so a window that could not be reached does not leave a hole.
@@ -430,8 +446,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       gaps: WindowTiler.Gaps(prefs: store.prefs))
         guard let first = placed.first else { return }
         WindowTiler.raise(placed)
+        noteTiled(placed, layout: layout)
         model.select(id: first.id, announce: false)
         focus(first, warpCursor: false)
+    }
+
+    /// Remembers that these windows are holding a layout, and from when their frames are their own
+    /// again — the tiler keeps correcting them for a moment after it places them.
+    private func noteTiled(_ windows: [ManagedWindow], layout: TileLayout) {
+        tiledOrder = windows.map(\.id)
+        tilingSettledAt = Date().addingTimeInterval(2)
+        model.setTiled(tiledOrder, layout: layout.name)
+    }
+
+    /// A window was resized or moved. If it was holding a layout and the change was not ours, the
+    /// group is broken: the windows stay exactly where they are, they are simply free again.
+    private func windowFrameChanged(_ element: AXUIElement) {
+        guard !model.tiledIDs.isEmpty, Date() > tilingSettledAt,
+              let id = AXPrivate.windowID(of: element), model.tiledIDs.contains(id)
+        else { return }
+        Diagnostics.note("tiling broken by a change to window \(id)")
+        model.clearTiled()
+        tiledOrder = []
+    }
+
+    /// The queue order of tiled windows decides their places in the layout, so moving one of them
+    /// along the queue lays the group out again — the quickest way to say "this one is the main".
+    private func retileIfOrderChanged() {
+        guard !model.tiledIDs.isEmpty, let name = model.tiledLayout else { return }
+        let windows = model.tiledWindowsInQueueOrder
+        let order = windows.map(\.id)
+        guard order != tiledOrder, order.count > 1 else { return }
+        guard let layout = TileLayout.options(for: windows.count).first(where: { $0.name == name })
+            ?? TileLayout.options(for: windows.count).first
+        else { return }
+        let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(),
+                                      gaps: WindowTiler.Gaps(prefs: store.prefs))
+        guard !placed.isEmpty else { return }
+        noteTiled(placed, layout: layout)
     }
 
     /// The screen being worked on, less the room the strip keeps for itself.
