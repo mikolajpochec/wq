@@ -9,17 +9,6 @@ private struct ToastView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let preview {
-                Image(nsImage: preview)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: WindowPreview.maximumSize, maxHeight: WindowPreview.maximumSize * 0.75)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
-                    )
-            }
             VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
@@ -28,6 +17,18 @@ private struct ToastView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            }
+            // Under the name: the words say which window it is, the picture shows what is in it.
+            if let preview {
+                Image(nsImage: preview)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: WindowPreview.maximumSize, maxHeight: WindowPreview.maximumSize * 0.75)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                    )
             }
         }
         .padding(.horizontal, 12)
@@ -96,7 +97,7 @@ final class ToastController {
         guard let bubble = bubbles.first else { return }
         bubble.hosting.rootView = ToastView(title: title, subtitle: subtitle)
         let size = bubble.hosting.fittingSize
-        let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
+        let clamped = NSSize(width: min(max(size.width, 140), 480), height: size.height)
         let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
         let origin = NSPoint(x: screen.midX - clamped.width / 2,
                              y: screen.midY - clamped.height / 2)
@@ -122,7 +123,7 @@ final class ToastController {
         for (bubble, anchor) in zip(bubbles, anchors) {
             bubble.hosting.rootView = view
             let size = bubble.hosting.fittingSize
-            let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
+            let clamped = NSSize(width: min(max(size.width, 140), 480), height: size.height)
             present(bubble, at: NSRect(origin: position(for: clamped, anchor: anchor, side: side), size: clamped))
         }
         // Bubbles for strips this popup does not point from.

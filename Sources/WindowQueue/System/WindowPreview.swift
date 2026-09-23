@@ -12,7 +12,7 @@ enum WindowPreview {
     private static let maximumAge: TimeInterval = 2
 
     /// Longest side of the thumbnail handed back, in points.
-    static let maximumSize: CGFloat = 200
+    static let maximumSize: CGFloat = 420
 
     static func image(for id: CGWindowID) -> NSImage? {
         if let cached = cache[id], Date().timeIntervalSince(cached.taken) < maximumAge {
