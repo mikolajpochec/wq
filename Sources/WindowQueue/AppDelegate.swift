@@ -126,8 +126,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hover focus never moves the pointer: the pointer is already where the user wants it.
         let hoverFocus = FocusFollowsMouse(model: model, store: store) { [weak self] window in
             guard let self else { return }
-            if !self.store.prefs.focusFollowsMouseRaises, WindowFocuser.focusWithoutRaising(window) { return }
-            WindowFocuser.focus(window, siblingCount: self.model.windows.count { $0.pid == window.pid })
+            let siblings = self.model.windows.count { $0.pid == window.pid }
+            guard !self.store.prefs.focusFollowsMouseRaises,
+                  WindowFocuser.focusWithoutRaising(window)
+            else {
+                WindowFocuser.focus(window, siblingCount: siblings)
+                return
+            }
+            // Some applications keep the keyboard on whichever of their windows had it, however
+            // they are asked — Ghostty does. Typing where the pointer is matters more than leaving
+            // the stacking order alone, so an attempt that did not land is followed by a real raise.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, self.store.prefs.focusFollowsMouse,
+                      WindowFocuser.isFocused(window) == false,
+                      // Only if the pointer is still there: the user may have moved on since.
+                      FocusFollowsMouse.windowUnderPointer() == window.id
+                else { return }
+                Diagnostics.note("hover focus did not land on \(window.id); raising it")
+                WindowFocuser.focus(window, siblingCount: siblings)
+            }
         }
         hoverFocus.isSuspended = { [weak self] in
             guard let self else { return false }

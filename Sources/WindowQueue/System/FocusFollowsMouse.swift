@@ -64,7 +64,7 @@ final class FocusFollowsMouse {
 
     /// The ordinary window directly under the pointer, or nil when anything else is on top there
     /// or a menu is open anywhere.
-    private static func windowUnderPointer() -> CGWindowID? {
+    static func windowUnderPointer() -> CGWindowID? {
         guard let primary = NSScreen.screens.first else { return nil }
         let cocoa = NSEvent.mouseLocation
         let point = CGPoint(x: cocoa.x, y: primary.frame.height - cocoa.y)

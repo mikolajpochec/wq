@@ -151,6 +151,16 @@ enum WindowFocuser {
         return true
     }
 
+    /// Whether the window really has the keyboard: its application is in front and it is the one
+    /// that application says is focused.
+    static func isFocused(_ window: ManagedWindow) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid else { return false }
+        let focused = AXPrivate.application(window.pid)
+            .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+            .flatMap(AXPrivate.windowID(of:))
+        return focused == window.id
+    }
+
     /// Focus handed between two windows of the app in front: 0x01 gains it, 0x02 resigns it.
     private static func focusRecord(windowID: CGWindowID, kind: UInt8) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 0xf8)
