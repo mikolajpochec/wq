@@ -469,6 +469,28 @@ final class StripController {
             .map { model.visibleWindows[$0] }
     }
 
+    /// Screen rect of the strip's content — the bar itself, not the panel it floats in — so another
+    /// strip can be placed in line with it.
+    func contentFrame() -> (frame: NSRect, side: StripSide)? {
+        guard let strip = anchorStrip else { return nil }
+        let panel = strip.panel.frame
+        let prefs = store.prefs
+        let start = contentStart(inPanelLength: mainLength(of: panel))
+        let length = contentLayout.totalHeight
+        let thickness = StripMetrics.thickness(prefs: prefs)
+        switch prefs.stripSide {
+        case .left:
+            return (NSRect(x: panel.minX, y: panel.maxY - start - length, width: thickness, height: length), .left)
+        case .right:
+            return (NSRect(x: panel.maxX - thickness, y: panel.maxY - start - length,
+                           width: thickness, height: length), .right)
+        case .top:
+            return (NSRect(x: panel.minX + start, y: panel.maxY - thickness, width: length, height: thickness), .top)
+        case .bottom:
+            return (NSRect(x: panel.minX + start, y: panel.minY, width: length, height: thickness), .bottom)
+        }
+    }
+
     /// Screen-space rect of one window's row, so the toast can point at that icon.
     func rowFrame(for id: CGWindowID) -> NSRect? {
         guard let strip = anchorStrip else { return nil }

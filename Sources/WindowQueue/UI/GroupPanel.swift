@@ -83,8 +83,9 @@ final class GroupPanelController {
     private var panel: OverlayPanel?
     private var hosting: NSHostingView<GroupPanelView>?
 
-    /// Screen rect of the group's entry in the strip, and the strip's side, to place the panel.
-    var anchorProvider: ((CGWindowID) -> (frame: NSRect, side: StripSide)?)?
+    /// Screen rect of the strip's content and the edge it lives on, so the group's strip can carry
+    /// on in the same line rather than sitting beside it.
+    var stripFrameProvider: (() -> (frame: NSRect, side: StripSide)?)?
     /// A window in the panel was clicked.
     var onPick: ((ManagedWindow) -> Void)?
 
@@ -95,7 +96,7 @@ final class GroupPanelController {
     var isVisible: Bool { panel?.isVisible == true }
 
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool) {
-        guard windows.count > 1, let anchorID = windows.first?.id else {
+        guard windows.count > 1 else {
             hide()
             return
         }
@@ -118,7 +119,7 @@ final class GroupPanelController {
         }()
         self.panel = panel
         let size = hosting.fittingSize
-        panel.setFrame(NSRect(origin: origin(for: size, anchorID: anchorID), size: size), display: true)
+        panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
         if !panel.isVisible {
             panel.orderFrontRegardless()
             OverlaySpace.shared.adopt(panel)
@@ -129,25 +130,30 @@ final class GroupPanelController {
         panel?.orderOut(nil)
     }
 
-    private func origin(for size: NSSize, anchorID: CGWindowID) -> NSPoint {
-        let margin: CGFloat = 10
-        guard let anchor = anchorProvider?(anchorID) else {
+    /// Carries on where the strip ends, in the same line and the same lane: below it on a side
+    /// strip, after it on a top or bottom one. There is room there, and a bar hanging off the side
+    /// of the strip would cover the windows instead.
+    private func origin(for size: NSSize) -> NSPoint {
+        let gap: CGFloat = 8
+        guard let strip = stripFrameProvider?() else {
             let visible = NSScreen.main?.visibleFrame ?? .zero
             return NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
         }
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchor.frame) } ?? NSScreen.main
+        let screen = NSScreen.screens.first { $0.frame.intersects(strip.frame) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
-        // The second strip runs alongside the first, starting level with the group's own entry, and
-        // is nudged back on screen when the group sits near the end of the strip.
-        let alignedY = min(max(anchor.frame.maxY - size.height, visible.minY + margin),
-                           visible.maxY - size.height - margin)
-        let alignedX = min(max(anchor.frame.minX, visible.minX + margin),
-                           visible.maxX - size.width - margin)
-        switch anchor.side {
-        case .left: return NSPoint(x: anchor.frame.maxX, y: alignedY)
-        case .right: return NSPoint(x: anchor.frame.minX - size.width, y: alignedY)
-        case .top: return NSPoint(x: alignedX, y: anchor.frame.minY - size.height)
-        case .bottom: return NSPoint(x: alignedX, y: anchor.frame.maxY)
+
+        switch strip.side {
+        case .left, .right:
+            let x = strip.frame.midX - size.width / 2
+            // Below the strip, unless it reaches too far down, and then above it.
+            let below = strip.frame.minY - gap - size.height
+            let y = below >= visible.minY ? below : min(strip.frame.maxY + gap, visible.maxY - size.height)
+            return NSPoint(x: x, y: y)
+        case .top, .bottom:
+            let y = strip.frame.midY - size.height / 2
+            let after = strip.frame.maxX + gap
+            let x = after + size.width <= visible.maxX ? after : max(strip.frame.minX - gap - size.width, visible.minX)
+            return NSPoint(x: x, y: y)
         }
     }
 }
