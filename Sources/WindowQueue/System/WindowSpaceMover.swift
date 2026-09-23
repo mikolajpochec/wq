@@ -14,10 +14,15 @@ final class WindowSpaceMover {
     private typealias ConnectionFn = @convention(c) () -> Int32
     private typealias AssignFn = @convention(c) (Int32, pid_t, UInt64) -> Int32
     private typealias MoveWindowsFn = @convention(c) (Int32, CFArray, UInt64) -> Void
+    private typealias SpaceWindowsFn = @convention(c) (Int32, CFArray, CFArray) -> Void
+    private typealias SwapSpacesFn = @convention(c) (Int32, CFArray, CFArray, CFArray) -> Void
 
     private let connectionID: Int32
     private let assign: AssignFn?
     private let moveWindows: MoveWindowsFn?
+    private let addWindowsToSpaces: SpaceWindowsFn?
+    private let removeWindowsFromSpaces: SpaceWindowsFn?
+    private let swapSpaces: SwapSpacesFn?
 
     init() {
         let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
@@ -29,6 +34,9 @@ final class WindowSpaceMover {
         assign = symbol("SLSProcessAssignToSpace", as: AssignFn.self)
         moveWindows = symbol("SLSMoveWindowsToManagedSpace", as: MoveWindowsFn.self)
             ?? symbol("CGSMoveWindowsToManagedSpace", as: MoveWindowsFn.self)
+        addWindowsToSpaces = symbol("CGSAddWindowsToSpaces", as: SpaceWindowsFn.self)
+        removeWindowsFromSpaces = symbol("CGSRemoveWindowsFromSpaces", as: SpaceWindowsFn.self)
+        swapSpaces = symbol("SLSSpaceAddWindowsAndRemoveFromSpaces", as: SwapSpacesFn.self)
     }
 
     var isAvailable: Bool { connectionID != 0 && (assign != nil || moveWindows != nil) }
@@ -96,7 +104,16 @@ final class WindowSpaceMover {
         guard let moveWindows else { return windows }
         let away = windows.filter { $0.spaceID != target }
         guard !away.isEmpty else { return [] }
-        moveWindows(connectionID, away.map { NSNumber(value: $0.id) } as CFArray, target)
+        let ids = away.map { NSNumber(value: $0.id) } as CFArray
+        moveWindows(connectionID, ids, target)
+
+        // Three ways of saying the same thing, because which of them a plain application is allowed
+        // to use is not documented and has changed between releases. They cost one call each, and
+        // the windows' own spaces, read back below, are what says whether any of them worked.
+        addWindowsToSpaces?(connectionID, ids, [NSNumber(value: target)] as CFArray)
+        let sources = Set(away.compactMap(\.spaceID)).map { NSNumber(value: $0) } as CFArray
+        removeWindowsFromSpaces?(connectionID, ids, sources)
+        swapSpaces?(connectionID, ids, [NSNumber(value: target)] as CFArray, sources)
 
         // The WindowServer moves the windows on its own schedule, and asking where they are the
         // instant after asking them to move answers with where they were. A few short looks give it
