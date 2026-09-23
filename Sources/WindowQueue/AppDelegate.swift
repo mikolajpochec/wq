@@ -663,16 +663,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Diagnostics.note("tiling in place: these apps have windows that would travel too")
                 toast?.showCentred(title: "Tiled where they are",
                                    subtitle: "These apps have other windows, and an application moves between workspaces as a whole")
+            } else if let best = workspaceForLayout(of: windows, from: home), best.holds > 0 {
+                // A workspace already holding nothing but windows of this layout is the cheapest
+                // place for it: the rest are carried over to them instead of everything moving.
+                target = best.space
+                Diagnostics.note("tiling on workspace \(best.space), which already holds \(best.holds) of them")
             } else if let fresh = SpacesBridge.shared.createSpace() {
                 target = fresh
                 Diagnostics.note("tiling on a new workspace \(fresh)")
-            } else if let here = home, let empty = nearestEmptyWorkspace(from: here, ignoring: tiled) {
+            } else if let best = workspaceForLayout(of: windows, from: home) {
                 // macOS would not add a desktop, but an empty one on the same monitor does as well.
-                target = empty
-                Diagnostics.note("tiling on empty workspace \(empty)")
+                target = best.space
+                Diagnostics.note("tiling on empty workspace \(best.space)")
             } else {
                 toast?.showCentred(title: "Tiled where they are",
-                                   subtitle: "No empty workspace on this monitor, and macOS would not add one")
+                                   subtitle: "No workspace on this monitor is free for the layout, and macOS would not add one")
             }
         }
 
@@ -730,19 +735,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The nearest workspace with nothing on it, on the same monitor as `space` — the layout can
-    /// only go somewhere its windows can actually be moved to, and each display owns its desktops.
-    /// - Parameter ignoring: windows about to leave anyway, which do not make a workspace occupied.
-    private func nearestEmptyWorkspace(from space: UInt64, ignoring leaving: Set<CGWindowID> = []) -> UInt64? {
-        let spaces = SpacesBridge.shared.spacesSharingDisplay(with: space)
-        guard let origin = spaces.firstIndex(of: space) else { return nil }
-        let occupied = Set(model.windows
-            .filter { !$0.isMinimized && !leaving.contains($0.id) }
-            .compactMap(\.spaceID))
-        return spaces.enumerated()
-            .filter { $0.offset != origin && !occupied.contains($0.element) }
-            .min { abs($0.offset - origin) < abs($1.offset - origin) }?
-            .element
+    /// The best workspace on this monitor to put a layout on, and how many of its windows are there
+    /// already.
+    ///
+    /// A workspace qualifies when everything on it is part of the layout: an empty one, or one that
+    /// already holds some of these windows and nothing else. The more of them are there, the fewer
+    /// have to travel, so that is what is preferred, and a tie goes to the nearest one. Each display
+    /// owns its desktops, so only this monitor's are considered.
+    private func workspaceForLayout(of windows: [ManagedWindow],
+                                    from home: UInt64?) -> (space: UInt64, holds: Int)? {
+        guard let home else { return nil }
+        let spaces = SpacesBridge.shared.spacesSharingDisplay(with: home)
+        guard let origin = spaces.firstIndex(of: home) else { return nil }
+        let tiled = Set(windows.map(\.id))
+
+        var best: (space: UInt64, holds: Int, distance: Int)?
+        for (index, space) in spaces.enumerated() where index != origin {
+            let occupants = model.windows.filter { $0.spaceID == space && !$0.isMinimized }
+            guard occupants.allSatisfy({ tiled.contains($0.id) }) else { continue }
+            let candidate = (space: space, holds: occupants.count, distance: abs(index - origin))
+            guard let current = best else {
+                best = candidate
+                continue
+            }
+            if candidate.holds > current.holds
+                || (candidate.holds == current.holds && candidate.distance < current.distance) {
+                best = candidate
+            }
+        }
+        return best.map { (space: $0.space, holds: $0.holds) }
     }
 
     /// While a layout is being applied, the frame changes it causes are ours, not the user's.
