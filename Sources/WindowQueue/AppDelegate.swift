@@ -1314,7 +1314,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             workspaceIndex: model.workspaceNumber(of: window),
                             siblingCount: siblings,
                             warpCursor: warpCursor && store.prefs.warpCursorToWindow)
+        raiseLayout(of: window)
         flashFocus(window)
+    }
+
+    /// Brings a whole layout forward when one of its windows is focused: the windows were arranged
+    /// to be looked at together, and picking one of them should not leave the rest behind another
+    /// app. The focused window is raised last, so it stays the one on top.
+    private func raiseLayout(of window: ManagedWindow) {
+        guard let group = model.tiledGroup(of: window.id) else { return }
+        let others = model.tiledWindowsInQueueOrder(group).filter { $0.id != window.id }
+        guard !others.isEmpty else { return }
+        WindowTiler.raise(others)
+        window.element?.perform(kAXRaiseAction)
     }
 
     /// Outlines the window focus just landed on, so it is plain which one took it — the same mark
