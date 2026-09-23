@@ -33,6 +33,8 @@ struct StripView: View {
     @State private var dragOriginTop: CGFloat = 0
     /// The collapsed tile is being dragged, which moves every window inside it as one.
     @State private var draggingStack = false
+    /// The pointer has actually travelled: a press on its own is a click, not a drag.
+    @State private var dragMoved = false
     /// Ties the empty-workspace marker to the window that fills it, so the window grows out of it.
     @Namespace private var slotNamespace
 
@@ -167,9 +169,10 @@ struct StripView: View {
     /// Windows the maximized one covers, while they are meant to collapse into one tile.
     private var collapsedIDs: Set<CGWindowID> {
         // A drag of one icon expands the tile so it can be dropped anywhere among the rows; a drag
-        // of the tile itself keeps it collapsed, because that is the thing being moved.
+        // of the tile itself keeps it collapsed, because that is the thing being moved. A press that
+        // has not travelled is a click, and must not shuffle the strip under the pointer.
         guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil,
-              draggingID == nil || draggingStack
+              draggingID == nil || draggingStack || !dragMoved
         else { return [] }
         return Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
     }
@@ -517,6 +520,7 @@ struct StripView: View {
             if !draggingStack { onHold(model.visibleWindows[origin], 0) }
         }
         dragTranslation = offset
+        if abs(offset) >= Self.dragThreshold { dragMoved = true }
 
         guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
         dragTargetIndex = target
@@ -528,7 +532,7 @@ struct StripView: View {
             let moving = collapsedIDs
             let ids = model.visibleWindows.filter { moving.contains($0.id) }.map(\.id)
             let ahead = model.visibleWindows.prefix(dragTargetIndex).count { moving.contains($0.id) }
-            if abs(offset) >= 4 || dragTargetIndex != dragOriginIndex {
+            if abs(offset) >= Self.dragThreshold || dragTargetIndex != dragOriginIndex {
                 model.move(ids: ids, toVisiblePosition: max(dragTargetIndex - ahead, 0))
             }
             endDrag()
@@ -539,7 +543,7 @@ struct StripView: View {
             return
         }
 
-        if abs(offset) < 4, dragTargetIndex == dragOriginIndex {
+        if abs(offset) < Self.dragThreshold, dragTargetIndex == dragOriginIndex {
             onSelect(window)
             endDrag()
             return
@@ -559,12 +563,16 @@ struct StripView: View {
         }
     }
 
+    /// How far the pointer has to travel before a press counts as a drag.
+    private static let dragThreshold: CGFloat = 4
+
     private static let settleAnimation: Animation = .spring(response: 0.22, dampingFraction: 0.9)
     private static let settleDuration: TimeInterval = 0.22
 
     private func endDrag() {
         draggingID = nil
         draggingStack = false
+        dragMoved = false
         dragTranslation = 0
         dragOriginTop = 0
         onHold(nil, 0)
