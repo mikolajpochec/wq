@@ -184,9 +184,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         aimingKeys.onKey = { [weak self] press in self?.handleAimingPress(press) }
         aimingKeys.onShortcut = { [weak self] keyCode, flags in
-            guard let self, let action = HotkeyAction.allCases.first(where: {
-                self.store.prefs.combo(for: $0).matches(keyCode: keyCode, flags: flags)
-            }) else { return }
+            guard let self else { return }
+            let prefs = self.store.prefs
+            // The mode has the keyboard to itself, so a shortcut works with or without its super
+            // key: `G` groups the aimed windows just as `⌥G` does.
+            let bare = flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift]).isEmpty
+            let action = HotkeyAction.allCases.first { prefs.combo(for: $0).matches(keyCode: keyCode, flags: flags) }
+                ?? (bare ? HotkeyAction.allCases.first { action in
+                    let combo = prefs.combo(for: action)
+                    return combo.keyCode == UInt32(keyCode) && combo.modifiers == prefs.superModifier.carbonMask
+                } : nil)
+            guard let action else { return }
             self.perform(action)
         }
         tilingMenu.anchorProvider = { [weak strip] ids in
