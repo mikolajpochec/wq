@@ -129,6 +129,43 @@ final class WindowSpaceMover {
         return left
     }
 
+    /// Brings one window onto the workspace in view, without its application's other windows.
+    ///
+    /// This is a trick, not an interface. With "switch to a Space with open windows for the
+    /// application" turned off — which WindowQueue needs anyway to do its own travelling — macOS
+    /// answers an application being activated by bringing its focused window to where the user is,
+    /// rather than taking the user to the window. So: focus the one window we want through the
+    /// accessibility API, activate its application, and macOS carries that window here. Its other
+    /// windows are not focused and stay where they are.
+    ///
+    /// It is worth exactly as much as that setting and that behaviour, so the result is read back
+    /// from the WindowServer and the caller is told whether it worked.
+    @discardableResult
+    func pullToCurrentSpace(_ window: ManagedWindow) -> Bool {
+        guard let current = SpacesBridge.shared.currentSpaceID,
+              let app = NSRunningApplication(processIdentifier: window.pid)
+        else { return false }
+        if SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] == current { return true }
+
+        let element = Self.element(for: window) ?? window.element
+        if let element {
+            _ = element.setAttribute(kAXMainAttribute, value: kCFBooleanTrue)
+            _ = element.setAttribute(kAXFocusedAttribute, value: kCFBooleanTrue)
+            _ = AXPrivate.application(window.pid).setAttribute(kAXFocusedWindowAttribute, value: element)
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
+
+        for _ in 0..<10 {
+            usleep(60_000)
+            if SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] == current {
+                Diagnostics.note("space mover: pulled \(window.appName) \(window.id) here by activating it")
+                return true
+            }
+        }
+        Diagnostics.note("space mover: \(window.appName) \(window.id) would not come here")
+        return false
+    }
+
     /// The window's accessibility element as its app lists it now. A window that arrived from a
     /// workspace we never visited has no element until its app is asked again.
     static func element(for window: ManagedWindow) -> AXUIElement? {

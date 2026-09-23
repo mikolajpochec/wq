@@ -712,9 +712,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if target == model.currentSpaceID || !SpacesBridge.shared.switchToSpace(id: target) {
             focus(last, warpCursor: false)
         }
+        let wanted = windows
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
-            let ready = group.map { window -> ManagedWindow in
+            // Anything the WindowServer would not move is asked to come here the other way: with
+            // the workspace now in view, activating the window's application brings that one window
+            // over. Whatever still refuses is tiled where it is, which is the old behaviour.
+            let here = SpacesBridge.shared.spaces(forWindows: wanted.map(\.id))
+            let current = SpacesBridge.shared.currentSpaceID
+            var gathered = group
+            if current == target {
+                for window in wanted where here[window.id] != target && !gathered.contains(window) {
+                    if self.spaceMover.pullToCurrentSpace(window) {
+                        self.model.relocate([window.id], toSpace: target)
+                        gathered.append(window)
+                    }
+                }
+                // Back in queue order: the layout reads along the strip, not along the rescue.
+                let order = wanted.map(\.id)
+                gathered.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
+            }
+            let ready = gathered.map { window -> ManagedWindow in
                 var copy = window
                 copy.element = WindowSpaceMover.element(for: window) ?? window.element
                 return copy
