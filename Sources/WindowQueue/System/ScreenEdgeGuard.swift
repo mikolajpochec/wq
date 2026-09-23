@@ -93,7 +93,7 @@ final class ScreenEdgeGuard {
         // is meant to be; trimming it again only starts a fight between the two.
         if WindowTiler.placed(id, at: frame) { return settle(id, at: frame) }
 
-        let visible = Self.axRect(fromCocoa: screen.visibleFrame)
+        let visible = Self.axRect(fromCocoa: DockReservation.unreservedFrame(of: screen, prefs: store.prefs))
         let gap = CGFloat(RectangleIntegration.reservedWidth(for: store.prefs))
         var target = frame
 

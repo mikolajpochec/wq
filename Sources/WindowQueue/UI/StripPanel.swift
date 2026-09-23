@@ -339,7 +339,7 @@ final class StripController {
     /// underneath.
     private func layout(_ strip: ScreenStrip) {
         let prefs = store.prefs
-        let visible = strip.screen.visibleFrame
+        let visible = DockReservation.unreservedFrame(of: strip.screen, prefs: prefs)
         let margin = store.prefs.stripMargin
         // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
         // strip, so it is always as thick as the strip can ever get.

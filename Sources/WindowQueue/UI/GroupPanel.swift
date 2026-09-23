@@ -14,6 +14,8 @@ final class GroupPanelState: ObservableObject {
     @Published var aimedIDs: Set<CGWindowID> = []
     /// Windows a fullscreen window in this group is covering, folded into one tile here.
     @Published var coveredIDs: Set<CGWindowID> = []
+    /// Aiming mode grows the strip; this one grows with it.
+    @Published var scale: CGFloat = 1
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -82,6 +84,29 @@ struct GroupPanelView: View {
                 .strokeBorder(state.isPeek ? Color.primary.opacity(0.12) : Color.accentColor.opacity(0.55),
                               lineWidth: state.isPeek ? 1 : 1.5)
         )
+        // Grown from the screen edge, the way the main strip grows while aiming.
+        .scaleEffect(state.scale, anchor: scaleAnchor)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: state.scale)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+    }
+
+    /// The edge the strip is pinned to, which is where it grows from and sits against.
+    private var alignment: Alignment {
+        switch side {
+        case .left: return .leading
+        case .right: return .trailing
+        case .top: return .top
+        case .bottom: return .bottom
+        }
+    }
+
+    private var scaleAnchor: UnitPoint {
+        switch side {
+        case .left: return .leading
+        case .right: return .trailing
+        case .top: return .top
+        case .bottom: return .bottom
+        }
     }
 
     /// The covered windows as one tile: the first few icons behind each other, and how many.
@@ -213,7 +238,7 @@ final class GroupPanelController {
 
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool,
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
-              coveredIDs: Set<CGWindowID> = []) {
+              coveredIDs: Set<CGWindowID> = [], aiming: Bool = false) {
         guard windows.count > 1 else {
             hide()
             return
@@ -225,6 +250,7 @@ final class GroupPanelController {
         state.aimingID = aimingID
         state.aimedIDs = aimedIDs
         state.coveredIDs = coveredIDs
+        state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
 
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
@@ -243,11 +269,17 @@ final class GroupPanelController {
         let panel = self.panel ?? {
             let panel = OverlayPanel(contentRect: NSRect(origin: .zero, size: hosting.fittingSize))
             panel.acceptsMouseMovedEvents = true
+            panel.acceptsMouseMovedEvents = true
             panel.contentView = hosting
             return panel
         }()
         self.panel = panel
-        let size = hosting.fittingSize
+        // Room for the grown strip: the panel cannot resize mid-animation without clipping it.
+        let scale = max(1, store.prefs.aimingScale)
+        let content = hosting.fittingSize
+        let size = store.prefs.stripSide.isVertical
+            ? NSSize(width: content.width * scale, height: content.height * state.scale)
+            : NSSize(width: content.width * state.scale, height: content.height * scale)
         panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
         if !panel.isVisible {
             panel.orderFrontRegardless()
@@ -293,7 +325,8 @@ final class GroupPanelController {
 
     /// How much room the group's strip takes along the strip's own direction, gap included, so the
     /// main strip can make space for it and the pair can be centred as one.
-    func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = []) -> CGFloat {
+    /// - Parameter aiming: while aiming the strip is drawn larger, and takes more room with it.
+    func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = [], aiming: Bool = false) -> CGFloat {
         guard windows.count > 1 else { return 0 }
         let prefs = store.prefs
         // Covered windows share one tile, so they take the room of a single row.
@@ -301,7 +334,7 @@ final class GroupPanelController {
         let rows = CGFloat(windows.count - hidden + (hidden > 0 ? 1 : 0))
         let content = StripMetrics.padding * 2 + rows * StripMetrics.rowHeight(prefs: prefs)
             + max(0, rows - 1) * StripMetrics.spacing
-        return content + Self.gap
+        return content * (aiming ? max(1, prefs.aimingScale) : 1) + Self.gap
     }
 
     /// Screen rect of one window's row in the group's strip, so the name popup points at the icon

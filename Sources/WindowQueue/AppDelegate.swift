@@ -584,9 +584,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The screen being worked on, less the room the strip keeps for itself.
     private func tilingArea() -> NSRect {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        var area = screen?.visibleFrame ?? .zero
         let prefs = store.prefs
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        // The room the strip keeps is taken off here, so the screen has to be measured without the
+        // reservation that keeps it — otherwise it is subtracted twice.
+        var area = screen.map { DockReservation.unreservedFrame(of: $0, prefs: prefs) } ?? .zero
         guard prefs.stripDisplay != .hidden, prefs.reserveScreenSpace else { return area }
         let gap = CGFloat(RectangleIntegration.reservedWidth(for: prefs))
         switch prefs.stripSide {
@@ -798,10 +800,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? Set(windows.filter { model.isCovered($0) }.map(\.id))
             : []
         // The main strip gives up the room first, so both are laid out in their final places.
-        strip?.companionLength = groupPanel.length(for: windows, covered: covered)
+        let aiming = model.aimingID != nil
+        strip?.companionLength = groupPanel.length(for: windows, covered: covered, aiming: aiming)
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
-                        aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered)
+                        aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
+                        aiming: aiming)
     }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.
