@@ -1503,7 +1503,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .systemShortcut:
             SpaceSwitcher.sendSystemShortcut(index: index)
         case .privateAPI:
-            SpacesBridge.shared.switchToSpace(index: index)
+            if let target, SpaceSwitcher.jump(toSpace: target) { break }
+            SpaceSwitcher.sendSystemShortcut(index: index)
         }
         // Every one of these can quietly do nothing — an empty workspace has no window to focus,
         // and the WindowServer call is refused often enough that it cannot be taken on trust. The

@@ -7,7 +7,9 @@ enum SpaceSwitchMethod: String, Codable, CaseIterable, Identifiable {
     case focusWindow
     /// Synthesise the built-in ⌃1…⌃9 Mission Control shortcut.
     case systemShortcut
-    /// Ask the WindowServer directly through the private SkyLight API.
+    /// Carry a window of our own to the workspace through SkyLight and bring it forward, which the
+    /// Dock follows. The name is from when this asked the WindowServer to switch outright; it stays
+    /// so saved settings still read.
     case privateAPI
 
     var id: String { rawValue }
@@ -16,18 +18,18 @@ enum SpaceSwitchMethod: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .focusWindow: return "Focus a window on that workspace (recommended)"
         case .systemShortcut: return "Send macOS ⌃1…⌃9 shortcut"
-        case .privateAPI: return "Private SkyLight API"
+        case .privateAPI: return "Carry an invisible window there"
         }
     }
 
     var explanation: String {
         switch self {
         case .focusWindow:
-            return "Activates the first queued window on the target workspace, which makes macOS animate to it. Falls back to the ⌃N shortcut for workspaces with no windows."
+            return "Activates the first queued window on the target workspace, which makes macOS animate to it. Workspaces with no windows are reached by carrying an invisible window there."
         case .systemShortcut:
             return "Requires “Switch to Desktop N” to be enabled in System Settings › Keyboard › Keyboard Shortcuts › Mission Control."
         case .privateAPI:
-            return "Switches instantly with no animation. Not recommended: on current macOS the WindowServer is left drawing several desktops at once until Mission Control redraws them."
+            return "Moves an invisible window of WindowQueue's to that workspace and brings it forward, so macOS animates there. Works for empty workspaces and past ⌃9."
         }
     }
 }
@@ -77,8 +79,15 @@ enum SpaceSwitcher {
         // accessory app has to ask for activation explicitly to be followed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             guard token == generation else { return }
+            if Diagnostics.isEnabled {
+                let on = SpacesBridge.shared.allSpaces(forWindow: CGWindowID(panel.windowNumber))
+                Diagnostics.note("space jump: carrier on \(on) at activation, active=\(NSApp.isActive)")
+            }
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
+            // The request above is only a request, and none at all while WindowQueue is already in
+            // front — as it is when this jump took over from one that had not stepped back yet.
+            WindowFocuser.bringToFront(pid: getpid(), windowID: CGWindowID(panel.windowNumber))
             if let arrived {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     guard token == generation else { return }

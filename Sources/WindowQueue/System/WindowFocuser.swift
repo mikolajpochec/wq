@@ -154,6 +154,20 @@ enum WindowFocuser {
         return true
     }
 
+    /// Makes the WindowServer put a process in front with the given window key, the way a click
+    /// on that window would. Unlike an activation request, which macOS may turn down and which does
+    /// nothing for an app already in front, this goes to the window's desktop every time.
+    @discardableResult
+    static func bringToFront(pid: pid_t, windowID: CGWindowID) -> Bool {
+        guard let setFrontProcess, let postEventRecord, let processForPID else { return false }
+        var target = ProcessSerialNumber()
+        guard processForPID(pid, &target) == 0,
+              setFrontProcess(&target, windowID, userGeneratedMode) == 0
+        else { return false }
+        makeKeyWindow(windowID, process: &target, post: postEventRecord)
+        return true
+    }
+
     /// Whether the window really has the keyboard: its application is in front and it is the one
     /// that application says is focused.
     static func isFocused(_ window: ManagedWindow) -> Bool {

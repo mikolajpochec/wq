@@ -11,7 +11,6 @@ final class SpacesBridge {
     private typealias MainConnectionIDFn = @convention(c) () -> Int32
     private typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
     private typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
-    private typealias SetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
     private typealias WindowBoolQueryFn = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Bool>) -> Int32
 
     /// `kCGSSpaceIncludesCurrent | kCGSSpaceIncludesOthers | kCGSSpaceIncludesUser`
@@ -22,7 +21,6 @@ final class SpacesBridge {
     private let connectionID: Int32
     private let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn?
     private let copySpacesForWindows: CopySpacesForWindowsFn?
-    private let setCurrentSpace: SetCurrentSpaceFn?
     private let windowIsOrderedIn: WindowBoolQueryFn?
 
     private init() {
@@ -37,7 +35,6 @@ final class SpacesBridge {
         connectionID = mainConnection?() ?? 0
         copyManagedDisplaySpaces = symbol("CGSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpacesFn.self)
         copySpacesForWindows = symbol("CGSCopySpacesForWindows", as: CopySpacesForWindowsFn.self)
-        setCurrentSpace = symbol("CGSManagedDisplaySetCurrentSpace", as: SetCurrentSpaceFn.self)
         windowIsOrderedIn = symbol("SLSWindowIsOrderedIn", as: WindowBoolQueryFn.self)
     }
 
@@ -239,21 +236,8 @@ final class SpacesBridge {
 
     // MARK: - Switching
 
-    /// Switches through the WindowServer alone. The Dock is not told, so it goes on believing the
-    /// old desktop is current: the next swipe or ⌃N starts from there, and a later switch to the
-    /// desktop it still believes in does nothing at all. Only for when the user picked this method.
-    @discardableResult
-    func switchToSpace(index: Int) -> Bool {
-        guard let id = userSpaceID(atIndex: index) else { return false }
-        return switchToSpace(id: id)
-    }
-
-    @discardableResult
-    func switchToSpace(id: UInt64) -> Bool {
-        guard let setCurrentSpace,
-              let space = allUserSpaces().first(where: { $0.id == id })
-        else { return false }
-        setCurrentSpace(connectionID, space.display as CFString, id)
-        return true
-    }
+    // WindowQueue does not switch desktops through the WindowServer directly. The call exists, but
+    // the Dock is not told: the WindowServer reports the new desktop as current while the screen
+    // stays where it was, and the Dock goes on from the desktop it believes in. Switching goes
+    // through the Dock instead — see `SpaceSwitcher`.
 }
