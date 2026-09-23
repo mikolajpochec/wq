@@ -9,10 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeys = HotkeyManager()
     private let modifierTaps = ModifierTapMonitor()
     private let aimingKeys = AimingKeyCapture()
+    private lazy var actionPanel = ActionPanelController(store: store)
     /// When aiming mode last opened, for telling a double tap of the super key from two separate ones.
     private var aimingOpenedAt = Date.distantPast
     /// Aiming was opened with the mouse, so it offers its actions as tiles to click.
     private var aimStartedWithPointer = false
+    /// Watches for a click anywhere outside WindowQueue's own panels while aiming.
+    private var aimClickMonitor: Any?
     private var dimOverlay: DimOverlay?
     private let orderStore = QueueOrderStore()
     private var search: SearchController?
@@ -143,6 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return strip?.rowFramesOnEveryStrip(for: id) ?? []
         }
         groupPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
+        actionPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
+        actionPanel.onPick = { [weak self] action in self?.pick(action) }
         groupPanel.onHover = { [weak self] window in
             guard let self else { return }
             if let window {
@@ -341,6 +346,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A click anywhere that is not WindowQueue's own — the strip, a group's strip, the popups —
+    /// leaves aiming mode. A global monitor sees exactly those clicks: the ones that land in our own
+    /// panels are delivered to this app and never reach it, which is the distinction wanted here.
+    private func watchForClicksOutside() {
+        guard aimClickMonitor == nil else { return }
+        aimClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            guard let self, self.model.aimingID != nil else { return }
+            self.endAiming(commit: false)
+        }
+    }
+
+    private func stopWatchingForClicksOutside() {
+        if let aimClickMonitor { NSEvent.removeMonitor(aimClickMonitor) }
+        aimClickMonitor = nil
+    }
+
     /// How long after opening aiming mode a second tap of the super key still counts as a double tap.
     private static let doubleTapInterval: TimeInterval = 0.4
 
@@ -354,6 +377,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aimed = model.beginAiming()
         Diagnostics.note("aiming: begin at \(aimed.map { "\($0.appName) \($0.id)" } ?? "nil")")
         aimingKeys.begin()
+        watchForClicksOutside()
+        syncActionPanel()
         dimOverlay?.show()
         if let aimed { toast?.show(aimed, pinned: true, everywhere: true) }
     }
@@ -364,6 +389,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.endAiming()
         tilingMenu.hide()
         aimingKeys.end()
+        stopWatchingForClicksOutside()
+        actionPanel.hide()
         dimOverlay?.hide()
         toast?.endHold()
 
@@ -479,9 +506,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The tiles beside the strip, for aiming started with the mouse: what the mode's keys do, in a
+    /// form a pointer can reach. What is offered follows the aim — a run of windows can be tiled and
+    /// cannot be sent fullscreen, a single one is the other way round.
+    private func syncActionPanel() {
+        guard aimStartedWithPointer, model.aimingID != nil else {
+            actionPanel.hide()
+            return
+        }
+        let aimed = model.aimedWindows
+        var actions: [AimAction] = []
+        if aimed.count > 1 {
+            actions.append(AimAction(kind: .shortcut(.toggleGroup), title: "Group", symbol: "square.stack.3d.up"))
+            if model.aimedGroup == nil {
+                actions.append(AimAction(kind: .confirm, title: "Tile", symbol: "square.grid.2x2"))
+            }
+        } else {
+            actions.append(AimAction(kind: .confirm, title: "Focus", symbol: "scope"))
+            actions.append(AimAction(kind: .shortcut(.toggleMaximize), title: "Fullscreen", symbol: "arrow.up.left.and.arrow.down.right"))
+        }
+        actions.append(AimAction(kind: .shortcut(.maximizeWindow), title: "Maximize", symbol: "rectangle.expand.vertical"))
+        actions.append(AimAction(kind: .shortcut(.minimizeWindow), title: "Minimize", symbol: "minus.rectangle"))
+        actions.append(AimAction(kind: .shortcut(.closeWindow), title: "Close", symbol: "xmark"))
+        actions.append(AimAction(kind: .selectAll, title: "Select all", symbol: "checklist"))
+        actions.append(AimAction(kind: .shortcut(.openLauncher), title: store.prefs.launcher.title,
+                                 symbol: "magnifyingglass"))
+        actions.append(AimAction(kind: .shortcut(.showOverview), title: "Overview", symbol: "square.grid.3x3"))
+        actions.append(AimAction(kind: .cancel, title: "Cancel", symbol: "escape"))
+        actionPanel.show(actions)
+    }
+
+    /// A tile was clicked, which does exactly what its key does.
+    private func pick(_ action: AimAction) {
+        switch action.kind {
+        case .shortcut(let shortcut):
+            perform(shortcut)
+        case .selectAll:
+            model.aimAll()
+            aimChanged()
+        case .confirm:
+            // A run of windows confirms into the tiling menu, one window into focusing it.
+            if model.aimedWindows.count > 1, model.aimedGroup == nil {
+                tilingMenu.state.isFocused = true
+                syncActionPanel()
+            } else {
+                endAiming(commit: true)
+            }
+        case .cancel:
+            endAiming(commit: false)
+        }
+    }
+
     /// Keeps the popup and the tiling menu in step with what is aimed.
     private func aimChanged() {
         syncGroupPanel()
+        syncActionPanel()
         let aimed = model.aimedWindows
         if model.aimedGroup != nil {
             // The popup would name one window of several; the group's own strip shows what is there.

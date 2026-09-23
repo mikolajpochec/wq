@@ -285,6 +285,10 @@ struct Preferences: Codable, Equatable {
     /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
+    /// The strip is only on screen while aiming mode is open; the rest of the time the queue is
+    /// there but out of sight, and a change is announced by the popup alone.
+    var invisibleStrip: Bool = false
+
     /// What a second tap of the super key does, straight after the first one opened aiming mode.
     /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
     var superDoubleTapAction: HotkeyAction?
@@ -335,6 +339,7 @@ struct Preferences: Codable, Equatable {
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
         launcher = value(.launcher, defaults.launcher)
+        invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
     }
 

@@ -25,6 +25,10 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
   Shift with a step grows the aimed run, `A` aims at everything within reach — the open group's
   windows from inside one, the whole visible queue otherwise, and again to drop back to one.
+- **Invisible mode** (Settings › Strip › Visibility) keeps the strip off screen except while aiming;
+  the queue works as always and a change is announced by the name popup alone.
+- Clicking the workspace number opens aiming mode, and a click anywhere outside WindowQueue's own
+  panels leaves it. Opened that way, the mode's actions appear as tiles beside the strip.
 - `⌥S` opens the **launcher** — Spotlight, Raycast or Alfred, whichever Settings names — and `⌥O`
   opens **Mission Control**. In aiming mode they are `S` and `O`, and the mode steps aside first so
   the launcher has the keyboard.

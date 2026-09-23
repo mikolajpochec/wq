@@ -278,7 +278,10 @@ final class StripController {
                 ?? (spaces.count == 1 ? spaces.values.first : nil)
             // A fullscreen window is the one case where floating above everything is unwelcome.
             let hiddenByFullscreen = prefs.hideInFullscreen && (space?.isFullscreen ?? false)
-            let wanted = (isActive || prefs.stripDisplay == .highlightActiveScreen) && !hiddenByFullscreen
+            // Invisible mode keeps the queue out of sight until aiming mode asks for it.
+            let hiddenUntilAiming = prefs.invisibleStrip && model.aimingID == nil
+            let wanted = (isActive || prefs.stripDisplay == .highlightActiveScreen)
+                && !hiddenByFullscreen && !hiddenUntilAiming
 
             guard wanted else {
                 strips[id]?.panel.orderOut(nil)

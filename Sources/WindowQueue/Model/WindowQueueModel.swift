@@ -102,6 +102,7 @@ final class WindowQueueModel: ObservableObject {
     func beginAiming() -> ManagedWindow? {
         aimAnchorID = nil
         aimPinnedIDs = []
+        lastAimStep = 1
         // Started from inside a group, aiming starts there too: the windows to choose between are
         // the ones on show, not the queue the group is folded into.
         aimInsideGroupID = selectedID.flatMap { group(of: $0)?.id }
@@ -131,6 +132,10 @@ final class WindowQueueModel: ObservableObject {
     }
 
     /// Steps into the aimed group, so the aim can pick out one of its windows.
+    ///
+    /// A group is entered from the side the aim arrived from: walking down the strip the aim lands
+    /// on the group's first window, walking up it lands on its last, the same way the queue stops at
+    /// whichever end of a group it reaches first.
     @discardableResult
     func enterAimedGroup() -> Bool {
         guard let group = aimedGroup else { return false }
@@ -138,7 +143,8 @@ final class WindowQueueModel: ObservableObject {
         openGroupID = group.id
         aimAnchorID = nil
         aimPinnedIDs = []
-        aimingID = members(of: group).first?.id ?? aimingID
+        let members = members(of: group)
+        aimingID = (lastAimStep < 0 ? members.last?.id : members.first?.id) ?? aimingID
         return true
     }
 
@@ -154,6 +160,9 @@ final class WindowQueueModel: ObservableObject {
         aimingID = members(of: group).first?.id
         return true
     }
+
+    /// Which way the aim last moved, so a group is entered at the end the aim arrives at.
+    private(set) var lastAimStep = 1
 
     func endAiming() {
         aimingID = nil
@@ -197,6 +206,7 @@ final class WindowQueueModel: ObservableObject {
     /// Grows or shrinks the aimed run by moving its free end, stopping at the ends of the queue.
     @discardableResult
     func extendAim(by delta: Int) -> ManagedWindow? {
+        if delta != 0 { lastAimStep = delta }
         let visible = aimableWindows
         guard let current = visible.firstIndex(where: { $0.id == aimingID }) else { return nil }
         if aimAnchorID == nil { aimAnchorID = aimingID }
@@ -272,6 +282,7 @@ final class WindowQueueModel: ObservableObject {
     /// Moves the aim within the visible slice, wrapping around, without focusing anything.
     @discardableResult
     func moveAim(by delta: Int) -> ManagedWindow? {
+        if delta != 0 { lastAimStep = delta }
         aimAnchorID = nil
         aimPinnedIDs = []
         let visible = aimableWindows

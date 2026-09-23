@@ -22,7 +22,9 @@ enum RectangleIntegration {
 
     /// Total width the strip occupies, including the margin it is inset by.
     static func reservedWidth(for prefs: Preferences) -> Int {
-        Int((StripMetrics.thickness(prefs: prefs) + prefs.stripMargin * 2).rounded(.up))
+        // A strip that is only there while aiming takes no room from the windows.
+        guard !prefs.invisibleStrip else { return 0 }
+        return Int((StripMetrics.thickness(prefs: prefs) + prefs.stripMargin * 2).rounded(.up))
     }
 
     /// Writes the gap for the strip's side and clears the other one.

@@ -275,6 +275,10 @@ struct SettingsView: View {
     private var strip: some View {
         Form {
             Section("Visibility") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Invisible mode", isOn: $store.prefs.invisibleStrip)
+                    caption("The strip is drawn only while aiming mode is open. The queue works as it always does; outside aiming, a change is announced by the name popup alone, and no screen space is reserved.")
+                }
                 Picker("Show strip", selection: $store.prefs.stripDisplay) {
                     ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
                 }

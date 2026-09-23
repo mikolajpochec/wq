@@ -326,12 +326,35 @@ extension WindowQueueModelTests {
         model.moveAim(by: -2)
         XCTAssertTrue(model.enterAimedGroup())
         XCTAssertEqual(model.aimInsideGroupID, 1)
-        XCTAssertEqual(model.aimedIDs, [1], "inside, the aim is on one window of the group")
+        XCTAssertEqual(model.aimedIDs, [3], "arriving backwards, the aim enters at the group's last window")
 
         model.leaveAimedGroup()
         XCTAssertNil(model.aimInsideGroupID)
         XCTAssertEqual(model.aimedIDs, [1, 3], "back outside, the group is one stop again")
         XCTAssertEqual(model.aimedGroup?.id, 1)
+    }
+
+    func testAGroupIsEnteredFromTheSideTheAimArrivesFrom() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 3])
+
+        // Walking down the strip: the group is entered at its first window.
+        model.select(id: 1, announce: false)
+        model.beginAiming()
+        model.moveAim(by: 1)
+        XCTAssertEqual(model.aimedGroup?.id, 1)
+        model.enterAimedGroup()
+        XCTAssertEqual(model.aimingID, 2)
+        model.endAiming()
+
+        // Walking up it: the same group is entered at its last window.
+        model.select(id: 4, announce: false)
+        model.beginAiming()
+        model.moveAim(by: -1)
+        XCTAssertEqual(model.aimedGroup?.id, 1)
+        model.enterAimedGroup()
+        XCTAssertEqual(model.aimingID, 3, "arriving backwards enters at the end of the group")
     }
 
 }

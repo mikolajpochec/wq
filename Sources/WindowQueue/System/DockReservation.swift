@@ -193,7 +193,7 @@ final class DockReservation {
 
     private func wantedRect() -> DockRect? {
         let prefs = store.prefs
-        guard prefs.reserveScreenSpace, prefs.stripDisplay != .hidden,
+        guard prefs.reserveScreenSpace, prefs.stripDisplay != .hidden, !prefs.invisibleStrip,
               autoHideEnabled?() ?? false,
               let screen = NSScreen.screens.first
         else { return nil }
