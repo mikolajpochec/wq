@@ -161,6 +161,11 @@ struct SettingsView: View {
                 sliderRow("Popup duration", value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5,
                           format: Self.seconds)
                     .disabled(!store.prefs.toastEnabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show a picture of the window", isOn: $store.prefs.showWindowPreview)
+                        .disabled(!store.prefs.toastEnabled)
+                    caption("Needs Screen Recording access, and only windows on the workspace in view can be pictured.")
+                }
             }
         }
         .formStyle(.grouped)

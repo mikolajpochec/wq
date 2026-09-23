@@ -4,9 +4,23 @@ import SwiftUI
 private struct ToastView: View {
     let title: String
     let subtitle: String
+    /// A picture of the window, when one can be taken.
+    var preview: NSImage?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 6) {
+            if let preview {
+                Image(nsImage: preview)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: WindowPreview.maximumSize, maxHeight: WindowPreview.maximumSize * 0.75)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                    )
+            }
+            VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
@@ -14,6 +28,7 @@ private struct ToastView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -67,8 +82,9 @@ final class ToastController {
     ///     as the icon is held.
     ///   - everywhere: beside every strip on screen rather than only the one in use.
     func show(_ window: ManagedWindow, pinned: Bool = false, everywhere: Bool = false) {
+        let preview = store.prefs.showWindowPreview ? WindowPreview.image(for: window.id) : nil
         show(title: window.displayTitle, subtitle: window.appName, beside: window.id,
-             pinned: pinned, everywhere: everywhere)
+             pinned: pinned, everywhere: everywhere, preview: preview)
     }
 
     /// A popup in the middle of the screen, for something that is not about one window — a group
@@ -92,7 +108,7 @@ final class ToastController {
 
     /// A popup with any text, placed beside a window's icon.
     func show(title: String, subtitle: String, beside windowID: CGWindowID,
-              pinned: Bool = false, everywhere: Bool = false) {
+              pinned: Bool = false, everywhere: Bool = false, preview: NSImage? = nil) {
         guard store.prefs.toastEnabled else { return }
         generation += 1
 
@@ -100,7 +116,7 @@ final class ToastController {
         var anchors: [NSRect?] = [anchorProvider?(windowID)?.frame]
         if everywhere, let all = everyAnchorProvider?(windowID), !all.isEmpty { anchors = all }
 
-        let view = ToastView(title: title, subtitle: subtitle)
+        let view = ToastView(title: title, subtitle: subtitle, preview: preview)
         while bubbles.count < anchors.count { bubbles.append(Bubble(view: view)) }
 
         for (bubble, anchor) in zip(bubbles, anchors) {

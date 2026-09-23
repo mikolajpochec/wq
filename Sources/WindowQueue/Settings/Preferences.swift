@@ -244,6 +244,9 @@ struct Preferences: Codable, Equatable {
     /// Start automatically at login. Only takes effect for the copy in the Applications folder.
     var launchAtLogin: Bool = true
 
+    /// Show a picture of the window in the name popup. Needs Screen Recording access, like titles.
+    var showWindowPreview: Bool = true
+
     /// Gap left around a tiled or maximized window, at the edge of the screen and between windows.
     var tileOuterGap: Double = 1
     var tileInnerGap: Double = 1
@@ -300,6 +303,7 @@ struct Preferences: Codable, Equatable {
         focusFollowsMouseRaises = value(.focusFollowsMouseRaises, defaults.focusFollowsMouseRaises)
         trimWindowsOutsideReservation = value(.trimWindowsOutsideReservation, defaults.trimWindowsOutsideReservation)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
+        showWindowPreview = value(.showWindowPreview, defaults.showWindowPreview)
         tileOuterGap = value(.tileOuterGap, defaults.tileOuterGap)
         tileInnerGap = value(.tileInnerGap, defaults.tileInnerGap)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)

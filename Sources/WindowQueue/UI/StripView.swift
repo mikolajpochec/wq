@@ -95,7 +95,8 @@ struct StripView: View {
                     hiddenStackTile(for: windows)
                         // Kept in the layout while it is dragged; the floating copy stands in.
                         .opacity(draggingStack ? 0 : 1)
-                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        // The icons fly in from their rows; the tile itself only needs to fade.
+                        .transition(.opacity)
                 case .window(let window) where window.id == model.slotFilledID:
                     row(for: window)
                         .matchedGeometryEffect(id: "empty-slot", in: slotNamespace)
@@ -343,6 +344,9 @@ struct StripView: View {
                 icon(for: window)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous))
+                    // Paired with the window's own row, so collapsing flies the icon into the
+                    // cascade and expanding flies it back out to its place in the queue.
+                    .matchedGeometryEffect(id: "covered-\(window.id)", in: slotNamespace)
                     .saturation(1 - back * 0.35)
                     .opacity(1 - back * 0.28)
                     .scaleEffect(1 - back * 0.1, anchor: .center)
@@ -428,6 +432,7 @@ struct StripView: View {
         let covered = isCovered(window)
         return ZStack(alignment: .bottomTrailing) {
             iconWithLabel(for: window)
+                .matchedGeometryEffect(id: "covered-\(window.id)", in: slotNamespace)
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
                 .opacity(window.isMinimized ? 0.45 : covered ? 0.5 : 1)
                 // Behind the maximized window, and out of the way until it is restored.
