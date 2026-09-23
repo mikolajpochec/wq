@@ -1053,13 +1053,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? window.spaceID.flatMap { model.nearestWindow(on: $0, to: window.id, in: model.windows.map(\.id)) }
             : model.neighbour(after: window.id)
 
+        Diagnostics.note("close \(window.appName) id=\(window.id) space=\(window.spaceID.map(String.init) ?? "none") "
+                         + "current=\(model.currentSpaceID.map(String.init) ?? "none") "
+                         + "successor=\(successor.map { "\($0.appName) \($0.id)" } ?? "none")")
         WindowCloser.close(window,
                            workspaceIndex: model.workspaceNumber(of: window),
                            siblingCount: model.windows.count { $0.pid == window.pid })
 
         if let successor { model.select(id: successor.id, announce: false) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.enumerator?.refresh()
+        // Closing the last window of a workspace can make macOS move another one here, and that has
+        // to show up in the queue rather than leaving the strip claiming the workspace is empty.
+        for delay in [0.4, 1.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.enumerator?.refresh()
+            }
         }
     }
 

@@ -118,10 +118,12 @@ final class WindowQueueModel: ObservableObject {
         if let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) {
             return members(of: group)
         }
-        return visibleWindows.filter { window in
-            guard !isCovered(window) else { return false }
+        let reachable = visibleWindows.filter { !isCovered($0) }
+        return reachable.filter { window in
             guard let group = group(of: window.id) else { return true }
-            return members(of: group).first?.id == window.id
+            // The group stands in the walk at whichever of its windows is reachable first.
+            let ids = Set(group.ids)
+            return reachable.first { ids.contains($0.id) }?.id == window.id
         }
     }
 
@@ -362,10 +364,16 @@ final class WindowQueueModel: ObservableObject {
     /// - Parameter backwards: which end of a closed group the queue stops at. Walking forwards it
     ///   is the first window, walking backwards the last, so a group is entered from the side the
     ///   user arrives from.
-    private func isSkippedInsideGroup(_ window: ManagedWindow, backwards: Bool = false) -> Bool {
+    /// - Parameter among: the windows the caller can actually reach. A group's stop has to be one of
+    ///   them: with the queue scoped to one workspace, or a member covered by a fullscreen window,
+    ///   the group's own first or last window may not be there to stop at, and the group would drop
+    ///   out of the walk entirely.
+    private func isSkippedInsideGroup(_ window: ManagedWindow, backwards: Bool = false,
+                                      among reachable: [ManagedWindow]? = nil) -> Bool {
         guard let group = group(of: window.id) else { return false }
         if group.id == openGroupID { return false }
-        let members = members(of: group)
+        let ids = Set(group.ids)
+        let members = (reachable ?? windows).filter { ids.contains($0.id) }
         return (backwards ? members.last?.id : members.first?.id) != window.id
     }
 
@@ -465,7 +473,8 @@ final class WindowQueueModel: ObservableObject {
     private var cyclableWindows: [ManagedWindow] { cyclableWindows(backwards: false) }
 
     private func cyclableWindows(backwards: Bool) -> [ManagedWindow] {
-        visibleWindows.filter { !isCovered($0) && !isSkippedInsideGroup($0, backwards: backwards) }
+        let reachable = visibleWindows.filter { !isCovered($0) }
+        return reachable.filter { !isSkippedInsideGroup($0, backwards: backwards, among: reachable) }
     }
 
     // MARK: - Reconciliation
@@ -605,6 +614,11 @@ final class WindowQueueModel: ObservableObject {
     func cycle(by delta: Int) -> ManagedWindow? {
         let visible = cyclableWindows(backwards: delta < 0)
         guard !visible.isEmpty else { return nil }
+        if Diagnostics.isEnabled, !groups.isEmpty {
+            let stops = visible.map { "\($0.appName) \($0.id)\(group(of: $0.id).map { "/g\($0.id)" } ?? "")" }
+            Diagnostics.note("cycle \(delta) from \(selectedID.map(String.init) ?? "none") "
+                             + "open=\(openGroupID.map(String.init) ?? "none") stops: \(stops.joined(separator: ", "))")
+        }
         let current = visible.firstIndex { $0.id == selectedID } ?? (delta > 0 ? -1 : 0)
         let count = visible.count
         let next = ((current + delta) % count + count) % count
@@ -738,6 +752,11 @@ final class WindowQueueModel: ObservableObject {
         if occupied {
             // Arriving from an empty workspace, or a window turning up on this one.
             guard emptySlot != nil else { return }
+            if Diagnostics.isEnabled {
+                let here = windows.filter { $0.spaceID == current && !$0.isMinimized }
+                    .map { "\($0.appName) \($0.id)" }
+                Diagnostics.note("empty slot cleared on space \(current): \(here.joined(separator: ", "))")
+            }
             emptySlot = nil
             if selectedID == nil {
                 selectedID = visibleWindows.first { $0.spaceID == current && !$0.isMinimized }?.id
@@ -761,6 +780,9 @@ final class WindowQueueModel: ObservableObject {
     /// Leaves the user on a workspace with no windows: nothing selected, and a marker where that
     /// workspace's windows would sit in the queue.
     func showEmptySlot(for space: UInt64) {
+        if Diagnostics.isEnabled, emptySlot?.spaceID != space {
+            Diagnostics.note("empty slot shown for space \(space)")
+        }
         selectedID = nil
         emptySlot = EmptySlot(spaceID: space, beforeID: slotAnchor(for: space))
     }

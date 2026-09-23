@@ -357,4 +357,41 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.aimingID, 3, "arriving backwards enters at the end of the group")
     }
 
+    func testCyclingBackwardsStopsAtTheGroupsLastWindow() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 3])
+        model.select(id: 4, announce: false)
+
+        XCTAssertEqual(model.cycle(by: -1)?.id, 3, "walking up, the queue stops at the group's last window")
+        XCTAssertEqual(model.openGroupID, 1, "landing on a member steps into the group")
+        XCTAssertEqual(model.cycle(by: -1)?.id, 2)
+        XCTAssertEqual(model.cycle(by: -1)?.id, 1)
+        XCTAssertNil(model.openGroupID, "leaving the group closes it")
+    }
+
+    func testCyclingForwardsStopsAtTheGroupsFirstWindow() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 3])
+        model.select(id: 1, announce: false)
+
+        XCTAssertEqual(model.cycle(by: 1)?.id, 2)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 3)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 4)
+    }
+
+    func testAGroupIsReachableWhenOneOfItsWindowsIsOutOfTheWalk() {
+        // The group's last window lives on another workspace, which the queue is not showing; the
+        // group still has to be reachable walking up, at whichever of its windows is there.
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 20), window(4, space: 10)])
+        model.scope = .currentSpace
+        model.makeGroup([2, 3])
+        model.select(id: 4, announce: false)
+
+        XCTAssertEqual(model.cycle(by: -1)?.id, 2, "the group is entered at the window that is there")
+        XCTAssertEqual(model.openGroupID, 1)
+    }
+
 }
