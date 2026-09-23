@@ -88,9 +88,15 @@ final class WindowQueueModel: ObservableObject {
     func beginAiming() -> ManagedWindow? {
         aimAnchorID = nil
         aimPinnedIDs = []
-        aimingID = selectedID ?? visibleWindows.first?.id
+        let aimable = aimableWindows
+        let selected = selectedID.flatMap { id in aimable.first { $0.id == id }?.id }
+        aimingID = selected ?? aimable.first?.id
         return aimedWindow
     }
+
+    /// Windows the aim can land on: the same ones cycling reaches, so the collapsed tile is passed
+    /// over rather than stepped into.
+    private var aimableWindows: [ManagedWindow] { cyclableWindows }
 
     func endAiming() {
         aimingID = nil
@@ -114,7 +120,7 @@ final class WindowQueueModel: ObservableObject {
     /// Grows or shrinks the aimed run by moving its free end, stopping at the ends of the queue.
     @discardableResult
     func extendAim(by delta: Int) -> ManagedWindow? {
-        let visible = visibleWindows
+        let visible = aimableWindows
         guard let current = visible.firstIndex(where: { $0.id == aimingID }) else { return nil }
         if aimAnchorID == nil { aimAnchorID = aimingID }
         aimingID = visible[min(max(current + delta, 0), visible.count - 1)].id
@@ -123,7 +129,9 @@ final class WindowQueueModel: ObservableObject {
 
     /// Adds a window to what is aimed at, or takes it out again, leaving the rest as it is.
     func toggleAim(_ id: CGWindowID) {
-        guard aimingID != nil, visibleWindows.contains(where: { $0.id == id }) else { return }
+        guard aimingID != nil, let window = visibleWindows.first(where: { $0.id == id }),
+              !isCovered(window)
+        else { return }
         // Everything aimed so far stays aimed, whether it came from a run or from earlier clicks.
         var picked = Set(aimedWindows.map(\.id))
         aimAnchorID = nil
@@ -173,7 +181,7 @@ final class WindowQueueModel: ObservableObject {
     func moveAim(by delta: Int) -> ManagedWindow? {
         aimAnchorID = nil
         aimPinnedIDs = []
-        let visible = visibleWindows
+        let visible = aimableWindows
         guard !visible.isEmpty else { return nil }
         let current = visible.firstIndex { $0.id == aimingID } ?? (delta > 0 ? -1 : 0)
         let count = visible.count
@@ -234,6 +242,7 @@ final class WindowQueueModel: ObservableObject {
     }
 
     /// Windows cycling can reach: everything, less the ones a maximized window is covering.
+    /// Everything except the windows a maximized window covers.
     private var cyclableWindows: [ManagedWindow] {
         guard maximizedID != nil else { return visibleWindows }
         return visibleWindows.filter { !isCovered($0) }
