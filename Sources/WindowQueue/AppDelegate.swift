@@ -474,6 +474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sortByWorkspace()
         case .toggleMaximize:
             toggleMaximize()
+        case .maximizeWindow:
+            maximizeWindow()
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -507,6 +509,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Frames windows had before they were maximized, so the same shortcut puts them back.
     private var framesBeforeMaximize: [CGWindowID: NSRect] = [:]
+
+    /// Fills the screen with the selected window, less the strip's room. Nothing else changes: no
+    /// way back through the same shortcut, and the rest of the workspace stays where it is.
+    private func maximizeWindow() {
+        guard var window = model.selectedWindow else { return }
+        window.element = window.element ?? WindowSpaceMover.element(for: window)
+        // Its old frame is still worth keeping: the fullscreen shortcut can put it back later.
+        if framesBeforeMaximize[window.id] == nil {
+            framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
+        }
+        WindowTiler.fill(window, in: tilingArea())
+    }
 
     /// Fills the screen with the selected window, less the strip's room; again restores it.
     private func toggleMaximize() {
