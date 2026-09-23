@@ -622,7 +622,9 @@ struct StripView: View {
         guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
         dragTargetIndex = target
         if !draggingStack, let window = draggedWindow {
-            onHold(window, offset)
+            // Carrying the icon, the name is beside the point: the user picked the window and is
+            // watching where it will land. The popup only holds while the press has not moved.
+            onHold(dragMoved ? nil : window, offset)
             // Where a window would land is worth showing once the icon is actually being carried;
             // a press that has not moved is a click, and a cell lighting up under it is noise.
             onDragTarget(dragMoved ? window : nil, target)
