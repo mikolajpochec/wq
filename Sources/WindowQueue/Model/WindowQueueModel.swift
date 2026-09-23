@@ -102,6 +102,9 @@ final class WindowQueueModel: ObservableObject {
     func beginAiming() -> ManagedWindow? {
         aimAnchorID = nil
         aimPinnedIDs = []
+        // Started from inside a group, aiming starts there too: the windows to choose between are
+        // the ones on show, not the queue the group is folded into.
+        aimInsideGroupID = selectedID.flatMap { group(of: $0)?.id }
         let aimable = aimableWindows
         let selected = selectedID.flatMap { id in aimable.first { $0.id == id }?.id }
         aimingID = selected ?? aimable.first?.id
@@ -144,7 +147,8 @@ final class WindowQueueModel: ObservableObject {
     func leaveAimedGroup() -> Bool {
         guard let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) else { return false }
         aimInsideGroupID = nil
-        openGroupID = nil
+        // The group stays on show while the focused window is one of its own.
+        if selectedID.flatMap({ self.group(of: $0)?.id }) != group.id { openGroupID = nil }
         aimAnchorID = nil
         aimPinnedIDs = []
         aimingID = members(of: group).first?.id
