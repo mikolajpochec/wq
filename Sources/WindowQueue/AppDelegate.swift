@@ -522,6 +522,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let windows = model.tiledWindowsInQueueOrder(group)
             let order = windows.map(\.id)
             guard order.count > 1, order != tiledOrders[group.id] else { continue }
+            // A window in fullscreen was put at the head of its workspace by the mode itself, not
+            // by the user rearranging the queue; laying the group out again would drag it straight
+            // back out of fullscreen. The new order is remembered for when it comes back.
+            if let maximized = model.maximizedID, group.ids.contains(maximized) {
+                tiledOrders[group.id] = order
+                continue
+            }
             guard let layout = TileLayout.options(for: windows.count).first(where: { $0.name == group.layout })
                 ?? TileLayout.options(for: windows.count).first
             else { continue }
@@ -769,6 +776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Fullscreen is a toggle, not a new arrangement: a window in a layout keeps its place in
         // it, goes fullscreen over the top, and comes back to it. Neither step frees the group.
         tilingSettledAt = Date().addingTimeInterval(2)
+
+        let current = WindowTiler.frame(of: window)
+        Diagnostics.note("fullscreen \(window.appName) id=\(window.id) element=\(window.element != nil) frame=\(current.map { "\($0)" } ?? "nil") area=\(area) stored=\(framesBeforeMaximize[window.id].map { "\($0)" } ?? "none")")
 
         if let previous = framesBeforeMaximize[window.id],
            let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {

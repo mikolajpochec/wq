@@ -89,6 +89,10 @@ final class ScreenEdgeGuard {
               !Self.approximatelyEqual(frame, Self.axRect(fromCocoa: screen.frame))
         else { return }
 
+        // A window WindowQueue itself placed — tiled, maximized, fullscreen — is already where it
+        // is meant to be; trimming it again only starts a fight between the two.
+        if WindowTiler.placed(id, at: frame) { return settle(id, at: frame) }
+
         let visible = Self.axRect(fromCocoa: screen.visibleFrame)
         let gap = CGFloat(RectangleIntegration.reservedWidth(for: store.prefs))
         var target = frame

@@ -116,6 +116,8 @@ enum WindowTiler {
     /// The frame request each window is currently following. A window told to go somewhere else —
     /// maximized and then restored, say — must not have the older request put back underneath it.
     private static var currentRequest: [CGWindowID: Int] = [:]
+    /// The frame each window was last given, so nothing else corrects a window we just placed.
+    private(set) static var placedFrames: [CGWindowID: CGRect] = [:]
     private static var lastRequest = 0
 
     /// When to look at a tiled window again. A window that has just arrived from another
@@ -126,6 +128,7 @@ enum WindowTiler {
     private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow) {
         lastRequest += 1
         currentRequest[window.id] = lastRequest
+        placedFrames[window.id] = frame
         apply(frame, of: element, window: window, request: lastRequest, check: 0)
     }
 
@@ -166,8 +169,14 @@ enum WindowTiler {
         if wasEnhanced { app.setAttribute("AXEnhancedUserInterface", value: kCFBooleanTrue) }
     }
 
+    /// Whether this is where WindowQueue itself last put the window, in accessibility coordinates.
+    static func placed(_ id: CGWindowID, at frame: CGRect) -> Bool {
+        guard let target = placedFrames[id] else { return false }
+        return matches(frame, target)
+    }
+
     /// Close enough to count as the frame we asked for; apps round sizes to their own grids.
-    private static func matches(_ frame: CGRect, _ target: CGRect) -> Bool {
+    static func matches(_ frame: CGRect, _ target: CGRect) -> Bool {
         abs(frame.minX - target.minX) <= 2 && abs(frame.minY - target.minY) <= 2
             && abs(frame.width - target.width) <= 2 && abs(frame.height - target.height) <= 2
     }
