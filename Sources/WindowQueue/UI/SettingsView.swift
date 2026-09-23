@@ -166,6 +166,16 @@ struct SettingsView: View {
                 .disabled(!store.prefs.aimingEnabled)
             }
 
+            Section("Focus") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Outline the window focus lands on", isOn: $store.prefs.flashFocusedWindow)
+                    caption("A brief outline around the window that just took focus, in the selection colour — the same mark aiming mode draws around what it is pointing at.")
+                }
+                sliderRow("Outline stays for", value: $store.prefs.flashFocusedWindowDuration,
+                          in: 0.05...1, step: 0.05, format: Self.seconds)
+                    .disabled(!store.prefs.flashFocusedWindow)
+            }
+
             Section("Launcher") {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("Open with", selection: $store.prefs.launcher) {

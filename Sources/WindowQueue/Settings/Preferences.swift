@@ -285,6 +285,11 @@ struct Preferences: Codable, Equatable {
     /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
+    /// Outline a window for a moment when focus lands on it, the way aiming outlines what it is on.
+    var flashFocusedWindow: Bool = true
+    /// How long that outline stays up.
+    var flashFocusedWindowDuration: Double = 0.15
+
     /// The strip is only on screen while aiming mode is open; the rest of the time the queue is
     /// there but out of sight, and a change is announced by the popup alone.
     var invisibleStrip: Bool = false
@@ -340,6 +345,8 @@ struct Preferences: Codable, Equatable {
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
         launcher = value(.launcher, defaults.launcher)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)
+        flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)
+        flashFocusedWindowDuration = value(.flashFocusedWindowDuration, defaults.flashFocusedWindowDuration)
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
     }
 

@@ -1133,6 +1133,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             workspaceIndex: model.workspaceNumber(of: window),
                             siblingCount: siblings,
                             warpCursor: warpCursor && store.prefs.warpCursorToWindow)
+        flashFocus(window)
+    }
+
+    /// Outlines the window focus just landed on, so it is plain which one took it — the same mark
+    /// aiming uses, in the selection's colour, for a moment.
+    private func flashFocus(_ window: ManagedWindow) {
+        guard store.prefs.flashFocusedWindow, store.prefs.flashFocusedWindowDuration > 0 else { return }
+        // Focusing a window on another workspace travels there first, and a window has no frame to
+        // draw around until it is on screen; a beat's wait covers both that and the raise.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self, self.model.aimingID == nil,
+                  let current = self.model.windows.first(where: { $0.id == window.id }),
+                  current.spaceID == nil || current.spaceID == self.model.currentSpaceID
+            else { return }
+            self.aimHighlight.flash(current, for: self.store.prefs.flashFocusedWindowDuration)
+        }
     }
 
     /// Sends the selected window — or every aimed window, while aiming — to a workspace, staying

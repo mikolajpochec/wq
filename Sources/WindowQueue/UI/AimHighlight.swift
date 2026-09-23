@@ -8,6 +8,35 @@ import AppKit
 /// outlined — a window on another one is not on screen to draw around.
 final class AimHighlightOverlay {
     private var panels: [CGWindowID: NSPanel] = [:]
+    /// The one panel used for the flash after a focus change, which is never more than one window.
+    private var flashPanel: NSPanel?
+    private var flashWork: DispatchWorkItem?
+
+    /// Outlines one window for a moment, in the selection's own colour, to say where focus landed.
+    func flash(_ window: ManagedWindow, for duration: TimeInterval) {
+        guard let frame = WindowTiler.frame(of: window), frame.width > 20, frame.height > 20 else { return }
+        let panel = flashPanel ?? make()
+        flashPanel = panel
+        (panel.contentView as? HighlightView)?.style = .focus
+        panel.setFrame(frame, display: true)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        OverlaySpace.shared.adopt(panel)
+        panel.contentView?.needsDisplay = true
+
+        flashWork?.cancel()
+        let work = DispatchWorkItem { [weak panel] in
+            guard let panel else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                panel.animator().alphaValue = 0
+            } completionHandler: {
+                if panel.alphaValue == 0 { panel.orderOut(nil) }
+            }
+        }
+        flashWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
 
     /// Draws around exactly these windows, taking away whatever was drawn before.
     func show(_ windows: [ManagedWindow], cursor: CGWindowID?) {
@@ -17,7 +46,7 @@ final class AimHighlightOverlay {
             live.insert(window.id)
             let panel = panels[window.id] ?? make()
             panels[window.id] = panel
-            (panel.contentView as? HighlightView)?.isCursor = window.id == cursor
+            (panel.contentView as? HighlightView)?.style = window.id == cursor ? .aimCursor : .aimed
             // Exactly the window's own frame: the outline is drawn inside it, so a window against
             // the edge of the screen keeps its outline on screen with it.
             panel.setFrame(frame, display: true)
@@ -66,15 +95,34 @@ final class AimHighlightOverlay {
     /// The outline itself: orange, like the aim on the strip, and brighter for the window the aim
     /// is actually on when several are aimed at. Nothing is drawn inside it.
     private final class HighlightView: NSView {
-        var isCursor = false {
-            didSet { if isCursor != oldValue { needsDisplay = true } }
+        enum Style {
+            /// The window the aim is on, the rest of an aimed run, and the window focus just landed on.
+            case aimCursor, aimed, focus
+
+            var colour: NSColor {
+                switch self {
+                case .aimCursor, .aimed: return .systemOrange
+                case .focus: return .controlAccentColor
+                }
+            }
+
+            var opacity: CGFloat {
+                switch self {
+                case .aimCursor, .focus: return 1
+                case .aimed: return 0.65
+                }
+            }
+        }
+
+        var style: Style = .aimCursor {
+            didSet { if style != oldValue { needsDisplay = true } }
         }
 
         override func draw(_ dirtyRect: NSRect) {
             let inset = bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
             let path = NSBezierPath(roundedRect: inset, xRadius: 10, yRadius: 10)
             // An outline only: a tint over the window would hide the very thing being pointed at.
-            NSColor.systemOrange.withAlphaComponent(isCursor ? 1 : 0.65).setStroke()
+            style.colour.withAlphaComponent(style.opacity).setStroke()
             path.lineWidth = lineWidth
             path.stroke()
         }

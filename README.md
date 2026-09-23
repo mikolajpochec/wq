@@ -28,6 +28,8 @@ always-on-top strip showing that list, and workspace switching by number.
 - **Invisible mode** (Settings › Strip › Visibility) keeps the strip off screen except while aiming,
   where it swings open from its edge like a page; the queue works as always and a change is announced
   by the name popup alone.
+- The window focus lands on is outlined for a moment, in the selection colour (Settings › General ›
+  Focus, with the duration; opt out there).
 - While aiming, every aimed window on the workspace in view is outlined on screen, brightest for the
   one the aim is on, so a run of windows of the same application is still telling.
 - Clicking the workspace number opens aiming mode, and a click anywhere outside WindowQueue's own
