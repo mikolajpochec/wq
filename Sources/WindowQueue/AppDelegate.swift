@@ -88,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // A click picks a window outright, so it also settles an aim in progress.
                 self.endAiming(commit: false)
+                // Clicking the collapsed tile asks for one of the windows hiding behind the
+                // fullscreen one, so the queue comes back to normal first — otherwise the window
+                // would be selected while still out of reach and out of the cycle.
+                if self.model.isCovered(window) { self.model.endFocus() }
                 self.model.select(id: window.id, announce: false)
                 self.focus(window, warpCursor: false)
             },
