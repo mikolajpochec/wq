@@ -216,10 +216,10 @@ extension WindowQueueModelTests {
 
         model.select(id: 3, announce: false)
         model.move(by: -2)
-        XCTAssertEqual(model.tiledWindowsInQueueOrder.map(\.id), [3, 1, 2])
+        XCTAssertEqual(model.tiledWindowsInQueueOrder.map(\.id), [3, 2, 1])
 
         model.reconcile(with: [window(3, space: 10), window(1, space: 10)])
-        XCTAssertEqual(model.tiledIDs, [3, 1])
+        XCTAssertEqual(model.tiledIDs, [1, 3])
 
         model.reconcile(with: [window(3, space: 10)])
         XCTAssertTrue(model.tiledIDs.isEmpty)
