@@ -74,6 +74,8 @@ struct GroupPanelView: View {
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
+        // Behind the icons but above the panel's background, exactly as on the main strip.
+        .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -149,9 +151,59 @@ struct GroupPanelView: View {
         }
     }
 
+    /// The windows that get a row of their own here: the covered ones share the cascade tile.
+    private var rows: [ManagedWindow] {
+        state.windows.filter { !state.coveredIDs.contains($0.id) }
+    }
+
+    /// Several windows are aimed at, which the group's strip shows as runs rather than a cursor.
+    private var isAimingRun: Bool { state.aimedIDs.count > 1 }
+
+    /// Positions of the aimed windows grouped into runs of neighbours, each drawn as one highlight.
+    private var aimedRuns: [ClosedRange<Int>] {
+        var out: [ClosedRange<Int>] = []
+        for (index, window) in rows.enumerated() where state.aimedIDs.contains(window.id) {
+            if let last = out.last, last.upperBound == index - 1 {
+                out[out.count - 1] = last.lowerBound...index
+            } else {
+                out.append(index...index)
+            }
+        }
+        return out
+    }
+
+    /// One continuous highlight for each run of aimed windows, so a group's windows join up under
+    /// the aim the way the main strip's do instead of each carrying its own box.
+    @ViewBuilder
+    private var aimedRunHighlight: some View {
+        if isAimingRun {
+            let thickness = StripMetrics.rowHeight(prefs: prefs)
+            let step = thickness + StripMetrics.spacing
+            ZStack(alignment: side.isVertical ? .top : .leading) {
+                ForEach(aimedRuns, id: \.lowerBound) { run in
+                    let start = StripMetrics.padding + CGFloat(run.lowerBound) * step
+                    let length = CGFloat(run.count) * thickness + CGFloat(run.count - 1) * StripMetrics.spacing
+                    RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                        .fill(Color.orange.opacity(0.28))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                                .strokeBorder(Color.orange, lineWidth: 2.5)
+                        )
+                        .frame(width: side.isVertical ? thickness : length,
+                               height: side.isVertical ? length : thickness)
+                        .offset(x: side.isVertical ? 0 : start, y: side.isVertical ? start : 0)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.isVertical ? .top : .leading)
+            .animation(.spring(response: 0.22, dampingFraction: 0.85), value: state.aimedIDs)
+        }
+    }
+
     private func row(for window: ManagedWindow) -> some View {
-        let aimed = state.aimedIDs.contains(window.id)
-        let selected = window.id == state.selectedID && !aimed
+        // A run of several aimed windows is drawn as one highlight behind them all, so its rows
+        // carry none of their own.
+        let aimed = window.id == state.aimingID && !isAimingRun
+        let selected = window.id == state.selectedID && !aimed && !isAimingRun
         let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
@@ -376,9 +428,12 @@ final class GroupPanelController {
         let screen = NSScreen.screens.first { $0.frame.intersects(strip.frame) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
 
+        // The panel carries spare room for aiming to grow into, and the strip inside it sits against
+        // the screen edge; line that edge up with the main strip's rather than the panel's middle,
+        // or the group's strip stands off the edge by half the spare room.
         switch strip.side {
         case .left, .right:
-            let x = strip.frame.midX - size.width / 2
+            let x = strip.side == .left ? strip.frame.minX : strip.frame.maxX - size.width
             // "After" the strip runs downwards, the way the queue does.
             let after = strip.frame.minY - gap - size.height
             let ahead = strip.frame.maxY + gap
@@ -386,7 +441,7 @@ final class GroupPanelController {
             if y < visible.minY || y + size.height > visible.maxY { y = before ? after : ahead }
             return NSPoint(x: x, y: min(max(y, visible.minY), visible.maxY - size.height))
         case .top, .bottom:
-            let y = strip.frame.midY - size.height / 2
+            let y = strip.side == .bottom ? strip.frame.minY : strip.frame.maxY - size.height
             let after = strip.frame.maxX + gap
             let ahead = strip.frame.minX - gap - size.width
             var x = before ? ahead : after
