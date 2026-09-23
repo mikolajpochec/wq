@@ -375,6 +375,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tilingMenu.state.isFocused = true
         case _ where canTile && press.key == Self.intoScreen(from: side):
             tilingMenu.state.isFocused = true
+        case .all:
+            model.aimAll()
+            aimChanged()
         case .enter, .space:
             endAiming(commit: true)
         case .cancel:

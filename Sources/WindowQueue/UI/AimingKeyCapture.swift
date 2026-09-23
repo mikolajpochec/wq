@@ -13,6 +13,8 @@ final class AimingKeyCapture {
         /// Return or keypad Enter.
         case enter
         case space
+        /// `A`: take in everything the aim can reach.
+        case all
         case cancel
     }
 
@@ -63,6 +65,7 @@ final class AimingKeyCapture {
         case 124: key = .right
         case 33: key = .back
         case 30: key = .forward
+        case 0: key = .all
         default: key = nil
         }
 

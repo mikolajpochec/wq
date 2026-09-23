@@ -191,6 +191,22 @@ final class WindowQueueModel: ObservableObject {
         return aimedWindow
     }
 
+    /// Aims at everything within reach: the group's own windows once the aim has stepped into one,
+    /// and the whole visible queue otherwise. Pressing again drops back to the window the aim is on.
+    @discardableResult
+    func aimAll() -> Bool {
+        guard aimingID != nil else { return false }
+        let reachable = aimableWindows.map(\.id)
+        guard !reachable.isEmpty else { return false }
+        aimAnchorID = nil
+        if Set(reachable).isSubset(of: aimedIDs) {
+            aimPinnedIDs = []
+            return false
+        }
+        aimPinnedIDs = Set(reachable)
+        return true
+    }
+
     /// Adds a window to what is aimed at, or takes it out again, leaving the rest as it is.
     func toggleAim(_ id: CGWindowID) {
         guard aimingID != nil, let window = visibleWindows.first(where: { $0.id == id }),

@@ -244,4 +244,24 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.tiledGroups.count, 1)
         XCTAssertEqual(model.tiledGroups.first?.ids, [2, 3])
     }
+    func testAimAllCoversTheWholeQueueAndOnlyTheGroupFromInside() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 3])
+        model.select(id: 1, announce: false)
+        model.beginAiming()
+
+        XCTAssertTrue(model.aimAll())
+        XCTAssertEqual(model.aimedIDs, [1, 2, 3, 4], "outside a group, A takes the whole visible queue")
+
+        XCTAssertFalse(model.aimAll(), "a second press drops back to the aimed window alone")
+        XCTAssertEqual(model.aimedIDs, [1])
+
+        model.endAiming()
+        model.select(id: 2, announce: false)
+        model.beginAiming()
+        XCTAssertTrue(model.aimAll())
+        XCTAssertEqual(model.aimedIDs, [2, 3], "started inside a group, A takes that group only")
+    }
+
 }
