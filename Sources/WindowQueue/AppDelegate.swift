@@ -633,7 +633,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     applyToAimedGroup(action)
                     return
                 }
+                // One window aimed at: the action is about that one, not about whatever happens to
+                // be focused, so the aim becomes the selection before the mode ends.
+                let aimed = model.aimedWindows.first
                 endAiming(commit: false)
+                if let aimed { model.select(id: aimed.id, announce: false) }
             default:
                 endAiming(commit: false)
             }
