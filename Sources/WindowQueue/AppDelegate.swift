@@ -132,7 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
             return (frame, strip.side)
         }
-        toast.everyAnchorProvider = { [weak strip] id in strip?.rowFramesOnEveryStrip(for: id) ?? [] }
+        toast.everyAnchorProvider = { [weak self, weak strip] id in
+            // Aiming shows the name on every strip, but a window listed in the group's strip lives
+            // on that one only — the main strip holds the group's single entry, not the window.
+            if let inGroup = self?.groupPanel.rowFrame(for: id) { return [inGroup.frame] }
+            return strip?.rowFramesOnEveryStrip(for: id) ?? []
+        }
         groupPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
         groupPanel.onHover = { [weak self] window in
             guard let self else { return }

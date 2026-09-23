@@ -349,6 +349,9 @@ final class GroupPanelController {
     private var hoveredID: CGWindowID?
     /// The panel is fading away; a show in the meantime catches it and brings it back.
     private var isHiding = false
+    /// The frame the panel is on its way to. While an animation runs the live frame is somewhere in
+    /// between, so comparing against that would restart the animation on every model change.
+    private var targetFrame: NSRect?
 
     /// Screen rect of the strip's content and the edge it lives on, so the group's strip can carry
     /// on in the same line rather than sitting beside it.
@@ -425,7 +428,8 @@ final class GroupPanelController {
             // A fade on the way out was under way, or the group changed size: either way the panel
             // travels to its new place rather than jumping there, in step with the main strip.
             isHiding = false
-            guard panel.frame != target || panel.alphaValue < 1 else { return }
+            guard targetFrame != target || panel.alphaValue < 1 else { return }
+            targetFrame = target
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = StripMetrics.layoutDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -438,6 +442,7 @@ final class GroupPanelController {
         // Opening: the strip unfolds out of the end of the main one, so the two read as one bar
         // growing rather than a second one appearing on top of the windows.
         isHiding = false
+        targetFrame = target
         panel.alphaValue = 0
         panel.setFrame(folded(target), display: false)
         panel.orderFrontRegardless()
@@ -483,6 +488,7 @@ final class GroupPanelController {
         } completionHandler: { [weak self] in
             guard let self, self.isHiding else { return }
             self.isHiding = false
+            self.targetFrame = nil
             panel.orderOut(nil)
             panel.alphaValue = 1
             self.state.windows = []
