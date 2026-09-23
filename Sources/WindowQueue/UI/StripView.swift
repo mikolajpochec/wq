@@ -401,15 +401,22 @@ struct StripView: View {
     @ViewBuilder
     private func iconWithLabel(for window: ManagedWindow) -> some View {
         if prefs.showWindowLabels {
-            VStack(spacing: 1) {
+            // Across the foot of the icon, not under it: the icon keeps its size and the row keeps
+            // its place, and the title is legible over whatever the icon happens to be.
+            ZStack(alignment: .bottom) {
                 icon(for: window)
-                    .frame(width: prefs.iconSize * 0.68, height: prefs.iconSize * 0.68)
+                    .frame(width: prefs.iconSize, height: prefs.iconSize)
                 Text(label(for: window))
-                    .font(.system(size: max(7, prefs.iconSize * 0.25), weight: .medium))
+                    .font(.system(size: max(7, prefs.iconSize * 0.27), weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(.secondary)
-                    .frame(width: prefs.iconSize)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 2)
+                    .frame(maxWidth: prefs.iconSize)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.black.opacity(0.62))
+                    )
             }
         } else {
             icon(for: window)
