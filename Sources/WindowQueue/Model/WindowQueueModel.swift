@@ -17,6 +17,9 @@ final class WindowQueueModel: ObservableObject {
     /// Windows picked one by one with Shift-click, aimed at alongside the run. Need not be next to
     /// each other.
     @Published var aimPinnedIDs: Set<CGWindowID> = []
+    /// The group the aim has stepped into, whose windows it then walks one by one. Outside one, a
+    /// group is a single place in the strip and aiming at it aims at all of its windows.
+    @Published private(set) var aimInsideGroupID: Int?
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
@@ -107,12 +110,52 @@ final class WindowQueueModel: ObservableObject {
 
     /// Windows the aim can land on: the same ones cycling reaches, so the collapsed tile is passed
     /// over rather than stepped into.
-    private var aimableWindows: [ManagedWindow] { cyclableWindows }
+    private var aimableWindows: [ManagedWindow] {
+        if let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) {
+            return members(of: group)
+        }
+        return visibleWindows.filter { window in
+            guard !isCovered(window) else { return false }
+            guard let group = group(of: window.id) else { return true }
+            return members(of: group).first?.id == window.id
+        }
+    }
+
+    /// The group the aim is pointing at as a whole, if it is on one and has not stepped inside.
+    var aimedGroup: WindowGroup? {
+        guard aimInsideGroupID == nil, let aimingID else { return nil }
+        return group(of: aimingID)
+    }
+
+    /// Steps into the aimed group, so the aim can pick out one of its windows.
+    @discardableResult
+    func enterAimedGroup() -> Bool {
+        guard let group = aimedGroup else { return false }
+        aimInsideGroupID = group.id
+        openGroupID = group.id
+        aimAnchorID = nil
+        aimPinnedIDs = []
+        aimingID = members(of: group).first?.id ?? aimingID
+        return true
+    }
+
+    /// Steps back out to the strip, with the aim on the group as a whole again.
+    @discardableResult
+    func leaveAimedGroup() -> Bool {
+        guard let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) else { return false }
+        aimInsideGroupID = nil
+        openGroupID = nil
+        aimAnchorID = nil
+        aimPinnedIDs = []
+        aimingID = members(of: group).first?.id
+        return true
+    }
 
     func endAiming() {
         aimingID = nil
         aimAnchorID = nil
         aimPinnedIDs = []
+        aimInsideGroupID = nil
     }
 
     /// Every window the aim covers, in queue order: the run from the anchor to the aim — or just
@@ -123,6 +166,12 @@ final class WindowQueueModel: ObservableObject {
         var ids = aimPinnedIDs
         let anchor = visible.firstIndex(where: { $0.id == aimAnchorID }) ?? aim
         for window in visible[min(aim, anchor)...max(aim, anchor)] { ids.insert(window.id) }
+        // A group aimed at from the strip is aimed at whole; inside one, only what is picked there.
+        if aimInsideGroupID == nil {
+            for id in ids {
+                for member in group(of: id)?.ids ?? [] { ids.insert(member) }
+            }
+        }
         return visible.filter { ids.contains($0.id) }
     }
 

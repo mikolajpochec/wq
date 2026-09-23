@@ -63,7 +63,9 @@ struct StripLayout {
         let hidden = windows.filter { collapsed.contains($0.id) }
         var groupElements: [Int: Int] = [:]
         for window in windows {
-            if let number = groups[window.id], !collapsed.contains(window.id) {
+            // A window in a group is shown in that group, cascade or no cascade: the fullscreen
+            // cascade for its windows belongs in the group's own strip.
+            if let number = groups[window.id] {
                 if let existing = groupElements[number] {
                     windowElements.append(existing)
                 } else {

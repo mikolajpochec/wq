@@ -334,7 +334,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let side = store.prefs.stripSide
-        let canTile = model.aimedWindows.count >= 2
+        // A group aimed at as a whole covers several windows, but the arrow into the screen steps
+        // into it rather than opening the layout menu; the menu is for a run the user built.
+        let aimedGroup = model.aimedGroup
+        let canTile = model.aimedWindows.count >= 2 && aimedGroup == nil
 
         if let step = step(for: press.key, side: side, canTile: canTile) {
             if press.moves {
@@ -349,6 +352,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         switch press.key {
+        // Into the screen steps into the group the aim is on; back towards the strip steps out.
+        case Self.intoScreen(from: side) where aimedGroup != nil:
+            model.enterAimedGroup()
+            aimChanged()
+        case Self.awayFromScreen(from: side) where model.aimInsideGroupID != nil:
+            model.leaveAimedGroup()
+            aimChanged()
+        case .enter where aimedGroup != nil:
+            model.enterAimedGroup()
+            aimChanged()
         case .enter where canTile:
             tilingMenu.state.isFocused = true
         case _ where canTile && press.key == Self.intoScreen(from: side):
@@ -381,6 +394,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The arrow pointing back at the strip, which steps out of a group.
+    private static func awayFromScreen(from side: StripSide) -> AimingKeyCapture.Key {
+        switch side {
+        case .left: return .left
+        case .right: return .right
+        case .top: return .up
+        case .bottom: return .down
+        }
+    }
+
     private static func intoScreen(from side: StripSide) -> AimingKeyCapture.Key {
         switch side {
         case .left: return .right
@@ -406,7 +429,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Keeps the popup and the tiling menu in step with what is aimed.
     private func aimChanged() {
+        syncGroupPanel()
         let aimed = model.aimedWindows
+        if model.aimedGroup != nil {
+            // The popup would name one window of several; the group's own strip shows what is there.
+            toast?.hideNow()
+            tilingMenu.hide()
+            return
+        }
         if aimed.count >= 2 {
             toast?.hideNow()
             tilingMenu.update(for: aimed)
@@ -741,17 +771,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Keeps the panel beside the strip in step: the open group, or the one the pointer rests on.
     private func syncGroupPanel() {
         let peeked = peekedGroupID.flatMap { id in model.groups.first { $0.id == id } }
-        guard let group = model.openGroup ?? peeked else {
+        // While aiming, the group the aim is on shows its windows too, so it is plain what stepping
+        // into it would offer.
+        let aimed = model.aimedGroup ?? model.aimInsideGroupID.flatMap { id in model.groups.first { $0.id == id } }
+        guard let group = model.openGroup ?? aimed ?? peeked else {
             groupPanel.hide()
             strip?.companionLength = 0
             return
         }
         let windows = model.members(of: group)
+        let prefs = store.prefs
+        let covered: Set<CGWindowID> = prefs.focusMaximizedWindow && prefs.collapseCoveredWindows
+            ? Set(windows.filter { model.isCovered($0) }.map(\.id))
+            : []
         // The main strip gives up the room first, so both are laid out in their final places.
-        strip?.companionLength = groupPanel.length(for: windows)
+        strip?.companionLength = groupPanel.length(for: windows, covered: covered)
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
-                        aimingID: model.aimingID, aimedIDs: model.aimedIDs)
+                        aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered)
     }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.

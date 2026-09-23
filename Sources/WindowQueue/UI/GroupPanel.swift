@@ -12,6 +12,8 @@ final class GroupPanelState: ObservableObject {
     /// Aiming mode's cursor and run, so the group's strip highlights them like the main one.
     @Published var aimingID: CGWindowID?
     @Published var aimedIDs: Set<CGWindowID> = []
+    /// Windows a fullscreen window in this group is covering, folded into one tile here.
+    @Published var coveredIDs: Set<CGWindowID> = []
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -30,10 +32,41 @@ struct GroupPanelView: View {
             : AnyLayout(HStackLayout(spacing: StripMetrics.spacing))
     }
 
+    /// What the group's strip shows: its windows, with the ones a fullscreen window covers folded
+    /// into a single cascade — the same thing the main strip does, in the place they live.
+    private var entries: [Entry] {
+        var out: [Entry] = []
+        var covered: [ManagedWindow] = []
+        for window in state.windows {
+            if state.coveredIDs.contains(window.id) {
+                covered.append(window)
+            } else {
+                out.append(.window(window))
+            }
+        }
+        if !covered.isEmpty { out.append(.cascade(covered)) }
+        return out
+    }
+
+    private enum Entry: Identifiable {
+        case window(ManagedWindow)
+        case cascade([ManagedWindow])
+
+        var id: String {
+            switch self {
+            case .window(let window): return "w\(window.id)"
+            case .cascade: return "cascade"
+            }
+        }
+    }
+
     var body: some View {
         stack {
-            ForEach(state.windows) { window in
-                row(for: window)
+            ForEach(entries) { entry in
+                switch entry {
+                case .window(let window): row(for: window)
+                case .cascade(let windows): cascade(windows)
+                }
             }
         }
         .padding(StripMetrics.padding)
@@ -49,22 +82,54 @@ struct GroupPanelView: View {
                 .strokeBorder(state.isPeek ? Color.primary.opacity(0.12) : Color.accentColor.opacity(0.55),
                               lineWidth: state.isPeek ? 1 : 1.5)
         )
+    }
+
+    /// The covered windows as one tile: the first few icons behind each other, and how many.
+    private func cascade(_ windows: [ManagedWindow]) -> some View {
+        let peek = Array(windows.prefix(StripMetrics.stackPeek))
+        let middle = CGFloat(peek.count - 1) / 2
+        return ZStack {
+            ForEach(Array(peek.enumerated().reversed()), id: \.element.id) { depth, window in
+                let back = CGFloat(depth)
+                let lean = (back - middle) * StripMetrics.stackStep
+                icon(for: window)
+                    .frame(width: prefs.iconSize, height: prefs.iconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous))
+                    .saturation(1 - back * 0.35)
+                    .opacity(1 - back * 0.28)
+                    .scaleEffect(1 - back * 0.1)
+                    .offset(x: side.isVertical ? 0 : lean, y: side.isVertical ? lean : 0)
+            }
+        }
+        .frame(width: prefs.iconSize, height: prefs.iconSize)
+        .overlay(alignment: .bottomTrailing) {
+            Text("+\(windows.count)")
+                .font(.system(size: max(8, prefs.iconSize * 0.3), weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 3)
+                .background(Capsule().fill(Color.accentColor.opacity(0.95)))
+                .offset(x: 3, y: 3)
+        }
         .padding(4)
+        .help("\(windows.count) window\(windows.count == 1 ? "" : "s") behind the fullscreen one")
+    }
+
+    @ViewBuilder
+    private func icon(for window: ManagedWindow) -> some View {
+        if let image = window.icon {
+            Image(nsImage: image).resizable().interpolation(.high)
+        } else {
+            RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs))
+                .fill(Color.secondary.opacity(0.3))
+        }
     }
 
     private func row(for window: ManagedWindow) -> some View {
         let aimed = state.aimedIDs.contains(window.id)
         let selected = window.id == state.selectedID && !aimed
         let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
-        return Group {
-            if let icon = window.icon {
-                Image(nsImage: icon).resizable().interpolation(.high)
-            } else {
-                RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs))
-                    .fill(Color.secondary.opacity(0.3))
-            }
-        }
-        .frame(width: prefs.iconSize, height: prefs.iconSize)
+        return icon(for: window)
+            .frame(width: prefs.iconSize, height: prefs.iconSize)
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
@@ -102,7 +167,8 @@ final class GroupPanelController {
     var isVisible: Bool { panel?.isVisible == true }
 
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool,
-              aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = []) {
+              aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
+              coveredIDs: Set<CGWindowID> = []) {
         guard windows.count > 1 else {
             hide()
             return
@@ -113,6 +179,7 @@ final class GroupPanelController {
         state.isPeek = peek
         state.aimingID = aimingID
         state.aimedIDs = aimedIDs
+        state.coveredIDs = coveredIDs
 
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
@@ -142,10 +209,12 @@ final class GroupPanelController {
 
     /// How much room the group's strip takes along the strip's own direction, gap included, so the
     /// main strip can make space for it and the pair can be centred as one.
-    func length(for windows: [ManagedWindow]) -> CGFloat {
+    func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = []) -> CGFloat {
         guard windows.count > 1 else { return 0 }
         let prefs = store.prefs
-        let rows = CGFloat(windows.count)
+        // Covered windows share one tile, so they take the room of a single row.
+        let hidden = windows.count { covered.contains($0.id) }
+        let rows = CGFloat(windows.count - hidden + (hidden > 0 ? 1 : 0))
         let content = StripMetrics.padding * 2 + rows * StripMetrics.rowHeight(prefs: prefs)
             + max(0, rows - 1) * StripMetrics.spacing
         return content + Self.gap
