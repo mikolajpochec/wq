@@ -644,16 +644,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
         endAiming(commit: false)
 
-        // Windows from several workspaces get a workspace of their own, so the layout has a whole
-        // screen to itself instead of landing on top of whatever is already laid out there.
+        // A layout wants a screen to itself: it fills the workspace, so anything else living there
+        // would end up underneath it. It gets a workspace of its own whenever the windows come from
+        // several, or whenever the one they would land on holds windows that are not in the layout.
         var target = windows.last?.spaceID
+        let tiled = Set(windows.map(\.id))
         let spansWorkspaces = Set(windows.compactMap(\.spaceID)).count > 1
-        if spansWorkspaces, let fresh = SpacesBridge.shared.createSpace() {
+        let strangersOnTarget = target.map { space in
+            model.windows.contains { $0.spaceID == space && !$0.isMinimized && !tiled.contains($0.id) }
+        } ?? false
+        let wantsOwnWorkspace = spansWorkspaces || strangersOnTarget
+        if wantsOwnWorkspace, let fresh = SpacesBridge.shared.createSpace() {
             target = fresh
             Diagnostics.note("tiling on a new workspace \(fresh)")
-        } else if spansWorkspaces {
-            toast?.showCentred(title: "Tiled on one workspace",
-                               subtitle: "macOS would not add a workspace, so the windows were brought together")
+        } else if wantsOwnWorkspace {
+            toast?.showCentred(title: "Tiled where they are",
+                               subtitle: "macOS would not add a workspace for the layout")
         }
 
         guard let last = windows.last, let target else {
