@@ -129,6 +129,14 @@ enum WindowFocuser {
 
         guard setFrontProcess(&target, window.id, userGeneratedMode) == 0 else { return false }
         makeKeyWindow(window.id, process: &target, post: postEventRecord)
+
+        // Some applications ignore the synthesized records and keep the keyboard on whichever of
+        // their windows had it — Ghostty among them. Asking through accessibility as well moves the
+        // focus inside the app, and unlike `AXRaise` it does not bring the window forward.
+        if let element = window.element ?? WindowSpaceMover.element(for: window) {
+            element.setAttribute(kAXFocusedAttribute, value: kCFBooleanTrue)
+            AXPrivate.application(window.pid).setAttribute(kAXFocusedWindowAttribute, value: element)
+        }
         Diagnostics.note("focus without raise \(window.appName) id=\(window.id)")
         if Diagnostics.isEnabled {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
