@@ -623,7 +623,9 @@ struct StripView: View {
         dragTargetIndex = target
         if !draggingStack, let window = draggedWindow {
             onHold(window, offset)
-            onDragTarget(window, target)
+            // Where a window would land is worth showing once the icon is actually being carried;
+            // a press that has not moved is a click, and a cell lighting up under it is noise.
+            onDragTarget(dragMoved ? window : nil, target)
         }
     }
 
