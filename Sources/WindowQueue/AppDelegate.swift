@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var groupPanel = GroupPanelController(store: store)
     private let tilePreview = TilePreviewOverlay()
     /// A group the pointer is resting on, shown without stepping into it.
-    private var peekedGroupID: Int?
     private let spaceMover = WindowSpaceMover()
     private var settingsWindow: SettingsWindowController?
     private var scrollFocusWork: DispatchWorkItem?
@@ -151,10 +150,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         strip.onDragTarget = { [weak self] window, target in
             self?.previewTilePlacement(of: window, at: target)
         }
-        strip.onGroupHold = { [weak self] id in
-            guard let self, self.peekedGroupID != id else { return }
-            self.peekedGroupID = id
-            self.syncGroupPanel()
+        // Hovering a group names it; opening it is a click, so the pointer can cross the strip
+        // without strips unfolding under it.
+        strip.onGroupHover = { [weak self] hovered in
+            guard let self else { return }
+            guard let hovered else {
+                toast.endHold()
+                return
+            }
+            let count = hovered.group.ids.count
+            toast.show(title: "Group \(hovered.group.id) — \(count) windows",
+                       subtitle: "Click to open it in a strip of its own",
+                       beside: hovered.row.id, pinned: true)
         }
         model.objectWillChange
             .receive(on: RunLoop.main)
@@ -210,9 +217,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let action else { return }
             self.perform(action)
         }
-        tilingMenu.anchorProvider = { [weak strip] ids in
-            guard let strip, let first = ids.first, let last = ids.last,
-                  let start = strip.rowFrame(for: first), let end = strip.rowFrame(for: last)
+        tilingMenu.anchorProvider = { [weak self, weak strip] ids in
+            guard let first = ids.first, let last = ids.last else { return nil }
+            // Aimed inside a group, the windows are shown in the group's own strip; the menu belongs
+            // beside those icons, not beside the group's single entry in the main strip.
+            if let group = self?.groupPanel,
+               let start = group.rowFrame(for: first), let end = group.rowFrame(for: last) {
+                return (start.frame.union(end.frame), start.side)
+            }
+            guard let strip, let start = strip.rowFrame(for: first), let end = strip.rowFrame(for: last)
             else { return nil }
             return (start.union(end), strip.side)
         }
@@ -788,11 +801,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Keeps the panel beside the strip in step: the open group, or the one the pointer rests on.
     private func syncGroupPanel() {
-        let peeked = peekedGroupID.flatMap { id in model.groups.first { $0.id == id } }
         // While aiming, the group the aim is on shows its windows too, so it is plain what stepping
         // into it would offer.
         let aimed = model.aimedGroup ?? model.aimInsideGroupID.flatMap { id in model.groups.first { $0.id == id } }
-        guard let group = model.openGroup ?? aimed ?? peeked else {
+        guard let group = model.openGroup ?? aimed else {
             groupPanel.hide()
             strip?.companionLength = 0
             return
@@ -803,12 +815,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? Set(windows.filter { model.isCovered($0) }.map(\.id))
             : []
         // The main strip gives up the room first, so both are laid out in their final places.
-        let aiming = model.aimingID != nil
+        // Only the strip the aim is on grows, so this one follows the aim into the group.
+        let aiming = model.aimingID != nil && model.aimInsideGroupID == group.id
         strip?.companionLength = groupPanel.length(for: windows, covered: covered, aiming: aiming)
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
                         aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
-                        maximizedID: model.maximizedID, aiming: aiming)
+                        maximizedID: model.maximizedID,
+                        tiledNumbers: tiledNumbers(for: windows),
+                        showsTiledNumbers: model.tiledGroups.count > 1,
+                        aiming: aiming)
+    }
+
+    /// The layout each of those windows is held in, for the marks in the group's strip.
+    private func tiledNumbers(for windows: [ManagedWindow]) -> [CGWindowID: Int] {
+        var out: [CGWindowID: Int] = [:]
+        for window in windows {
+            if let group = model.tiledGroup(of: window.id) { out[window.id] = group.id }
+        }
+        return out
     }
 
     /// Runs an action over every aimed window at once, then leaves aiming mode.

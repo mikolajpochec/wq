@@ -75,6 +75,11 @@ struct StripView: View {
     }
 
     /// The point aiming mode grows the strip from: its screen edge, at the end it is aligned to.
+    /// The aim is walking this strip, rather than a group's strip below it.
+    private var isAimTarget: Bool {
+        model.aimingID != nil && model.aimInsideGroupID == nil
+    }
+
     /// How far this strip moves to make room for a group's strip beside it.
     private var companionShift: CGFloat {
         prefs.stripAlignment == .center ? screen.companionLength / 2 : 0
@@ -174,8 +179,10 @@ struct StripView: View {
         // Applied last so the background and border grow with the icons, and outside the named
         // coordinate space so drag positions keep arriving in unscaled units. Growth is anchored to
         // the screen edge, so the strip expands inwards instead of off the side of its panel.
-        .scaleEffect(model.aimingID == nil ? 1 : prefs.aimingScale, anchor: scaleAnchor)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.aimingID == nil)
+        // Only the strip the aim is actually on grows: stepped into a group, the aim walks the
+        // group's own strip, and growing this one too would just push the pair around.
+        .scaleEffect(isAimTarget ? prefs.aimingScale : 1, anchor: scaleAnchor)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isAimTarget)
     }
 
     // MARK: - Layout

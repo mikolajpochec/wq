@@ -124,8 +124,9 @@ final class StripController {
     /// The pointer is over the tile the covered windows are collapsed into, with how many there are,
     /// or over it no longer.
     var onHiddenStackHold: (([ManagedWindow]) -> Void)?
-    /// The pointer is over a group's entry, or over it no longer.
-    var onGroupHold: ((Int?) -> Void)?
+    /// The pointer is over a group's entry, with the group and the window whose row it is, or over
+    /// it no longer.
+    var onGroupHover: (((group: WindowQueueModel.WindowGroup, row: ManagedWindow)?) -> Void)?
     /// The window being dragged along the strip and where it would land, or nil once dropped.
     var onDragTarget: ((ManagedWindow?, Int) -> Void)?
 
@@ -427,15 +428,15 @@ final class StripController {
         }
 
         let hovered = point.flatMap { window(at: $0, in: strip.hosting) }
-        // A group shows its windows in the panel beside the strip rather than a name popup.
+        // A group's entry stands for several windows, so it is named as a group rather than with
+        // whichever window's title happens to be first inside it.
         if let hovered, let group = model.group(of: hovered.id) {
             guard hoveredID != hovered.id else { return }
             hoveredID = hovered.id
-            onHold(nil)
-            onGroupHold?(group.id)
+            onGroupHover?((group, hovered))
             return
         }
-        onGroupHold?(nil)
+        onGroupHover?(nil)
 
         guard hovered?.id != hoveredID else { return }
         hoveredID = hovered?.id
@@ -534,7 +535,7 @@ final class StripController {
 
         // While aiming, the strip is drawn scaled about the end it is aligned to; the layout is
         // not, so the anchor follows the same transform or the popup drifts from its icon.
-        if model.aimingID != nil {
+        if model.aimingID != nil, model.aimInsideGroupID == nil {
             let anchor = start + contentLayout.totalHeight * prefs.stripAlignment.fraction
             along = anchor + (along - anchor) * prefs.aimingScale
             rowLength *= prefs.aimingScale

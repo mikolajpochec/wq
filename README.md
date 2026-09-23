@@ -33,8 +33,8 @@ always-on-top strip showing that list, and workspace switching by number.
   until the window is restored, which puts the order back. Off in Settings › General.
 - `⌥G` puts the aimed windows in a **group**: the strip shows them as one entry, and stepping into it
   — with the cycle shortcuts, or by clicking it — selects its first window and lists the group beside
-  the strip. Resting the pointer on the entry peeks at the list without stepping in. `⌥G` again, with
-  the selection inside a group, breaks it up. The queue itself is untouched throughout.
+  the strip — a second strip of its own, in the same line and the same size. Resting the pointer on
+  the entry names the group. `⌥G` again, with the selection inside a group, breaks it up. The queue itself is untouched throughout.
 - Tiling from aiming mode leaves the windows in a **tiled group**, marked in the strip. Reordering
   them in the queue lays them out again in the new order — the quick way to change which window is
   the main one — and moving or resizing any of them by hand frees the group where it stands. Going

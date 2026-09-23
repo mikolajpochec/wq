@@ -18,6 +18,10 @@ final class GroupPanelState: ObservableObject {
     @Published var maximizedID: CGWindowID?
     /// Aiming mode grows the strip; this one grows with it.
     @Published var scale: CGFloat = 1
+    /// Which layout each window is held in, so a group's strip marks tiled windows as the main
+    /// strip does, and whether the numbers are worth showing at all.
+    @Published var tiledNumbers: [CGWindowID: Int] = [:]
+    @Published var showsTiledNumbers = false
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -144,6 +148,22 @@ struct GroupPanelView: View {
         .help("\(windows.count) window\(windows.count == 1 ? "" : "s") behind the fullscreen one")
     }
 
+    /// Marks a window still held in a layout, exactly as the main strip marks one.
+    private func tiledMark(_ number: Int) -> some View {
+        let size = max(7, prefs.iconSize * 0.3)
+        return HStack(spacing: 1) {
+            Image(systemName: "square.grid.2x2.fill")
+            if state.showsTiledNumbers { Text("\(number)") }
+        }
+        .font(.system(size: size, weight: .bold))
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(Color.black.opacity(0.55)))
+        .offset(x: -1, y: -1)
+        .help("Tiled group \(number) — moving or resizing a window frees it")
+    }
+
     @ViewBuilder
     private func icon(for window: ManagedWindow) -> some View {
         if let image = window.icon {
@@ -159,6 +179,9 @@ struct GroupPanelView: View {
     private var maximizedGroupSpan: (start: CGFloat, end: CGFloat)? {
         guard !state.coveredIDs.isEmpty, let maximized = state.maximizedID else { return nil }
         let places = entries
+        // With nothing else in the group, the shape would trace the whole strip: the panel's own
+        // border already says that much, and the row keeps its plain selection instead.
+        guard places.count > 2 else { return nil }
         guard let window = places.firstIndex(where: {
             if case .window(let one) = $0 { return one.id == maximized }
             return false
@@ -176,7 +199,7 @@ struct GroupPanelView: View {
 
     /// The fullscreen window and the windows it covers are one thing, so one selection covers both.
     private var isMaximizedGroupSelected: Bool {
-        state.maximizedID != nil && state.selectedID == state.maximizedID && !state.coveredIDs.isEmpty
+        maximizedGroupSpan != nil && state.selectedID == state.maximizedID
     }
 
     /// The shape tying the fullscreen window to the tile of what it covers.
@@ -267,6 +290,9 @@ struct GroupPanelView: View {
                 .strokeBorder(highlight ?? .clear,
                               lineWidth: window.id == state.aimingID ? 2.5 : 1.5)
         )
+        .overlay(alignment: .topLeading) {
+            if let number = state.tiledNumbers[window.id] { tiledMark(number) }
+        }
         .contentShape(Rectangle())
         .help(window.displayTitle)
         // The panel is never key, so a zero-distance drag is what registers a click in it.
@@ -343,6 +369,7 @@ final class GroupPanelController {
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool,
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
               coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
+              tiledNumbers: [CGWindowID: Int] = [:], showsTiledNumbers: Bool = false,
               aiming: Bool = false) {
         guard windows.count > 1 else {
             hide()
@@ -356,6 +383,8 @@ final class GroupPanelController {
         state.aimedIDs = aimedIDs
         state.coveredIDs = coveredIDs
         state.maximizedID = maximizedID
+        state.tiledNumbers = tiledNumbers
+        state.showsTiledNumbers = showsTiledNumbers
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
 
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
@@ -523,16 +552,24 @@ final class GroupPanelController {
               let index = rows.firstIndex(where: { $0.id == id })
         else { return nil }
         let prefs = store.prefs
-        let row = StripMetrics.rowHeight(prefs: prefs)
-        let offset = StripMetrics.padding + CGFloat(index) * (row + StripMetrics.spacing)
+        // While the aim is in here the strip is drawn scaled, and it fills the panel along its own
+        // direction, so the rows scale with it.
+        let scale = state.scale
+        let row = StripMetrics.rowHeight(prefs: prefs) * scale
+        let offset = (StripMetrics.padding + CGFloat(index)
+                      * (StripMetrics.rowHeight(prefs: prefs) + StripMetrics.spacing)) * scale
+        let thickness = StripMetrics.thickness(prefs: prefs) * scale
         let frame = panel.frame
         switch prefs.stripSide {
-        case .left, .right:
-            return (NSRect(x: frame.minX, y: frame.maxY - offset - row, width: frame.width, height: row),
-                    prefs.stripSide)
-        case .top, .bottom:
-            return (NSRect(x: frame.minX + offset, y: frame.minY, width: row, height: frame.height),
-                    prefs.stripSide)
+        case .left:
+            return (NSRect(x: frame.minX, y: frame.maxY - offset - row, width: thickness, height: row), .left)
+        case .right:
+            return (NSRect(x: frame.maxX - thickness, y: frame.maxY - offset - row,
+                           width: thickness, height: row), .right)
+        case .top:
+            return (NSRect(x: frame.minX + offset, y: frame.maxY - thickness, width: row, height: thickness), .top)
+        case .bottom:
+            return (NSRect(x: frame.minX + offset, y: frame.minY, width: row, height: thickness), .bottom)
         }
     }
 
