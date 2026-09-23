@@ -647,41 +647,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A layout wants a screen to itself: it fills the workspace, so anything else living there
         // would end up underneath it. It gets a workspace of its own whenever the windows come from
         // several, or whenever the one they would land on holds windows that are not in the layout.
-        var target = windows.last?.spaceID
+        // But only when they can all actually get there: moving a window moves its whole
+        // application, so a layout whose apps have other windows about stays where it is rather
+        // than being torn in half.
+        let home = windows.last?.spaceID
+        var target = home
         let tiled = Set(windows.map(\.id))
         let spansWorkspaces = Set(windows.compactMap(\.spaceID)).count > 1
-        let strangersOnTarget = target.map { space in
+        let strangersAtHome = home.map { space in
             model.windows.contains { $0.spaceID == space && !$0.isMinimized && !tiled.contains($0.id) }
         } ?? false
-        let wantsOwnWorkspace = spansWorkspaces || strangersOnTarget
-        if wantsOwnWorkspace, let fresh = SpacesBridge.shared.createSpace() {
-            target = fresh
-            Diagnostics.note("tiling on a new workspace \(fresh)")
-        } else if wantsOwnWorkspace, let here = target,
-                  let empty = nearestEmptyWorkspace(from: here, ignoring: tiled) {
-            // macOS would not add a desktop, but an empty one on the same monitor does just as well.
-            target = empty
-            Diagnostics.note("tiling on empty workspace \(empty)")
-        } else if wantsOwnWorkspace {
-            toast?.showCentred(title: "Tiled where they are",
-                               subtitle: "No empty workspace on this monitor, and macOS would not add one")
+
+        if spansWorkspaces || strangersAtHome {
+            if !canGatherAll(windows) {
+                Diagnostics.note("tiling in place: these apps have windows that would travel too")
+                toast?.showCentred(title: "Tiled where they are",
+                                   subtitle: "These apps have other windows, and an application moves between workspaces as a whole")
+            } else if let fresh = SpacesBridge.shared.createSpace() {
+                target = fresh
+                Diagnostics.note("tiling on a new workspace \(fresh)")
+            } else if let here = home, let empty = nearestEmptyWorkspace(from: here, ignoring: tiled) {
+                // macOS would not add a desktop, but an empty one on the same monitor does as well.
+                target = empty
+                Diagnostics.note("tiling on empty workspace \(empty)")
+            } else {
+                toast?.showCentred(title: "Tiled where they are",
+                                   subtitle: "No empty workspace on this monitor, and macOS would not add one")
+            }
         }
 
-        guard let last = windows.last, let target else {
+        guard let last = windows.last, var target else {
             finishTiling(windows, layout: layout)
             return
         }
         var group = windows
         if windows.contains(where: { $0.spaceID != target }) {
-            if spaceMover.isAvailable {
-                let result = spaceMover.move(windows, to: target, queue: model.windows)
-                model.relocate(result.arrived.map(\.id), toSpace: target)
-                group = result.arrived
-                if !result.leftBehind.isEmpty {
-                    Diagnostics.note("tiling without \(result.leftBehind.map(\.appName)): their apps have other windows elsewhere")
-                }
-            } else {
-                group = windows.filter { $0.spaceID == target }
+            let result = spaceMover.move(windows, to: target, queue: model.windows)
+            model.relocate(result.arrived.map(\.id), toSpace: target)
+            group = result.arrived
+            // Even with the check above a move can come up short; the layout is worth more than the
+            // workspace it was going to live on, so it happens where the windows are.
+            if group.count < windows.count {
+                Diagnostics.note("tiling in place: \(group.count) of \(windows.count) reached \(target)")
+                group = windows
+                target = model.currentSpaceID ?? home ?? target
             }
         } else if target == model.currentSpaceID {
             finishTiling(windows, layout: layout)
@@ -704,6 +713,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.enumerator?.refresh()
             self.finishTiling(ready, layout: layout)
+        }
+    }
+
+    /// Whether every one of these windows could be moved to another workspace together. An
+    /// application travels between workspaces as a whole, so a window whose app has other windows
+    /// outside the layout cannot go anywhere on its own.
+    private func canGatherAll(_ windows: [ManagedWindow]) -> Bool {
+        guard spaceMover.isAvailable else { return false }
+        let selected = Set(windows.map(\.id))
+        let pids = Set(windows.map(\.pid))
+        return !model.windows.contains { window in
+            pids.contains(window.pid) && !selected.contains(window.id) && !window.isMinimized
         }
     }
 
