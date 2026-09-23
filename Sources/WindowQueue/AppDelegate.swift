@@ -970,7 +970,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // While aiming, the group the aim is on shows its windows too, so it is plain what stepping
         // into it would offer.
         let aimed = model.aimedGroup ?? model.aimInsideGroupID.flatMap { id in model.groups.first { $0.id == id } }
-        guard let group = model.openGroup ?? aimed else {
+        // Invisible mode hides the strip outside aiming, and a group's strip on its own — with no
+        // strip to carry on from — is not a thing to leave on screen.
+        let hiddenUntilAiming = store.prefs.invisibleStrip && model.aimingID == nil
+        guard !hiddenUntilAiming, let group = model.openGroup ?? aimed else {
             groupPanel.hide()
             strip?.companionLength = 0
             return
