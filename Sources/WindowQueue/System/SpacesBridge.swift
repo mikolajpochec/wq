@@ -13,6 +13,10 @@ final class SpacesBridge {
     private typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
     private typealias SetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
     private typealias WindowBoolQueryFn = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Bool>) -> Int32
+    private typealias SpaceCreateFn = @convention(c) (Int32, Int32, CFDictionary?) -> UInt64
+    private typealias SpaceSetTypeFn = @convention(c) (Int32, UInt64, Int32) -> Void
+    private typealias SpaceDestroyFn = @convention(c) (Int32, UInt64) -> Void
+    private typealias ShowSpacesFn = @convention(c) (Int32, CFArray) -> Void
 
     /// `kCGSSpaceIncludesCurrent | kCGSSpaceIncludesOthers | kCGSSpaceIncludesUser`
     private static let allSpacesMask: Int32 = 7
@@ -24,6 +28,10 @@ final class SpacesBridge {
     private let copySpacesForWindows: CopySpacesForWindowsFn?
     private let setCurrentSpace: SetCurrentSpaceFn?
     private let windowIsOrderedIn: WindowBoolQueryFn?
+    private let spaceCreate: SpaceCreateFn?
+    private let spaceSetType: SpaceSetTypeFn?
+    private let spaceDestroy: SpaceDestroyFn?
+    private let showSpaces: ShowSpacesFn?
 
     private init() {
         let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
@@ -39,10 +47,50 @@ final class SpacesBridge {
         copySpacesForWindows = symbol("CGSCopySpacesForWindows", as: CopySpacesForWindowsFn.self)
         setCurrentSpace = symbol("CGSManagedDisplaySetCurrentSpace", as: SetCurrentSpaceFn.self)
         windowIsOrderedIn = symbol("SLSWindowIsOrderedIn", as: WindowBoolQueryFn.self)
+        spaceCreate = symbol("SLSSpaceCreate", as: SpaceCreateFn.self)
+            ?? symbol("CGSSpaceCreate", as: SpaceCreateFn.self)
+        spaceSetType = symbol("SLSSpaceSetType", as: SpaceSetTypeFn.self)
+            ?? symbol("CGSSpaceSetType", as: SpaceSetTypeFn.self)
+        spaceDestroy = symbol("SLSSpaceDestroy", as: SpaceDestroyFn.self)
+            ?? symbol("CGSSpaceDestroy", as: SpaceDestroyFn.self)
+        showSpaces = symbol("SLSShowSpaces", as: ShowSpacesFn.self)
+            ?? symbol("CGSShowSpaces", as: ShowSpacesFn.self)
     }
 
     var isAvailable: Bool {
         connectionID != 0 && copyManagedDisplaySpaces != nil
+    }
+
+    // MARK: - Making a workspace
+
+    /// Adds a desktop and hands back its id, or nil when the WindowServer will not have it.
+    ///
+    /// The WindowServer creates the space readily enough, but a space the Dock does not know about
+    /// is not a workspace the user can switch to — it is nowhere in Mission Control and nothing puts
+    /// it in the display's list. Whether the new space joins that list is what decides it, so the
+    /// answer is read back from the display topology rather than from the call, and a space that did
+    /// not make it is destroyed again rather than left behind.
+    func createSpace() -> UInt64? {
+        guard isAvailable, let spaceCreate, let showSpaces else { return nil }
+        let before = Set(userSpaceIDs)
+        let id = spaceCreate(connectionID, 0, nil)
+        guard id != 0 else { return nil }
+        spaceSetType?(connectionID, id, Int32(Self.userSpaceType))
+        showSpaces(connectionID, [NSNumber(value: id)] as CFArray)
+
+        guard userSpaceIDs.contains(id), !before.contains(id) else {
+            Diagnostics.note("space \(id) created but the display will not list it")
+            spaceDestroy?(connectionID, id)
+            return nil
+        }
+        Diagnostics.note("created space \(id)")
+        return id
+    }
+
+    /// Takes a workspace away again. Only for one this app made and could not use.
+    func destroySpace(_ id: UInt64) {
+        guard isAvailable else { return }
+        spaceDestroy?(connectionID, id)
     }
 
     // MARK: - Topology

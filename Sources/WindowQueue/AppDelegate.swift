@@ -644,8 +644,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
         endAiming(commit: false)
 
-        // Everything goes to the workspace of the last aimed window and is tiled there.
-        guard let last = windows.last, let target = last.spaceID else {
+        // Windows from several workspaces get a workspace of their own, so the layout has a whole
+        // screen to itself instead of landing on top of whatever is already laid out there.
+        var target = windows.last?.spaceID
+        let spansWorkspaces = Set(windows.compactMap(\.spaceID)).count > 1
+        if spansWorkspaces, let fresh = SpacesBridge.shared.createSpace() {
+            target = fresh
+            Diagnostics.note("tiling on a new workspace \(fresh)")
+        } else if spansWorkspaces {
+            toast?.showCentred(title: "Tiled on one workspace",
+                               subtitle: "macOS would not add a workspace, so the windows were brought together")
+        }
+
+        guard let last = windows.last, let target else {
             finishTiling(windows, layout: layout)
             return
         }
@@ -668,7 +679,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Go there, then give the windows time to show up in their apps' window lists: one that
         // arrived from, or still sits on, a workspace out of view has no accessibility element yet.
-        focus(last, warpCursor: false)
+        // A workspace just made has no window to focus our way onto it, so it is switched to
+        // directly; otherwise focusing the last window is what takes us there.
+        if target == model.currentSpaceID || !SpacesBridge.shared.switchToSpace(id: target) {
+            focus(last, warpCursor: false)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
             let ready = group.map { window -> ManagedWindow in
@@ -714,7 +729,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // layout, and the size it had before it was ever maximized is no longer anything to go back
         // to — or, worse, to grow back into when the screen's room changes.
         for window in windows { framesBeforeMaximize.removeValue(forKey: window.id) }
+        // Whichever layouts these windows came from are short of them now, and the windows still in
+        // those layouts take the room the leavers gave up.
+        let taken = Set(windows.map(\.id))
+        let shorthanded = model.tiledGroups.filter { !$0.ids.filter(taken.contains).isEmpty }
         guard let group = model.setTiled(windows.map(\.id), layout: layout.name) else { return }
+        relayout(shorthanded.map(\.id).filter { $0 != group.id })
         tiledOrders[group.id] = group.ids
         // Read once the tiler has finished its own corrections, so what is stored is where the
         // windows actually came to rest.
@@ -722,6 +742,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             for window in windows where self.model.tiledIDs.contains(window.id) {
                 self.tiledFrames[window.id] = WindowTiler.frame(of: window)
+            }
+        }
+    }
+
+    /// Lays these groups out again for however many windows they have left.
+    private func relayout(_ groupIDs: [Int]) {
+        guard !groupIDs.isEmpty else { return }
+        // After the windows that left have been placed, so the two layouts do not fight over the
+        // same corrections.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            for id in groupIDs {
+                guard let group = self.model.tiledGroups.first(where: { $0.id == id }) else { continue }
+                let windows = self.model.tiledWindowsInQueueOrder(group)
+                guard windows.count > 1,
+                      let layout = TileLayout.options(for: windows.count).first(where: { $0.name == group.layout })
+                        ?? TileLayout.options(for: windows.count).first
+                else { continue }
+                let placed = WindowTiler.tile(windows, layout: layout, in: self.tilingArea(),
+                                              gaps: WindowTiler.Gaps(prefs: self.store.prefs))
+                guard !placed.isEmpty else { continue }
+                self.tilingSettledAt = Date().addingTimeInterval(2)
+                self.tiledOrders[group.id] = placed.map(\.id)
             }
         }
     }
