@@ -57,9 +57,12 @@ enum WindowFocuser {
         // Activating an app only takes macOS to its workspace when "switch to a Space with open
         // windows for the application" is on, and many people turn it off. So a window on another
         // desktop is travelled to first, and brought forward once the switch is under way.
+        // While an earlier jump is still travelling, even a window on the desktop in view goes
+        // through a jump of its own: that one takes over, rather than the earlier one landing after
+        // this window was raised and carrying the user away from it.
         if let space = window.spaceID,
-           let current = SpacesBridge.shared.currentSpaceID, space != current,
            SpacesBridge.shared.userSpaceIDs.contains(space),
+           SpaceSwitcher.destination != nil || !SpacesBridge.shared.isShowing(space),
            SpaceSwitcher.jump(toSpace: space, then: {
                guard token == generation else { return }
                bringForward(window, workspaceIndex: workspaceIndex, token: token)
@@ -298,7 +301,8 @@ enum WindowFocuser {
             if attempt == forceSpaceSwitchAttempt,
                let index = workspaceIndex,
                let target = window.spaceID,
-               SpacesBridge.shared.currentSpaceID != target {
+               SpacesBridge.shared.userSpaceIDs.contains(target),
+               !SpacesBridge.shared.isShowing(target) {
                 SpaceSwitcher.sendSystemShortcut(index: index)
             }
 

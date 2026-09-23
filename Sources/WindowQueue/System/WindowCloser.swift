@@ -15,7 +15,7 @@ enum WindowCloser {
         if press(closeButton(of: window.element)) { return }
 
         WindowFocuser.focus(window, workspaceIndex: workspaceIndex, siblingCount: siblingCount)
-        retry(window, attempt: 0)
+        retry(window, siblingCount: siblingCount, attempt: 0)
     }
 
     private static func closeButton(of element: AXUIElement?) -> AXUIElement? {
@@ -27,7 +27,7 @@ enum WindowCloser {
         return button.perform(kAXPressAction)
     }
 
-    private static func retry(_ window: ManagedWindow, attempt: Int) {
+    private static func retry(_ window: ManagedWindow, siblingCount: Int, attempt: Int) {
         guard attempt < maxAttempts else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
@@ -40,14 +40,22 @@ enum WindowCloser {
             }
 
             // An app that never exposes its windows (Chrome, Spotify) leaves only its own shortcut.
-            // By now the focus attempt has had time to bring the right window forward.
+            // By now the focus attempt has had time to bring the right window forward — but ⌘W
+            // closes whichever window has the keyboard, so only when that is known to be this one,
+            // or the app has no other window it could be.
             if attempt == maxAttempts - 1,
                NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid {
-                sendCloseShortcut()
+                let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+                    .flatMap(AXPrivate.windowID(of:))
+                if focused == window.id || (focused == nil && siblingCount <= 1) {
+                    sendCloseShortcut()
+                } else {
+                    Diagnostics.note("close \(window.id): \(window.appName) has another window focused; not sending ⌘W")
+                }
                 return
             }
 
-            retry(window, attempt: attempt + 1)
+            retry(window, siblingCount: siblingCount, attempt: attempt + 1)
         }
     }
 

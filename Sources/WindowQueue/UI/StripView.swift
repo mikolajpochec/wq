@@ -40,6 +40,8 @@ struct StripView: View {
     @State private var dragStart: CGFloat = 0
     /// The collapsed tile is being dragged, which moves every window inside it as one.
     @State private var draggingStack = false
+    /// A group's tile is being dragged, which likewise moves all of its windows.
+    @State private var draggingGroupID: Int?
     /// The pointer has actually travelled: a press on its own is a click, not a drag.
     @State private var dragMoved = false
     /// Ties the empty-workspace marker to the window that fills it, so the window grows out of it.
@@ -129,6 +131,7 @@ struct StripView: View {
                         .transition(.scale(scale: 0.5).combined(with: .opacity))
                 case .group(let id, let windows):
                     groupTile(id: id, windows: windows)
+                        .opacity(draggingGroupID == id ? 0 : 1)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 case .hiddenStack(let windows):
                     hiddenStackTile(for: windows)
@@ -254,12 +257,11 @@ struct StripView: View {
         var windows = model.visibleWindows
         guard let draggingID else { return windows }
 
-        if draggingStack {
-            let moving = collapsedIDs
-            let group = windows.filter { moving.contains($0.id) }
-            let ahead = windows.prefix(dragTargetIndex).count { moving.contains($0.id) }
+        if let moving = draggingBlockIDs {
+            let block = windows.filter { moving.contains($0.id) }
+            let destination = blockDestination(of: moving, in: windows)
             windows.removeAll { moving.contains($0.id) }
-            windows.insert(contentsOf: group, at: min(max(dragTargetIndex - ahead, 0), windows.count))
+            windows.insert(contentsOf: block, at: min(destination, windows.count))
             return windows
         }
 
@@ -267,6 +269,24 @@ struct StripView: View {
         let window = windows.remove(at: origin)
         windows.insert(window, at: min(max(dragTargetIndex, 0), windows.count))
         return windows
+    }
+
+    /// The windows a tile being dragged holds — the collapsed stack's, or a group's — which move
+    /// through the queue as one. Nil while a single window is carried.
+    private var draggingBlockIDs: Set<CGWindowID>? {
+        if draggingStack { return collapsedIDs }
+        guard let draggingGroupID, let group = model.groups.first(where: { $0.id == draggingGroupID })
+        else { return nil }
+        return Set(group.ids)
+    }
+
+    /// Where a block lands among the windows left once it is taken out: in front of the window it
+    /// is dropped on when carried up the strip, behind it when carried down — as a single window
+    /// lands — so the far end can be reached either way.
+    private func blockDestination(of moving: Set<CGWindowID>, in windows: [ManagedWindow]) -> Int {
+        let ahead = windows.prefix(dragTargetIndex).count { moving.contains($0.id) }
+        let past = dragTargetIndex > dragOriginIndex ? 1 : 0
+        return max(dragTargetIndex - ahead + past, 0)
     }
 
     private var draggedWindow: ManagedWindow? {
@@ -280,6 +300,12 @@ struct StripView: View {
     private var floatingRow: some View {
         if draggingStack {
             hiddenStackTile(for: model.visibleWindows.filter { collapsedIDs.contains($0.id) })
+                .scaleEffect(1.12)
+                .shadow(color: .black.opacity(0.3), radius: 6)
+                .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
+                        y: side.isVertical ? dragOriginTop + dragTranslation : 0)
+        } else if let id = draggingGroupID, let members = draggingBlockIDs {
+            groupTile(id: id, windows: model.visibleWindows.filter { members.contains($0.id) })
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
                 .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
@@ -315,7 +341,9 @@ struct StripView: View {
     }
 
     private var workspaceBadge: some View {
-        Text((screen.spaceIndex ?? model.currentSpaceIndex).map(String.init) ?? "–")
+        // The controller works out each screen's own number, falling back to the model's for the
+        // screen the strip belongs to; another screen's desktop is not this one's number.
+        Text(screen.spaceIndex.map(String.init) ?? "–")
             .font(.system(size: prefs.iconSize * 0.55, weight: .semibold, design: .rounded))
             .foregroundStyle(badgeForeground)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
@@ -628,19 +656,21 @@ struct StripView: View {
                   model.visibleWindows.indices.contains(origin)
             else { return }
             // Taking hold of the collapsed tile takes hold of every window inside it.
+            // So does taking hold of a group's tile.
             draggingStack = layout.isHiddenStack(atOffsetFromTop: start)
+            draggingGroupID = draggingStack ? nil : layout.group(atOffsetFromTop: start)
             draggingID = model.visibleWindows[origin].id
             dragOriginIndex = origin
             dragTargetIndex = origin
             dragOriginTop = layout.topOffset(ofWindowAt: origin)
-            if !draggingStack { onHold(model.visibleWindows[origin], 0) }
+            if draggingBlockIDs == nil { onHold(model.visibleWindows[origin], 0) }
         }
         dragTranslation = offset
         if abs(offset) >= Self.dragThreshold { dragMoved = true }
 
         guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
         dragTargetIndex = target
-        if !draggingStack, let window = draggedWindow {
+        if draggingBlockIDs == nil, let window = draggedWindow {
             // The window is still reported while it is carried — the strip needs to know a drag is
             // under way — and the popup is dropped separately, by the controller.
             onHold(window, offset)
@@ -651,13 +681,20 @@ struct StripView: View {
     }
 
     private func dragEnded(offset: CGFloat) {
-        if draggingStack {
-            let moving = collapsedIDs
-            let ids = model.visibleWindows.filter { moving.contains($0.id) }.map(\.id)
-            let ahead = model.visibleWindows.prefix(dragTargetIndex).count { moving.contains($0.id) }
-            if abs(offset) >= Self.dragThreshold || dragTargetIndex != dragOriginIndex {
-                model.move(ids: ids, toVisiblePosition: max(dragTargetIndex - ahead, 0))
+        if let moving = draggingBlockIDs {
+            if abs(offset) < Self.dragThreshold, dragTargetIndex == dragOriginIndex {
+                // A click on the collapsed tile is a click on the card on top of it: the maximized
+                // window, which is the one the tile shows and the one the user can actually see. A
+                // click on a group's tile steps into the group at its first window.
+                let maximized = draggingStack
+                    ? model.maximizedID.flatMap { id in model.windows.first { $0.id == id } } : nil
+                if let window = maximized ?? draggedWindow { onSelect(window) }
+                endDrag()
+                return
             }
+            let visible = model.visibleWindows
+            let ids = visible.filter { moving.contains($0.id) }.map(\.id)
+            model.move(ids: ids, toVisiblePosition: blockDestination(of: moving, in: visible))
             endDrag()
             return
         }
@@ -700,6 +737,7 @@ struct StripView: View {
         onDragTarget(nil, 0)
         draggingID = nil
         draggingStack = false
+        draggingGroupID = nil
         dragMoved = false
         dragTranslation = 0
         dragOriginTop = 0

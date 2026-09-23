@@ -48,13 +48,19 @@ final class WindowQueueModel: ObservableObject {
     @Published var currentSpaceIsFullscreen = false
     /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
     @Published var spaceOrder: [UInt64] = [] {
-        didSet { if spaceOrder != oldValue { updateEmptySlot() } }
+        didSet {
+            guard spaceOrder != oldValue else { return }
+            // Desktops reordered in Mission Control reorder the workspaces the queue is grouped by.
+            if autoSortByWorkspace { sortByWorkspace() }
+            updateEmptySlot()
+        }
     }
 
     /// The window filling its workspace, which the queue puts first there and cycling sticks to.
     @Published private(set) var maximizedID: CGWindowID?
-    /// Where that window sat in the queue before, to put it back.
-    private var positionBeforeMaximize: Int?
+    /// Where that window sat in the queue before, to put it back: its neighbours rather than an
+    /// index, which windows opening, closing or being moved meanwhile would make point elsewhere.
+    private var placeBeforeMaximize: (after: CGWindowID?, before: CGWindowID?)?
 
     /// A set of windows laid out together and still holding that layout. The arrangement follows
     /// the queue: reorder them and they are laid out again that way.
@@ -348,6 +354,10 @@ final class WindowQueueModel: ObservableObject {
         let moving = Set(ids)
         for index in groups.indices { groups[index].ids.removeAll { moving.contains($0) } }
         groups.removeAll { $0.ids.count < 2 }
+        // A group broken up here no longer exists to be open or aimed inside, and its number may
+        // go to the new one below, which is neither.
+        if let open = openGroupID, !groups.contains(where: { $0.id == open }) { openGroupID = nil }
+        if let inside = aimInsideGroupID, !groups.contains(where: { $0.id == inside }) { aimInsideGroupID = nil }
         guard ids.count > 1 else { return nil }
         var number = 1
         while groups.contains(where: { $0.id == number }) { number += 1 }
@@ -441,9 +451,15 @@ final class WindowQueueModel: ObservableObject {
     /// A window has been maximized: it goes to the head of its workspace's run in the queue, and
     /// everything else on that workspace steps aside — drawn as covered, and skipped while cycling.
     func beginFocus(on id: CGWindowID) {
+        // Filling the screen again with the window already in front changes nothing: its place
+        // before the first time is the one to go back to.
+        guard maximizedID != id else { return }
+        // Another window's focus ends first, and that puts it back in the queue — so where this
+        // one is is only known after.
+        endFocus()
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
-        if maximizedID != id { endFocus() }
-        positionBeforeMaximize = index
+        placeBeforeMaximize = (after: index > 0 ? windows[index - 1].id : nil,
+                               before: index + 1 < windows.count ? windows[index + 1].id : nil)
         maximizedID = id
         guard let space = windows[index].spaceID,
               let first = windows.firstIndex(where: { $0.spaceID == space })
@@ -456,12 +472,29 @@ final class WindowQueueModel: ObservableObject {
     func endFocus() {
         guard let id = maximizedID else { return }
         maximizedID = nil
-        defer { positionBeforeMaximize = nil }
-        guard let position = positionBeforeMaximize,
+        defer { placeBeforeMaximize = nil }
+        guard let place = placeBeforeMaximize,
               let index = windows.firstIndex(where: { $0.id == id })
         else { return }
-        let window = windows.remove(at: index)
-        windows.insert(window, at: min(max(position, 0), windows.count))
+        var rest = windows
+        let window = rest.remove(at: index)
+        // Beside whichever old neighbour is still there and still on the same workspace; with
+        // neither, it stays where it is.
+        let sameSpace = { (other: CGWindowID?) -> Int? in
+            other.flatMap { other in rest.firstIndex { $0.id == other && $0.spaceID == window.spaceID } }
+        }
+        if let after = sameSpace(place.after) {
+            rest.insert(window, at: after + 1)
+        } else if let before = sameSpace(place.before) {
+            rest.insert(window, at: before)
+        } else if place.after == nil, let first = rest.firstIndex(where: { $0.spaceID == window.spaceID }) {
+            // It was at the very head of the queue, so it goes back to the head of its workspace.
+            rest.insert(window, at: first)
+        } else {
+            return
+        }
+        windows = rest
+        if autoSortByWorkspace { sortByWorkspace() }
     }
 
     /// Whether a window is one of those the maximized window is covering.
@@ -548,7 +581,7 @@ final class WindowQueueModel: ObservableObject {
         // A maximized window that has gone takes the covering with it.
         if let maximizedID, !windows.contains(where: { $0.id == maximizedID }) {
             self.maximizedID = nil
-            positionBeforeMaximize = nil
+            placeBeforeMaximize = nil
         }
         keepAimOnQueue(previousOrder: previousOrder)
         if autoSortByWorkspace { sortByWorkspace() }

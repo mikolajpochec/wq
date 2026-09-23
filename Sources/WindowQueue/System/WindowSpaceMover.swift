@@ -142,7 +142,8 @@ final class WindowSpaceMover {
     /// from the WindowServer and the caller is told whether it worked.
     @discardableResult
     func pullToCurrentSpace(_ window: ManagedWindow) -> Bool {
-        guard let current = SpacesBridge.shared.currentSpaceID,
+        guard !Self.activationFollowsApp,
+              let current = SpacesBridge.shared.currentSpaceID,
               let app = NSRunningApplication(processIdentifier: window.pid)
         else { return false }
         if SpacesBridge.shared.spaces(forWindows: [window.id])[window.id] == current { return true }
@@ -164,6 +165,14 @@ final class WindowSpaceMover {
         }
         Diagnostics.note("space mover: \(window.appName) \(window.id) would not come here")
         return false
+    }
+
+    /// Whether macOS answers an app's activation by going to a desktop where it has windows —
+    /// "When switching to an application, switch to a Space with open windows for the application",
+    /// on unless the user turned it off. While it is on, `pullToCurrentSpace` would move the user
+    /// rather than the window.
+    static var activationFollowsApp: Bool {
+        UserDefaults(suiteName: "com.apple.dock")?.object(forKey: "workspaces-auto-swoosh") as? Bool ?? true
     }
 
     /// The window's accessibility element as its app lists it now. A window that arrived from a

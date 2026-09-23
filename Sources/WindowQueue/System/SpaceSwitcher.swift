@@ -42,6 +42,10 @@ enum SpaceSwitcher {
     ///
     /// The panel is ordered out again straight away, and WindowQueue steps back so the workspace is
     /// left the way arriving there by hand leaves it.
+    ///
+    /// Only the latest jump counts: one asked for while another is still on its way takes over, and
+    /// the earlier one neither activates nor calls back. There is a single carrier, so two jumps
+    /// running side by side would leave it on two workspaces and macOS free to pick either.
     /// - Parameter arrived: called once the switch has been set off, in place of stepping back —
     ///   whoever is being focused there takes over from the carrier.
     @discardableResult
@@ -51,25 +55,40 @@ enum SpaceSwitcher {
         panel.orderFront(nil)
         guard panel.windowNumber > 0 else { return false }
 
+        generation &+= 1
+        let token = generation
+        heading = (spaceID, Date().addingTimeInterval(headingLifetime))
+
+        // The carrier keeps every space it was ever put on — ordering it out does not take it off
+        // them — so whatever it is on besides the target goes, not just the desktop in view. The
+        // desktops on show are named outright: the one it was just ordered in on may not be listed
+        // for it yet, and a carrier left there too gives macOS no reason to go anywhere.
         let windows = [NSNumber(value: panel.windowNumber)] as CFArray
+        let bridge = SpacesBridge.shared
+        let stale = Set(bridge.allSpaces(forWindow: CGWindowID(panel.windowNumber)))
+            .union(bridge.spacesOnShow)
+            .subtracting([spaceID])
         addWindows(connectionID, windows, [NSNumber(value: spaceID)] as CFArray)
-        if let current = SpacesBridge.shared.currentSpaceID, current != spaceID {
-            removeWindows(connectionID, windows, [NSNumber(value: current)] as CFArray)
+        if !stale.isEmpty {
+            removeWindows(connectionID, windows, stale.map { NSNumber(value: $0) } as CFArray)
         }
 
         // The WindowServer needs the window to be on the target space before the activation, and an
         // accessory app has to ask for activation explicitly to be followed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            guard token == generation else { return }
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             if let arrived {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    guard token == generation else { return }
                     arrived()
                     panel.orderOut(nil)
                 }
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                guard token == generation else { return }
                 panel.orderOut(nil)
                 NSApp.deactivate()
             }
@@ -77,6 +96,23 @@ enum SpaceSwitcher {
         Diagnostics.note("space jump: carrier window to space \(spaceID)")
         return true
     }
+
+    /// The workspace a jump is on its way to, while it may still be travelling. What is on show can
+    /// lag behind for the length of the animation, so "is this window here already?" has to be
+    /// answered against where we are going, not where we still are.
+    static var destination: UInt64? {
+        guard let heading, Date() < heading.until else { return nil }
+        if SpacesBridge.shared.isShowing(heading.space) {
+            self.heading = nil
+            return nil
+        }
+        return heading.space
+    }
+
+    private static var generation: UInt64 = 0
+    private static var heading: (space: UInt64, until: Date)?
+    /// Long enough for the activation delay and the slide between desktops.
+    private static let headingLifetime: TimeInterval = 1.2
 
     private static let carrier: NSPanel = {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),

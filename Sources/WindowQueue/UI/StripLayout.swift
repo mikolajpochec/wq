@@ -173,6 +173,17 @@ struct StripLayout {
         return false
     }
 
+    /// The group whose tile the point falls on.
+    func group(atOffsetFromTop offset: CGFloat) -> Int? {
+        for (index, element) in elements.enumerated() {
+            guard case .group(let id, _) = element,
+                  offset >= tops[index], offset < tops[index] + heights[index] + StripMetrics.spacing
+            else { continue }
+            return id
+        }
+        return nil
+    }
+
     /// Whether the point falls on the tile the covered windows are collapsed into.
     func isHiddenStack(atOffsetFromTop offset: CGFloat) -> Bool {
         for (index, element) in elements.enumerated() {

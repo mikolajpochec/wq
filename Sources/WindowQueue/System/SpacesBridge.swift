@@ -160,14 +160,6 @@ final class SpacesBridge {
         return index + 1
     }
 
-    /// Space id of the 1-based desktop index on the primary display.
-    func spaceID(atIndex index: Int) -> UInt64? {
-        guard let display = primaryDisplay() else { return nil }
-        let position = index - 1
-        guard display.userSpaces.indices.contains(position) else { return nil }
-        return display.userSpaces[position].id
-    }
-
     /// Space id of the 1-based desktop index counted across every display, which is how the queue
     /// numbers workspaces.
     func userSpaceID(atIndex index: Int) -> UInt64? {
@@ -179,6 +171,27 @@ final class SpacesBridge {
     /// Space ids of every desktop, in Mission Control order.
     var userSpaceIDs: [UInt64] {
         allUserSpaces().map(\.id)
+    }
+
+    /// Whether the space is the one on show on its display — on any display, not just the one the
+    /// strip is on. A window on a second monitor's visible desktop needs no travelling to.
+    func isShowing(_ space: UInt64) -> Bool {
+        displays().contains { $0.currentSpaceID == space }
+    }
+
+    /// The space on show on each display, desktops and fullscreen spaces alike.
+    var spacesOnShow: [UInt64] {
+        displays().compactMap(\.currentSpaceID)
+    }
+
+    /// Every space the window belongs to. A window can sit on several at once, which is how one of
+    /// our own is left behind on a desktop it was carried away from.
+    func allSpaces(forWindow windowID: CGWindowID) -> [UInt64] {
+        guard let copySpacesForWindows else { return [] }
+        let argument = [NSNumber(value: windowID)] as CFArray
+        let spaces = copySpacesForWindows(connectionID, Self.allSpacesMask, argument)?
+            .takeRetainedValue() as? [NSNumber]
+        return spaces?.map(\.uint64Value) ?? []
     }
 
     /// Whether the display the strip is on is showing a fullscreen window rather than a desktop.
@@ -194,7 +207,7 @@ final class SpacesBridge {
     }
 
     var spaceCount: Int {
-        primaryDisplay()?.userSpaces.count ?? 0
+        allUserSpaces().count
     }
 
     /// Resolves which Space each of the given windows belongs to.
@@ -226,9 +239,12 @@ final class SpacesBridge {
 
     // MARK: - Switching
 
+    /// Switches through the WindowServer alone. The Dock is not told, so it goes on believing the
+    /// old desktop is current: the next swipe or ⌃N starts from there, and a later switch to the
+    /// desktop it still believes in does nothing at all. Only for when the user picked this method.
     @discardableResult
     func switchToSpace(index: Int) -> Bool {
-        guard let id = spaceID(atIndex: index) else { return false }
+        guard let id = userSpaceID(atIndex: index) else { return false }
         return switchToSpace(id: id)
     }
 

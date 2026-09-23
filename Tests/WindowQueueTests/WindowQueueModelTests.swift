@@ -63,6 +63,12 @@ final class WindowQueueModelTests: XCTestCase {
         XCTAssertNil(model.emptySlot)
     }
 
+    func testReorderingDesktopsRegroupsTheQueue() {
+        let model = makeModel([window(1, space: 10), window(2, space: 20), window(3, space: 30)])
+        model.spaceOrder = [30, 10, 20]
+        XCTAssertEqual(ids(model), [3, 1, 2])
+    }
+
     func testNewWindowGoesAfterSelection() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 20)])
         model.select(id: 1, announce: false)
@@ -183,6 +189,41 @@ extension WindowQueueModelTests {
         model.endFocus()
         XCTAssertEqual(ids(model), [1, 2, 3, 4])
         XCTAssertFalse(model.isCovered(model.windows[0]))
+    }
+
+    func testMaximizingAnotherWindowPutsTheFirstBackBeforeMovingTheSecond() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.beginFocus(on: 3)
+        model.beginFocus(on: 2)
+        XCTAssertEqual(ids(model), [2, 1, 3])
+        model.endFocus()
+        XCTAssertEqual(ids(model), [1, 2, 3])
+    }
+
+    func testMaximizingTheSameWindowTwiceStillRestoresItsPlace() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.beginFocus(on: 3)
+        model.beginFocus(on: 3)
+        model.endFocus()
+        XCTAssertEqual(ids(model), [1, 2, 3])
+    }
+
+    func testRestoringAfterAWindowClosedStaysOnItsWorkspace() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10),
+                               window(4, space: 20), window(5, space: 20)])
+        model.beginFocus(on: 3)
+        model.reconcile(with: [window(2, space: 10), window(3, space: 10), window(4, space: 20), window(5, space: 20)])
+        model.endFocus()
+        XCTAssertEqual(ids(model), [2, 3, 4, 5])
+    }
+
+    func testRegroupingTheOpenGroupsWindowsClosesIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.makeGroup([1, 2])
+        model.select(id: 1, announce: false)
+        XCTAssertEqual(model.openGroupID, 1)
+        model.makeGroup([2, 3])
+        XCTAssertNil(model.openGroupID, "the open group was broken up; the new one is not open")
     }
 
     func testClosingTheMaximizedWindowEndsTheFocus() {

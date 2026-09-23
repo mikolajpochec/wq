@@ -10,6 +10,9 @@ final class WindowEnumerator {
     private var observers: [pid_t: AXObserver] = [:]
     private var refreshWorkItem: DispatchWorkItem?
     private var timer: Timer?
+    private var spaceTimer: Timer?
+    /// Told when the desktop on show changes, however it came to change.
+    var onActiveSpaceChanged: (() -> Void)?
     /// Enumeration runs here rather than on the main thread: an accessibility call to a busy or
     /// wedged application blocks until it times out, which on the main thread freezes the strip.
     private let enumerationQueue = DispatchQueue(label: "com.mpochec.windowqueue.enumeration")
@@ -48,6 +51,7 @@ final class WindowEnumerator {
 
     deinit {
         timer?.invalidate()
+        spaceTimer?.invalidate()
     }
 
     func start() {
@@ -67,6 +71,9 @@ final class WindowEnumerator {
 
         timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+        spaceTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+            self?.pollSpaceState()
         }
 
         refreshSpaceState()
@@ -384,12 +391,44 @@ final class WindowEnumerator {
         model.updateSpaces(mapping)
     }
 
-    private func refreshSpaceState() {
-        model.currentSpaceID = SpacesBridge.shared.currentSpaceID
-        model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
-        model.currentSpaceIsFullscreen = SpacesBridge.shared.isCurrentSpaceFullscreen
-        model.spaceOrder = SpacesBridge.shared.userSpaceIDs
+    /// Reads which desktop is on show and how the desktops are ordered, and tells the model only
+    /// what changed: every assignment to a published property redraws the strip, changed or not.
+    /// - Returns: whether anything did change.
+    @discardableResult
+    func refreshSpaceState() -> Bool {
+        let bridge = SpacesBridge.shared
+        let current = bridge.currentSpaceID
+        let index = bridge.currentSpaceIndex
+        let fullscreen = bridge.isCurrentSpaceFullscreen
+        let order = bridge.userSpaceIDs
+        let arrived = current != model.currentSpaceID
+        var changed = arrived
+        // The order first: the empty slot is worked out from it when the current space changes.
+        if model.spaceOrder != order { model.spaceOrder = order; changed = true }
+        if arrived { model.currentSpaceID = current }
+        if model.currentSpaceIndex != index { model.currentSpaceIndex = index; changed = true }
+        if model.currentSpaceIsFullscreen != fullscreen { model.currentSpaceIsFullscreen = fullscreen; changed = true }
+        if arrived { onActiveSpaceChanged?() }
+        return changed
     }
+
+    /// Looks for a change of desktop the notification did not bring. A switch made through the
+    /// WindowServer alone posts nothing, and neither does adding, removing or reordering desktops in
+    /// Mission Control — the strip's number and the queue's workspace labels would otherwise wait
+    /// for the next full refresh to catch up.
+    private func pollSpaceState() {
+        // Another monitor's desktop is not in the model, but its strip shows its number all the same.
+        let screens = SpacesBridge.shared.screenSpaces()
+        let screensChanged = screens != lastScreenSpaces
+        lastScreenSpaces = screens
+        if refreshSpaceState() {
+            scheduleRefresh()
+        } else if screensChanged {
+            model.objectWillChange.send()
+        }
+    }
+
+    private var lastScreenSpaces: [String: SpacesBridge.ScreenSpace] = [:]
 
     private func scheduleRefresh() {
         refreshWorkItem?.cancel()

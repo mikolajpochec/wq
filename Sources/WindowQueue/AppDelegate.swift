@@ -106,9 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // A click picks a window outright, so it also settles an aim in progress.
                 self.endAiming(commit: false)
-                // Clicking the collapsed tile asks for one of the windows hiding behind the
-                // fullscreen one, so the queue comes back to normal first — otherwise the window
-                // would be selected while still out of reach and out of the cycle.
+                // Clicking a row greyed out behind the fullscreen window asks for that window, so
+                // the queue comes back to normal first — otherwise the window would be selected
+                // while still out of reach and out of the cycle. (The collapsed tile hands over the
+                // fullscreen window itself.)
                 if self.model.isCovered(window) { self.model.endFocus() }
                 self.model.select(id: window.id, announce: false)
                 self.focus(window, warpCursor: false)
@@ -223,7 +224,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hoverFocus.isSuspended = { [weak self] in
             guard let self else { return false }
+            // Nor while a jump to another desktop is under way: whatever slides under the pointer
+            // on the way is not where the user is going, and focusing it would turn the jump back.
             return self.model.aimingID != nil || self.search?.isOpen == true
+                || SpaceSwitcher.destination != nil
         }
         hoverFocus.start()
         self.hoverFocus = hoverFocus
@@ -302,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             enumerator.onWindowFrameChanged = { [weak self] element in
                 self?.windowFrameChanged(element)
             }
+            enumerator.onActiveSpaceChanged = { [weak self] in self?.keepHeldWorkspace() }
             self.enumerator = enumerator
             enumerator.start()
             strip.start()
@@ -676,7 +681,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             finishTiling(windows, layout: layout)
             return
         }
-        if !windows.contains(where: { $0.spaceID != target }), target == model.currentSpaceID {
+        if !windows.contains(where: { $0.spaceID != target }), SpacesBridge.shared.isShowing(target) {
             finishTiling(windows, layout: layout)
             return
         }
@@ -690,18 +695,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Go there, then give the windows time to show up in their apps' window lists: one that
         // arrived from, or still sits on, a workspace out of view has no accessibility element yet.
-        // A workspace just made has no window to focus our way onto it, so it is switched to
-        // directly; otherwise focusing the last window is what takes us there.
-        if target == model.currentSpaceID || !SpacesBridge.shared.switchToSpace(id: target) {
-            focus(last, warpCursor: false)
+        // Focusing the last window takes us there when it is there itself — as the model now has
+        // it, since the move may just have carried it; otherwise the carrier does, which the Dock
+        // follows as it follows any activation.
+        let lastNow = model.windows.first { $0.id == last.id } ?? last
+        if lastNow.spaceID == target || SpacesBridge.shared.isShowing(target) {
+            focus(lastNow, warpCursor: false)
+        } else if !SpaceSwitcher.jump(toSpace: target), let index = model.workspaceNumber(ofSpace: target) {
+            SpaceSwitcher.sendSystemShortcut(index: index)
         }
         let wanted = windows
         let destination = target
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
             guard let self else { return }
             // Whatever is still elsewhere is asked to come here the other way: with the workspace
-            // now in view, activating a window's application brings that one window over.
-            if SpacesBridge.shared.currentSpaceID == destination {
+            // now in view, activating a window's application brings that one window over (where
+            // macOS is set up for that — the mover checks).
+            if SpacesBridge.shared.isShowing(destination) {
                 let before = SpacesBridge.shared.spaces(forWindows: wanted.map(\.id))
                 for window in wanted where before[window.id] != destination {
                     _ = self.spaceMover.pullToCurrentSpace(window)
@@ -1079,9 +1089,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let space = action.spaceIndex {
             switchToSpace(space)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                self?.refreshSpaceState()
-            }
             return
         }
 
@@ -1483,6 +1490,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func switchToSpace(_ index: Int) {
         let target = SpacesBridge.shared.userSpaceID(atIndex: index)
         lastSpaceRequest = Date()
+        // A newer request, even for the desktop already on show, retires the retries of an older one.
+        spaceRequest &+= 1
+        let origin = SpacesBridge.shared.currentSpaceID
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
             if focusWindow(onSpaceIndex: index) { break }
@@ -1499,35 +1509,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and the WindowServer call is refused often enough that it cannot be taken on trust. The
         // user asked to be somewhere, so check they got there and try the other ways if not.
         guard let target else { return }
-        ensureArrived(at: target, index: index, attempt: 0)
+        ensureArrived(at: target, from: origin, index: index, request: spaceRequest, attempt: 0)
     }
 
     /// Checks the workspace switch actually happened, and tries the next way of doing it if not.
-    private func ensureArrived(at target: UInt64, index: Int, attempt: Int) {
-        guard attempt < 3 else {
-            Diagnostics.note("workspace \(index): could not switch")
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self else { return }
+    ///
+    /// Only while nothing else has happened since: a newer request, or the user having gone
+    /// somewhere else in the meantime, ends it — a retry landing then would drag them back.
+    /// The retries are the ways the Dock takes part in; the WindowServer-only switch would leave it
+    /// believing the old desktop is current.
+    private func ensureArrived(at target: UInt64, from origin: UInt64?, index: Int, request: Int,
+                               attempt: Int) {
+        // The slide between desktops takes about half a second, and the desktop on show only
+        // changes once it is over; looking sooner mistakes a switch under way for one refused.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.arrivalCheckDelay) { [weak self] in
+            guard let self, request == self.spaceRequest else { return }
+            self.enumerator?.refreshSpaceState()
+            if SpacesBridge.shared.isShowing(target) { return }
             let current = SpacesBridge.shared.currentSpaceID
-            guard current != target else {
-                self.refreshSpaceState()
+            guard current == origin else {
+                Diagnostics.note("workspace \(index): went to \(current.map(String.init) ?? "none") instead; leaving it")
+                return
+            }
+            guard attempt < 2 else {
+                Diagnostics.note("workspace \(index): could not switch")
                 return
             }
             Diagnostics.note("workspace \(index): still on \(current.map(String.init) ?? "none"), trying again")
             switch attempt {
-            case 0: _ = SpaceSwitcher.jump(toSpace: target)
-            case 1: SpacesBridge.shared.switchToSpace(index: index)
-            default: SpaceSwitcher.sendSystemShortcut(index: index)
+            case 0:
+                if !SpaceSwitcher.jump(toSpace: target) { SpaceSwitcher.sendSystemShortcut(index: index) }
+            default:
+                SpaceSwitcher.sendSystemShortcut(index: index)
             }
-            self.ensureArrived(at: target, index: index, attempt: attempt + 1)
+            self.ensureArrived(at: target, from: origin, index: index, request: request, attempt: attempt + 1)
         }
     }
+
+    private static let arrivalCheckDelay: TimeInterval = 0.8
 
     /// When the user last asked to change workspace, so a switch macOS makes on its own can be told
     /// from one they asked for.
     private var lastSpaceRequest = Date.distantPast
+    /// Counts workspace requests, so a retry left over from an earlier one stands down.
+    private var spaceRequest = 0
     /// The workspace to stay on: emptied by closing its last window, and left only when the user
     /// says so.
     private var holdSpace: (id: UInt64, until: Date)?
@@ -1544,32 +1569,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func refreshSpaceState() {
-        keepHeldWorkspace()
-        model.currentSpaceID = SpacesBridge.shared.currentSpaceID
-        model.currentSpaceIndex = SpacesBridge.shared.currentSpaceIndex
-        model.currentSpaceIsFullscreen = SpacesBridge.shared.isCurrentSpaceFullscreen
-        model.spaceOrder = SpacesBridge.shared.userSpaceIDs
-    }
-
     /// Takes us back to the workspace emptied by a close, if macOS moved us off it by itself.
+    /// Runs whenever the desktop on show changes.
     private func keepHeldWorkspace() {
         guard let hold = holdSpace else { return }
         guard Date() < hold.until else {
             holdSpace = nil
             return
         }
-        // A switch the user asked for wins: this is only for the ones nobody asked for.
-        guard lastSpaceRequest < Date().addingTimeInterval(-0.5) else {
+        // A switch the user asked for wins: this is only for the ones nobody asked for. So does one
+        // of our own jumps, which is travelling on the user's behalf.
+        guard lastSpaceRequest < Date().addingTimeInterval(-0.5), SpaceSwitcher.destination == nil else {
             holdSpace = nil
             return
         }
         let current = SpacesBridge.shared.currentSpaceID
-        guard let current, current != hold.id else { return }
+        guard let current, current != hold.id, !SpacesBridge.shared.isShowing(hold.id) else { return }
         holdSpace = nil
         Diagnostics.note("macOS moved us to \(current) after a close; going back to \(hold.id)")
-        if !SpaceSwitcher.jump(toSpace: hold.id) {
-            SpacesBridge.shared.switchToSpace(id: hold.id)
+        if !SpaceSwitcher.jump(toSpace: hold.id), let index = model.workspaceNumber(ofSpace: hold.id) {
+            SpaceSwitcher.sendSystemShortcut(index: index)
         }
     }
 
