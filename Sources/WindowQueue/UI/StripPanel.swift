@@ -119,6 +119,9 @@ final class StripController {
     private let onClose: (ManagedWindow) -> Void
     /// Steps the selection by whole rows as the wheel turns.
     private let onScroll: (Int) -> Void
+    /// The pointer is over the tile the covered windows are collapsed into, with how many there are,
+    /// or over it no longer.
+    var onHiddenStackHold: (([ManagedWindow]) -> Void)?
 
     /// Keyed by display id. Panels are kept while hidden so coming back is instant and nothing is
     /// rebuilt when a screen switches to a fullscreen space and back.
@@ -341,7 +344,16 @@ final class StripController {
     }
 
     private var contentLayout: StripLayout {
-        StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement)
+        StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement,
+                    collapsed: collapsedIDs)
+    }
+
+    /// Windows drawn as one collapsed tile, which has to match what `StripView` draws.
+    private var collapsedIDs: Set<CGWindowID> {
+        let prefs = store.prefs
+        guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil
+        else { return [] }
+        return Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
     }
 
     /// The strip the popup points from: the one under the pointer, else the selected screen's.
@@ -376,10 +388,21 @@ final class StripController {
         // unscaled hit-test would land on the wrong icon.
         guard dragOffset == nil, model.aimingID == nil else { return }
 
+        // The collapsed tile is not one window, so it gets its own popup rather than the name of
+        // whichever window happens to be first inside it.
+        if let point, isHiddenStack(at: point, in: strip.hosting) {
+            let hidden = contentLayout.hiddenWindows
+            guard hoveredID != Self.stackHoverID else { return }
+            hoveredID = Self.stackHoverID
+            onHiddenStackHold?(hidden)
+            return
+        }
+
         let hovered = point.flatMap { window(at: $0, in: strip.hosting) }
 
         guard hovered?.id != hoveredID else { return }
         hoveredID = hovered?.id
+        if hovered == nil, hoveredID == nil { onHiddenStackHold?([]) }
         onHold(hovered)
     }
 
@@ -400,17 +423,28 @@ final class StripController {
         onScroll(steps)
     }
 
-    /// The window under a point in the hosting view, which spans the whole edge while the strip
-    /// content sits inside it wherever alignment puts it.
-    private func window(at point: NSPoint, in view: NSView) -> ManagedWindow? {
+    /// Stands in for the collapsed tile in `hoveredID`, which otherwise holds a window id.
+    private static let stackHoverID = CGWindowID.max
+
+    private func isHiddenStack(at point: NSPoint, in view: NSView) -> Bool {
+        contentLayout.isHiddenStack(atOffsetFromTop: offsetAlongContent(of: point, in: view))
+    }
+
+    /// How far along the strip's content a point lies.
+    private func offsetAlongContent(of point: NSPoint, in view: NSView) -> CGFloat {
         let along: CGFloat
         if side.isVertical {
             along = view.isFlipped ? point.y : view.bounds.height - point.y
         } else {
             along = point.x
         }
-        let withinContent = along - contentStart(inPanelLength: mainLength(of: view.bounds))
-        return contentLayout.windowIndex(atOffsetFromTop: withinContent)
+        return along - contentStart(inPanelLength: mainLength(of: view.bounds))
+    }
+
+    /// The window under a point in the hosting view, which spans the whole edge while the strip
+    /// content sits inside it wherever alignment puts it.
+    private func window(at point: NSPoint, in view: NSView) -> ManagedWindow? {
+        contentLayout.windowIndex(atOffsetFromTop: offsetAlongContent(of: point, in: view))
             .map { model.visibleWindows[$0] }
     }
 

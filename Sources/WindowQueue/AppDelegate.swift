@@ -101,6 +101,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onClose: { [weak self] window in self?.close(window) },
             onScroll: { [weak self] steps in self?.scrolled(by: steps) }
         )
+        strip.onHiddenStackHold = { [weak self] hidden in
+            guard let self else { return }
+            guard let first = hidden.first else {
+                toast.endHold()
+                return
+            }
+            let combo = self.store.prefs.combo(for: .toggleMaximize).displayString
+            toast.show(title: "+\(hidden.count) window\(hidden.count == 1 ? "" : "s") hidden",
+                       subtitle: "\(combo) restores the maximized window and brings them back",
+                       beside: first.id, pinned: true)
+        }
         self.strip = strip
         toast.anchorProvider = { [weak strip] id in
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }

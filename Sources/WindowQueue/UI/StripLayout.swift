@@ -143,6 +143,15 @@ struct StripLayout {
         return nil
     }
 
+    /// Whether the point falls on the tile the covered windows are collapsed into.
+    func isHiddenStack(atOffsetFromTop offset: CGFloat) -> Bool {
+        for (index, element) in elements.enumerated() {
+            guard case .hiddenStack = element else { continue }
+            return offset >= tops[index] && offset < tops[index] + heights[index] + StripMetrics.spacing
+        }
+        return false
+    }
+
     /// Like `windowIndex(atOffsetFromTop:)`, but never misses: a point above or below every icon
     /// resolves to the first or last one. Dragging needs an answer for any position the cursor can
     /// reach, including well outside the strip.
