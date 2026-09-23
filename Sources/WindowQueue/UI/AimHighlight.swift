@@ -18,9 +18,9 @@ final class AimHighlightOverlay {
             let panel = panels[window.id] ?? make()
             panels[window.id] = panel
             (panel.contentView as? HighlightView)?.isCursor = window.id == cursor
-            // The outline is drawn inside its own panel, which is a little larger than the window so
-            // the line is not hidden under the window's own edge.
-            panel.setFrame(frame.insetBy(dx: -Self.lineWidth, dy: -Self.lineWidth), display: true)
+            // Exactly the window's own frame: the outline is drawn inside it, so a window against
+            // the edge of the screen keeps its outline on screen with it.
+            panel.setFrame(frame, display: true)
             if !panel.isVisible {
                 panel.alphaValue = 0
                 panel.orderFrontRegardless()
