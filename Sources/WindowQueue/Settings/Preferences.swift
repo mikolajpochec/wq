@@ -244,6 +244,10 @@ struct Preferences: Codable, Equatable {
     /// Start automatically at login. Only takes effect for the copy in the Applications folder.
     var launchAtLogin: Bool = true
 
+    /// Gap left around a tiled or maximized window, at the edge of the screen and between windows.
+    var tileOuterGap: Double = 1
+    var tileInnerGap: Double = 1
+
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
 
@@ -296,6 +300,8 @@ struct Preferences: Codable, Equatable {
         focusFollowsMouseRaises = value(.focusFollowsMouseRaises, defaults.focusFollowsMouseRaises)
         trimWindowsOutsideReservation = value(.trimWindowsOutsideReservation, defaults.trimWindowsOutsideReservation)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
+        tileOuterGap = value(.tileOuterGap, defaults.tileOuterGap)
+        tileInnerGap = value(.tileInnerGap, defaults.tileInnerGap)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)

@@ -76,6 +76,12 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Tiling") {
+                sliderRow("Screen gap", value: $store.prefs.tileOuterGap, in: 0...40, step: 1, format: Self.points)
+                sliderRow("Gap between windows", value: $store.prefs.tileInnerGap, in: 0...40, step: 1, format: Self.points)
+                caption("Room left around windows that WindowQueue places: tiled from aiming mode, maximized, or sent fullscreen.")
+            }
+
             Section("Fullscreen windows") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Focus on the fullscreen window", isOn: $store.prefs.focusMaximizedWindow)

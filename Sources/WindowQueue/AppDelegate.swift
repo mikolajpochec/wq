@@ -405,7 +405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : TileLayout.options(for: windows.count).first { $0.kind == layout.kind }
                 ?? TileLayout.options(for: windows.count).first
         guard let layout else { return }
-        let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea())
+        let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(),
+                                      gaps: WindowTiler.Gaps(prefs: store.prefs))
         guard let first = placed.first else { return }
         WindowTiler.raise(placed)
         model.select(id: first.id, announce: false)
@@ -596,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if framesBeforeMaximize[window.id] == nil {
             framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
         }
-        WindowTiler.fill(window, in: tilingArea())
+        WindowTiler.fill(window, in: tilingArea(), gaps: WindowTiler.Gaps(prefs: store.prefs))
     }
 
     /// Fills the screen with the selected window, less the strip's room; again restores it.
@@ -613,7 +614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
-        WindowTiler.fill(window, in: area)
+        WindowTiler.fill(window, in: area, gaps: WindowTiler.Gaps(prefs: store.prefs))
         if store.prefs.focusMaximizedWindow { model.beginFocus(on: window.id) }
     }
 

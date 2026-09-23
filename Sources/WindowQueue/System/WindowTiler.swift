@@ -65,22 +65,44 @@ struct TileLayout: Identifiable, Equatable {
 
 /// Lays windows out in a `TileLayout` through the Accessibility API.
 enum WindowTiler {
+    /// How much room to leave around tiled windows.
+    struct Gaps {
+        var outer: CGFloat = 0
+        var inner: CGFloat = 0
+
+        init(outer: CGFloat, inner: CGFloat) {
+            self.outer = outer
+            self.inner = inner
+        }
+
+        init(prefs: Preferences) {
+            outer = CGFloat(prefs.tileOuterGap)
+            inner = CGFloat(prefs.tileInnerGap)
+        }
+    }
+
     /// - Parameter area: the space to fill, in Cocoa screen coordinates.
     /// - Returns: the windows that were placed; a window with no accessibility element — one on a
     ///   workspace not visited yet — cannot be.
     @discardableResult
-    static func tile(_ windows: [ManagedWindow], layout: TileLayout, in area: NSRect) -> [ManagedWindow] {
+    static func tile(_ windows: [ManagedWindow], layout: TileLayout, in area: NSRect,
+                     gaps: Gaps = Gaps(outer: 0, inner: 0)) -> [ManagedWindow] {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        // Each cell gives up half the inner gap on every side, so two neighbours leave a whole one
+        // between them; taking that half back out of the area keeps the outer gap exactly as asked.
+        let inset = gaps.outer - gaps.inner / 2
+        let area = area.insetBy(dx: inset, dy: inset)
         // Accessibility coordinates start at the top left of the menu bar screen, y downwards.
         let top = primaryHeight - area.maxY
         var placed: [ManagedWindow] = []
 
         for (window, unit) in zip(windows, layout.frames) {
             guard let element = window.element else { continue }
-            let frame = CGRect(x: (area.minX + unit.minX * area.width).rounded(),
-                               y: (top + unit.minY * area.height).rounded(),
-                               width: (unit.width * area.width).rounded(),
-                               height: (unit.height * area.height).rounded())
+            let cell = CGRect(x: (area.minX + unit.minX * area.width).rounded(),
+                              y: (top + unit.minY * area.height).rounded(),
+                              width: (unit.width * area.width).rounded(),
+                              height: (unit.height * area.height).rounded())
+            let frame = cell.insetBy(dx: gaps.inner / 2, dy: gaps.inner / 2)
             if window.isMinimized {
                 element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
             }
@@ -187,9 +209,9 @@ enum WindowTiler {
 
     /// Fills the area with one window, as a maximize does.
     @discardableResult
-    static func fill(_ window: ManagedWindow, in area: NSRect) -> Bool {
+    static func fill(_ window: ManagedWindow, in area: NSRect, gaps: Gaps = Gaps(outer: 0, inner: 0)) -> Bool {
         let layout = TileLayout(name: "Maximize", frames: [CGRect(x: 0, y: 0, width: 1, height: 1)])
-        return !tile([window], layout: layout, in: area).isEmpty
+        return !tile([window], layout: layout, in: area, gaps: gaps).isEmpty
     }
 
     /// The window's frame in Cocoa screen coordinates, or nil when its app will not say.
