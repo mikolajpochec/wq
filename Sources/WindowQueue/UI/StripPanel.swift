@@ -124,6 +124,8 @@ final class StripController {
     var onHiddenStackHold: (([ManagedWindow]) -> Void)?
     /// The pointer is over a group's entry, or over it no longer.
     var onGroupHold: ((Int?) -> Void)?
+    /// The window being dragged along the strip and where it would land, or nil once dropped.
+    var onDragTarget: ((ManagedWindow?, Int) -> Void)?
 
     /// Keyed by display id. Panels are kept while hidden so coming back is instant and nothing is
     /// rebuilt when a screen switches to a fullscreen space and back.
@@ -293,12 +295,13 @@ final class StripController {
                                                      width: StripMetrics.thickness(prefs: store.prefs),
                                                      height: 100))
         let state = StripScreenState()
-        let view = StripView(model: model, store: store, screen: state, onSelect: onSelect) { [weak self, weak panel] window, offset in
+        var view = StripView(model: model, store: store, screen: state, onSelect: onSelect) { [weak self, weak panel] window, offset in
             guard let self else { return }
             if window != nil { self.pointerStrip = self.strips.values.first { $0.panel === panel } }
             self.dragOffset = window.map { ($0.id, offset) }
             self.onHold(window)
         }
+        view.onDragTarget = { [weak self] window, target in self?.onDragTarget?(window, target) }
         let hosting = HoverHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         panel.acceptsMouseMovedEvents = true

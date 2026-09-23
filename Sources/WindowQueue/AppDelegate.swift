@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toast: ToastController?
     private lazy var tilingMenu = TilingMenuController(store: store)
     private lazy var groupPanel = GroupPanelController(store: store)
+    private let tilePreview = TilePreviewOverlay()
     /// A group the pointer is resting on, shown without stepping into it.
     private var peekedGroupID: Int?
     private let spaceMover = WindowSpaceMover()
@@ -137,6 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         groupPanel.onPick = { [weak self] window in
             self?.model.select(id: window.id, announce: false)
             self?.focus(window, warpCursor: false)
+        }
+        strip.onDragTarget = { [weak self] window, target in
+            self?.previewTilePlacement(of: window, at: target)
         }
         strip.onGroupHold = { [weak self] id in
             guard let self, self.peekedGroupID != id else { return }
@@ -698,6 +702,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let count = group.ids.count
         model.ungroup(containing: selected)
         announceGroup("Ungrouped \(count) windows")
+    }
+
+    /// While a tiled window's icon is dragged along the strip, shows the cell it would take if it
+    /// were dropped there: the group is laid out in queue order, so the drop decides the place.
+    private func previewTilePlacement(of window: ManagedWindow?, at target: Int) {
+        guard let window, let group = model.tiledGroup(of: window.id) else {
+            tilePreview.hide()
+            return
+        }
+        // The queue as the drop would leave it.
+        var order = model.visibleWindows
+        guard let origin = order.firstIndex(where: { $0.id == window.id }) else { return }
+        let moved = order.remove(at: origin)
+        order.insert(moved, at: min(max(target, 0), order.count))
+
+        let ids = Set(group.ids)
+        let members = order.filter { ids.contains($0.id) }
+        guard let place = members.firstIndex(where: { $0.id == window.id }),
+              let layout = TileLayout.options(for: members.count).first(where: { $0.name == group.layout })
+                ?? TileLayout.options(for: members.count).first,
+              layout.frames.indices.contains(place)
+        else {
+            tilePreview.hide()
+            return
+        }
+        let unit = layout.frames[place]
+        let area = tilingArea().insetBy(dx: CGFloat(store.prefs.tileOuterGap), dy: CGFloat(store.prefs.tileOuterGap))
+        let gap = CGFloat(store.prefs.tileInnerGap) / 2
+        // Layout rects run from the top down; screen coordinates run from the bottom up.
+        let cell = NSRect(x: area.minX + unit.minX * area.width,
+                          y: area.maxY - (unit.minY + unit.height) * area.height,
+                          width: unit.width * area.width,
+                          height: unit.height * area.height)
+        tilePreview.show(cell.insetBy(dx: gap, dy: gap))
     }
 
     /// Keeps the panel beside the strip in step: the open group, or the one the pointer rests on.

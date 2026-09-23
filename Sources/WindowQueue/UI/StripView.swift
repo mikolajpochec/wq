@@ -19,6 +19,8 @@ struct StripView: View {
     /// Called with the window being held and how far it has been dragged, and with nil when the
     /// hold ends, so the popup can stay up and follow the icon.
     var onHold: (ManagedWindow?, CGFloat) -> Void
+    /// The window being dragged and the queue position it would land in, or nil once it is dropped.
+    var onDragTarget: (ManagedWindow?, Int) -> Void = { _, _ in }
 
     /// Drags are measured in this space rather than against a row, because a row moves while it is
     /// being dragged and a translation measured against a moving view lags behind the cursor.
@@ -599,7 +601,10 @@ struct StripView: View {
 
         guard let target = layout.nearestWindowIndex(toOffsetFromTop: start + offset) else { return }
         dragTargetIndex = target
-        if !draggingStack, let window = draggedWindow { onHold(window, offset) }
+        if !draggingStack, let window = draggedWindow {
+            onHold(window, offset)
+            onDragTarget(window, target)
+        }
     }
 
     private func dragEnded(offset: CGFloat) {
@@ -645,6 +650,7 @@ struct StripView: View {
     private static let settleDuration: TimeInterval = 0.22
 
     private func endDrag() {
+        onDragTarget(nil, 0)
         draggingID = nil
         draggingStack = false
         dragMoved = false

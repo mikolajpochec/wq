@@ -11,54 +11,66 @@ final class GroupPanelState: ObservableObject {
     @Published var isPeek = false
 }
 
-/// The contents of a group, beside the strip: one row per window, with its title.
+/// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
+/// material, the same size — it reads as a continuation of the strip rather than a menu.
 struct GroupPanelView: View {
     @ObservedObject var state: GroupPanelState
-    let iconSize: CGFloat
+    @ObservedObject var store: PreferencesStore
     var pick: (ManagedWindow) -> Void
 
+    private var prefs: Preferences { store.prefs }
+    private var side: StripSide { prefs.stripSide }
+
+    private var stack: AnyLayout {
+        side.isVertical
+            ? AnyLayout(VStackLayout(spacing: StripMetrics.spacing))
+            : AnyLayout(HStackLayout(spacing: StripMetrics.spacing))
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Group \(state.number)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.bottom, 2)
+        stack {
             ForEach(state.windows) { window in
                 row(for: window)
             }
         }
-        .padding(6)
-        .frame(width: 260, alignment: .leading)
+        .padding(StripMetrics.padding)
+        .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
+               height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.regularMaterial)
+            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
+                .fill(.ultraThinMaterial)
+                .opacity(prefs.stripOpacity)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(state.isPeek ? Color.primary.opacity(0.15) : Color.accentColor.opacity(0.5),
+            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
+                .strokeBorder(state.isPeek ? Color.primary.opacity(0.12) : Color.accentColor.opacity(0.55),
                               lineWidth: state.isPeek ? 1 : 1.5)
         )
+        .padding(4)
     }
 
     private func row(for window: ManagedWindow) -> some View {
         let selected = window.id == state.selectedID
-        return HStack(spacing: 8) {
+        return Group {
             if let icon = window.icon {
-                Image(nsImage: icon).resizable().frame(width: iconSize * 0.8, height: iconSize * 0.8)
+                Image(nsImage: icon).resizable().interpolation(.high)
+            } else {
+                RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs))
+                    .fill(Color.secondary.opacity(0.3))
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(window.displayTitle).lineLimit(1)
-                Text(window.appName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .frame(width: prefs.iconSize, height: prefs.iconSize)
+        .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(selected ? Color.accentColor.opacity(0.3) : .clear)
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .fill(selected ? Color.accentColor.opacity(0.28) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5)
         )
         .contentShape(Rectangle())
+        .help(window.displayTitle)
         // The panel is never key, so a zero-distance drag is what registers a click in it.
         .gesture(DragGesture(minimumDistance: 0).onEnded { _ in pick(window) })
     }
@@ -92,7 +104,7 @@ final class GroupPanelController {
         state.selectedID = selected
         state.isPeek = peek
 
-        let view = GroupPanelView(state: state, iconSize: store.prefs.iconSize) { [weak self] window in
+        let view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
         }
         let hosting = self.hosting ?? NSHostingView(rootView: view)
@@ -125,16 +137,17 @@ final class GroupPanelController {
         }
         let screen = NSScreen.screens.first { $0.frame.intersects(anchor.frame) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
-        // Beside the entry, kept on screen: a group near the end of the strip still shows in full.
-        let clampedY = min(max(anchor.frame.midY - size.height / 2, visible.minY + margin),
+        // The second strip runs alongside the first, starting level with the group's own entry, and
+        // is nudged back on screen when the group sits near the end of the strip.
+        let alignedY = min(max(anchor.frame.maxY - size.height, visible.minY + margin),
                            visible.maxY - size.height - margin)
-        let clampedX = min(max(anchor.frame.midX - size.width / 2, visible.minX + margin),
+        let alignedX = min(max(anchor.frame.minX, visible.minX + margin),
                            visible.maxX - size.width - margin)
         switch anchor.side {
-        case .left: return NSPoint(x: anchor.frame.maxX + margin, y: clampedY)
-        case .right: return NSPoint(x: anchor.frame.minX - size.width - margin, y: clampedY)
-        case .top: return NSPoint(x: clampedX, y: anchor.frame.minY - size.height - margin)
-        case .bottom: return NSPoint(x: clampedX, y: anchor.frame.maxY + margin)
+        case .left: return NSPoint(x: anchor.frame.maxX, y: alignedY)
+        case .right: return NSPoint(x: anchor.frame.minX - size.width, y: alignedY)
+        case .top: return NSPoint(x: alignedX, y: anchor.frame.minY - size.height)
+        case .bottom: return NSPoint(x: alignedX, y: anchor.frame.maxY)
         }
     }
 }
