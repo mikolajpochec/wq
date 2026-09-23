@@ -211,7 +211,8 @@ final class StripController {
     private func badgeFrame(of strip: ScreenStrip) -> NSRect? {
         let panel = strip.panel.frame
         let prefs = store.prefs
-        let start = contentStart(inPanelLength: mainLength(of: panel)) + StripMetrics.padding
+        // The badge is drawn inside a row-sized element, inset by the row's own padding.
+        let start = contentStart(inPanelLength: mainLength(of: panel)) + StripMetrics.padding + 4
         let size = prefs.iconSize
         let thickness = StripMetrics.thickness(prefs: prefs)
         let crossInset = (thickness - size) / 2

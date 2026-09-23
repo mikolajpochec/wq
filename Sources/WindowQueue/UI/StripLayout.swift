@@ -80,7 +80,8 @@ struct StripLayout {
 
         let heights = elements.map { element -> CGFloat in
             switch element {
-            case .badge: return prefs.iconSize
+            // The badge is inset like a row, so the gap above it matches the gap beside it.
+            case .badge: return StripMetrics.rowHeight(prefs: prefs)
             case .window: return StripMetrics.rowHeight(prefs: prefs)
             case .emptySlot: return StripMetrics.slotLength(prefs: prefs)
             case .hiddenStack: return StripMetrics.stackLength(prefs: prefs)

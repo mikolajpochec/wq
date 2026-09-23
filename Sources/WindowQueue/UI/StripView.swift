@@ -211,6 +211,9 @@ struct StripView: View {
                     .fill(badgeFill)
             )
             .animation(.easeOut(duration: 0.25), value: screen.backdropIsLight)
+            // The same inset every row has, so the badge sits the same distance from the end of the
+            // strip as the icons do from its sides.
+            .padding(4)
             .help("Current workspace")
     }
 
