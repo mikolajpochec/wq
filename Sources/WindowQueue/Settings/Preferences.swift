@@ -205,6 +205,8 @@ struct Preferences: Codable, Equatable {
     var stripAlignment: StripAlignment = .center
     /// Gap between the strip and the screen edges around it.
     var stripMargin: Double = 8
+    /// No longer set by hand: the strip is as thick as an icon row needs. Kept so an old stored
+    /// blob still decodes.
     var stripWidth: Double = 36
     var iconSize: Double = 26
     var showSpaceBadge: Bool = true

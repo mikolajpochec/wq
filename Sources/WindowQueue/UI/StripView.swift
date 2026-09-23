@@ -108,8 +108,8 @@ struct StripView: View {
         .animation(.easeOut(duration: 0.2), value: model.maximizedID)
         .animation(StripMetrics.layoutAnimation, value: collapsedIDs)
         .padding(StripMetrics.padding)
-        .frame(width: side.isVertical ? prefs.stripWidth : nil,
-               height: side.isVertical ? nil : prefs.stripWidth)
+        .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
+               height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the strip's own background.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
         .background(alignment: side.isVertical ? .top : .leading) { maximizedGroupBackground }
@@ -539,6 +539,12 @@ enum StripMetrics {
     /// window's place; the dashes and hatching are what tell it apart.
     static func slotThickness(prefs: Preferences) -> CGFloat { prefs.iconSize }
     static func slotLength(prefs: Preferences) -> CGFloat { slotThickness(prefs: prefs) + 8 }
+
+    /// How thick the strip is: a row, plus the padding around the content. It follows the icon
+    /// size rather than being set on its own — a strip narrower than its icons only clipped them.
+    static func thickness(prefs: Preferences) -> CGFloat {
+        rowHeight(prefs: prefs) + padding * 2
+    }
 
     /// Point size of the title drawn across an icon. Small, and the same whatever the icon size.
     static let labelSize: CGFloat = 10

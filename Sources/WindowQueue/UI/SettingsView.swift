@@ -264,7 +264,6 @@ struct SettingsView: View {
             }
 
             Section("Appearance") {
-                sliderRow("Thickness", value: $store.prefs.stripWidth, in: 30...90, step: 2, format: Self.points)
                 sliderRow("Icon size", value: $store.prefs.iconSize, in: 16...48, step: 2, format: Self.points)
                 sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
                 Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)

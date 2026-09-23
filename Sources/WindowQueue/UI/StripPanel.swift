@@ -213,7 +213,7 @@ final class StripController {
         let prefs = store.prefs
         let start = contentStart(inPanelLength: mainLength(of: panel)) + StripMetrics.padding
         let size = prefs.iconSize
-        let thickness = prefs.stripWidth
+        let thickness = StripMetrics.thickness(prefs: prefs)
         let crossInset = (thickness - size) / 2
         switch prefs.stripSide {
         case .left:
@@ -283,7 +283,9 @@ final class StripController {
     }
 
     private func build(on screen: NSScreen) -> ScreenStrip {
-        let panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: store.prefs.stripWidth, height: 100))
+        let panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0,
+                                                     width: StripMetrics.thickness(prefs: store.prefs),
+                                                     height: 100))
         let state = StripScreenState()
         let view = StripView(model: model, store: store, screen: state, onSelect: onSelect) { [weak self, weak panel] window, offset in
             guard let self else { return }
@@ -319,7 +321,7 @@ final class StripController {
         let margin = store.prefs.stripMargin
         // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
         // strip, so it is always as thick as the strip can ever get.
-        let thickness = prefs.stripWidth * max(1, prefs.aimingScale)
+        let thickness = StripMetrics.thickness(prefs: prefs) * max(1, prefs.aimingScale)
         let target: NSRect
         switch prefs.stripSide {
         case .left:
