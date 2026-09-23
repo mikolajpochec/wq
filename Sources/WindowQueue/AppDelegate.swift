@@ -113,9 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.select(id: window.id, announce: false)
                 self.focus(window, warpCursor: false)
             },
-            onHold: { window in
+            onHold: { [weak self] window in
                 if let window {
                     toast.show(window, pinned: true)
+                } else if self?.strip?.isDragging == true {
+                    // Dropped mid-drag, so it goes at once rather than trailing the icon.
+                    toast.hideNow()
                 } else {
                     toast.endHold()
                 }

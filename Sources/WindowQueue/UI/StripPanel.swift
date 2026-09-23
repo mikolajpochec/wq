@@ -343,7 +343,10 @@ final class StripController {
             guard let self else { return }
             if window != nil { self.pointerStrip = self.strips.values.first { $0.panel === panel } }
             self.dragOffset = window.map { ($0.id, offset) }
-            self.onHold(window)
+            // Carrying the icon, the name is beside the point: the user picked the window and is
+            // watching where it will land. The drag itself is still tracked, so hovering stays shut
+            // off until the icon is dropped.
+            self.onHold(abs(offset) >= 4 ? nil : window)
         }
         view.onDragTarget = { [weak self] window, target in self?.onDragTarget?(window, target) }
         view.onBadgeTap = { [weak self] in self?.onBadgeTap?() }
@@ -580,6 +583,9 @@ final class StripController {
         let centreX = panel.minX + along
         return NSRect(x: centreX - rowLength / 2, y: panel.minY, width: rowLength, height: panel.height)
     }
+
+    /// An icon is being carried along the strip.
+    var isDragging: Bool { dragOffset != nil }
 
     var side: StripSide { store.prefs.stripSide }
 }
