@@ -76,15 +76,15 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Maximized windows") {
+            Section("Fullscreen windows") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Focus on a maximized window", isOn: $store.prefs.focusMaximizedWindow)
-                    caption("Maximizing a window moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was.")
+                    Toggle("Focus on the fullscreen window", isOn: $store.prefs.focusMaximizedWindow)
+                    caption("Sending a window fullscreen moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was. Plain maximizing leaves the queue alone.")
                 }
                 if store.prefs.focusMaximizedWindow {
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("Collapse the windows it covers", isOn: $store.prefs.collapseCoveredWindows)
-                        caption("The covered windows fold into one tile beside it, showing the first few icons and how many there are. Off, they keep a row each and are tinted instead.")
+                        caption("The windows the fullscreen one covers fold into one tile beside it, showing the first few icons and how many there are. Off, they keep a row each and are tinted instead.")
                     }
                 }
             }

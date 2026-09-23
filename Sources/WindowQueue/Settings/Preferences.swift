@@ -247,8 +247,8 @@ struct Preferences: Codable, Equatable {
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
 
-    /// Maximizing a window puts it first on its workspace and dims the rest of that workspace in the
-    /// strip, which cycling then skips until the window is restored.
+    /// Sending a window fullscreen (`toggleMaximize`) puts it first on its workspace and takes the
+    /// rest of that workspace out of the way until it is restored. Plain maximizing does not.
     var focusMaximizedWindow: Bool = true
     /// Draw the covered windows as one cascading tile with their number, rather than leaving a row
     /// for each of them.
