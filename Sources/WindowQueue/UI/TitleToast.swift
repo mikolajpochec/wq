@@ -83,7 +83,10 @@ final class ToastController {
     ///     as the icon is held.
     ///   - everywhere: beside every strip on screen rather than only the one in use.
     func show(_ window: ManagedWindow, pinned: Bool = false, everywhere: Bool = false) {
-        let preview = store.prefs.showWindowPreview ? WindowPreview.image(for: window.id) : nil
+        // Only where the window is not on screen to look at anyway: hovering an icon and aiming,
+        // both of which hold the popup up. Cycling with the keyboard brings the window forward as it
+        // goes, so a picture of it would be a picture of what is already there.
+        let preview = store.prefs.showWindowPreview && pinned ? WindowPreview.image(for: window.id) : nil
         show(title: window.displayTitle, subtitle: window.appName, beside: window.id,
              pinned: pinned, everywhere: everywhere, preview: preview)
     }
