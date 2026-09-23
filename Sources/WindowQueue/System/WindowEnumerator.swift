@@ -18,6 +18,8 @@ final class WindowEnumerator {
     var onWindowResized: ((AXUIElement) -> Void)?
     /// Told when a window moves or takes focus.
     var onWindowSettled: ((AXUIElement) -> Void)?
+    /// Told when a window's frame changed by hand: a move or a resize, never a focus change.
+    var onWindowFrameChanged: ((AXUIElement) -> Void)?
 
     /// A window that took focus before we had it in the queue, adopted once it appears.
     private var pendingExternalFocusID: CGWindowID?
@@ -426,10 +428,12 @@ final class WindowEnumerator {
     private func handle(notification: String, element: AXUIElement) {
         if notification == kAXWindowResizedNotification {
             onWindowResized?(element)
+            onWindowFrameChanged?(element)
             return
         }
         if notification == kAXWindowMovedNotification {
             onWindowSettled?(element)
+            onWindowFrameChanged?(element)
             return
         }
         if notification == kAXFocusedWindowChangedNotification {

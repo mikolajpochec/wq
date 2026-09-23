@@ -213,12 +213,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let enumerator = WindowEnumerator(model: self.model)
             let edgeGuard = ScreenEdgeGuard(store: self.store)
-            enumerator.onWindowResized = { [weak self] element in
-                edgeGuard.windowResized(element)
-                self?.windowFrameChanged(element)
-            }
-            enumerator.onWindowSettled = { [weak self] element in
-                edgeGuard.windowSettled(element)
+            enumerator.onWindowResized = { element in edgeGuard.windowResized(element) }
+            enumerator.onWindowSettled = { element in edgeGuard.windowSettled(element) }
+            // Focus changes arrive as "settled" too, and focusing a window is not moving it.
+            enumerator.onWindowFrameChanged = { [weak self] element in
                 self?.windowFrameChanged(element)
             }
             self.enumerator = enumerator
@@ -432,6 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tilingSettledAt = Date.distantPast
     /// The order the tiled windows were last laid out in, to notice a reorder.
     private var tiledOrder: [CGWindowID] = []
+    /// The frames the layout gave them, to tell a real move from a notification about nothing.
+    private var tiledFrames: [CGWindowID: NSRect] = [:]
 
     private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {
         // Only windows with an element can be placed; the layout is picked for the ones that can,
@@ -457,17 +457,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tiledOrder = windows.map(\.id)
         tilingSettledAt = Date().addingTimeInterval(2)
         model.setTiled(tiledOrder, layout: layout.name)
+        // Read once the tiler has finished its own corrections, so what is stored is where the
+        // windows actually came to rest.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self else { return }
+            for window in windows where self.model.tiledIDs.contains(window.id) {
+                self.tiledFrames[window.id] = WindowTiler.frame(of: window)
+            }
+        }
     }
 
     /// A window was resized or moved. If it was holding a layout and the change was not ours, the
     /// group is broken: the windows stay exactly where they are, they are simply free again.
     private func windowFrameChanged(_ element: AXUIElement) {
         guard !model.tiledIDs.isEmpty, Date() > tilingSettledAt,
-              let id = AXPrivate.windowID(of: element), model.tiledIDs.contains(id)
+              let id = AXPrivate.windowID(of: element), model.tiledIDs.contains(id),
+              let window = model.windows.first(where: { $0.id == id })
         else { return }
+        // Apps report a move for all sorts of reasons, focus among them; only a frame that is
+        // really somewhere else means the user has taken the window out of the layout.
+        if let placed = tiledFrames[id], let now = WindowTiler.frame(of: window),
+           abs(now.minX - placed.minX) <= 4, abs(now.minY - placed.minY) <= 4,
+           abs(now.width - placed.width) <= 4, abs(now.height - placed.height) <= 4 {
+            return
+        }
         Diagnostics.note("tiling broken by a change to window \(id)")
         model.clearTiled()
         tiledOrder = []
+        tiledFrames = [:]
     }
 
     /// The queue order of tiled windows decides their places in the layout, so moving one of them
