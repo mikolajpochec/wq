@@ -112,6 +112,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case minimizeWindow
     case toggleGroup
     case search
+    case openLauncher
+    case showOverview
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
@@ -133,6 +135,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .minimizeWindow: return "Minimize window"
         case .toggleGroup: return "Group or ungroup windows"
         case .search: return "Search windows"
+        case .openLauncher: return "Open the launcher"
+        case .showOverview: return "Show Mission Control"
         default:
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
@@ -157,7 +161,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
-         .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search]
+         .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search,
+         .openLauncher, .showOverview]
     }
 
     static var spaceActions: [HotkeyAction] {
@@ -181,6 +186,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .minimizeWindow: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: superMask)
         case .toggleGroup: return KeyCombo(keyCode: kVK_ANSI_G, modifiers: superMask)
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
+        case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask)
+        case .showOverview: return KeyCombo(keyCode: kVK_ANSI_O, modifiers: superMask)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -268,6 +275,9 @@ struct Preferences: Codable, Equatable {
     /// of the same application. The row keeps its size; the icon gives up the room.
     var showWindowLabels: Bool = false
 
+    /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
+    var launcher: LauncherApp = .spotlight
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -313,6 +323,7 @@ struct Preferences: Codable, Equatable {
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
+        launcher = value(.launcher, defaults.launcher)
     }
 
     init() {}

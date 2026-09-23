@@ -660,6 +660,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleGroup:
                 toggleGroup()
                 return
+            // Both hand the keyboard to something else, so the mode ends first and takes its grab
+            // with it — a launcher that cannot be typed into is no launcher.
+            case .openLauncher, .showOverview:
+                endAiming(commit: false)
             case .maximizeWindow, .minimizeWindow, .closeWindow, .moveToStart, .moveToEnd:
                 if model.aimedWindows.count > 1 {
                     applyToAimedGroup(action)
@@ -715,6 +719,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             closeSelectedWindow()
         case .search:
             search?.toggle()
+        case .openLauncher:
+            SystemLaunchers.open(store.prefs.launcher)
+        case .showOverview:
+            SystemLaunchers.showMissionControl()
         default:
             break
         }

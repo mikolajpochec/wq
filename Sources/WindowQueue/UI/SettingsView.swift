@@ -156,6 +156,18 @@ struct SettingsView: View {
                 .disabled(!store.prefs.aimingEnabled)
             }
 
+            Section("Launcher") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Open with", selection: $store.prefs.launcher) {
+                        ForEach(LauncherApp.allCases) { launcher in
+                            Text(launcher.isAvailable ? launcher.title : "\(launcher.title) (not installed)")
+                                .tag(launcher)
+                        }
+                    }
+                    caption("What the launcher shortcut opens, and what `S` opens in aiming mode. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
+                }
+            }
+
             Section("Name popup") {
                 Toggle("Show the window name after a change", isOn: $store.prefs.toastEnabled)
                 sliderRow("Popup duration", value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5,

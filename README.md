@@ -25,6 +25,9 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
   Shift with a step grows the aimed run, `A` aims at everything within reach — the open group's
   windows from inside one, the whole visible queue otherwise, and again to drop back to one.
+- `⌥S` opens the **launcher** — Spotlight, Raycast or Alfred, whichever Settings names — and `⌥O`
+  opens **Mission Control**. In aiming mode they are `S` and `O`, and the mode steps aside first so
+  the launcher has the keyboard.
 - `⌥Space` opens a **window finder**: type to narrow the queue by application or title, arrows to
   pick, Return to focus. Like aiming mode it takes the keyboard without taking focus.
 - `⌥M` maximizes the selected window to the screen less the strip, and leaves everything else alone.
