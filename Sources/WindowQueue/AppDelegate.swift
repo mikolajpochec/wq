@@ -721,6 +721,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// outside the layout cannot go anywhere on its own.
     private func canGatherAll(_ windows: [ManagedWindow]) -> Bool {
         guard spaceMover.isAvailable else { return false }
+        // Where the WindowServer moves windows one by one, nothing else travels with them.
+        if spaceMover.movesSingleWindows { return true }
         let selected = Set(windows.map(\.id))
         let pids = Set(windows.map(\.pid))
         return !model.windows.contains { window in

@@ -13,9 +13,11 @@ import ApplicationServices
 final class WindowSpaceMover {
     private typealias ConnectionFn = @convention(c) () -> Int32
     private typealias AssignFn = @convention(c) (Int32, pid_t, UInt64) -> Int32
+    private typealias MoveWindowsFn = @convention(c) (Int32, CFArray, UInt64) -> Void
 
     private let connectionID: Int32
     private let assign: AssignFn?
+    private let moveWindows: MoveWindowsFn?
 
     init() {
         let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
@@ -25,9 +27,14 @@ final class WindowSpaceMover {
         }
         connectionID = symbol("CGSMainConnectionID", as: ConnectionFn.self)?() ?? 0
         assign = symbol("SLSProcessAssignToSpace", as: AssignFn.self)
+        moveWindows = symbol("SLSMoveWindowsToManagedSpace", as: MoveWindowsFn.self)
+            ?? symbol("CGSMoveWindowsToManagedSpace", as: MoveWindowsFn.self)
     }
 
-    var isAvailable: Bool { connectionID != 0 && assign != nil }
+    var isAvailable: Bool { connectionID != 0 && (assign != nil || moveWindows != nil) }
+
+    /// Whether single windows can be moved without their application coming along.
+    var movesSingleWindows: Bool { connectionID != 0 && moveWindows != nil }
 
     struct Result {
         /// Windows now on the target workspace, the ones already there included.
@@ -43,7 +50,17 @@ final class WindowSpaceMover {
         var result = Result(arrived: [], leftBehind: [])
         let selected = Set(windows.map(\.id))
 
-        for (pid, group) in Dictionary(grouping: windows, by: \.pid) {
+        // One window at a time, if the WindowServer will do it. `SLSMoveWindowsToManagedSpace` takes
+        // a list of window ids and a space, which is exactly what is wanted here — no application
+        // dragged along. Whether a process that is not the Dock is allowed to call it is not
+        // something the call itself says, so the windows' spaces are read back afterwards and
+        // anything that did not move falls through to moving its application.
+        let stragglers = moveIndividually(windows, to: target)
+        if stragglers.count < windows.count {
+            Diagnostics.note("space mover: moved \(windows.count - stragglers.count) window(s) one by one")
+        }
+
+        for (pid, group) in Dictionary(grouping: stragglers, by: \.pid) {
             let away = group.filter { $0.spaceID != target }
             guard !away.isEmpty else { continue }
 
@@ -74,6 +91,17 @@ final class WindowSpaceMover {
             }
         }
         return result
+    }
+
+    /// Asks the WindowServer to move each window on its own, and hands back the ones still where
+    /// they were — the ones that have to travel with their application instead.
+    private func moveIndividually(_ windows: [ManagedWindow], to target: UInt64) -> [ManagedWindow] {
+        guard let moveWindows else { return windows }
+        let away = windows.filter { $0.spaceID != target }
+        guard !away.isEmpty else { return [] }
+        moveWindows(connectionID, away.map { NSNumber(value: $0.id) } as CFArray, target)
+        let now = SpacesBridge.shared.spaces(forWindows: away.map(\.id))
+        return away.filter { now[$0.id] != target }
     }
 
     /// The window's accessibility element as its app lists it now. A window that arrived from a
