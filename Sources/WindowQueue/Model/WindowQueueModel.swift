@@ -165,18 +165,31 @@ final class WindowQueueModel: ObservableObject {
     /// Every window the aim covers, in queue order: the run from the anchor to the aim — or just
     /// the aimed window — plus any picked one by one.
     var aimedWindows: [ManagedWindow] {
-        let visible = visibleWindows
-        guard let aim = visible.firstIndex(where: { $0.id == aimingID }) else { return [] }
-        var ids = aimPinnedIDs
-        let anchor = visible.firstIndex(where: { $0.id == aimAnchorID }) ?? aim
-        for window in visible[min(aim, anchor)...max(aim, anchor)] { ids.insert(window.id) }
-        // A group aimed at from the strip is aimed at whole; inside one, only what is picked there.
-        if aimInsideGroupID == nil {
-            for id in ids {
-                for member in group(of: id)?.ids ?? [] { ids.insert(member) }
-            }
+        // Inside a group the aim walks that group's own strip, so the run is measured along the
+        // group's windows. Measuring it along the queue would sweep in whatever happens to sit
+        // between two members, which is not on the strip the user is aiming at.
+        if let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) {
+            return run(over: members(of: group))
         }
-        return visible.filter { ids.contains($0.id) }
+        var picked = run(over: visibleWindows)
+        // A group aimed at from the strip is aimed at whole.
+        var ids = Set(picked.map(\.id))
+        for id in ids {
+            for member in group(of: id)?.ids ?? [] { ids.insert(member) }
+        }
+        picked = visibleWindows.filter { ids.contains($0.id) }
+        return picked
+    }
+
+    /// The windows of `candidates` the aim covers: the stretch from the anchor to the aim, plus any
+    /// picked one by one. Anything picked that is not among them is left out — a run only ever
+    /// covers the strip it is drawn on.
+    private func run(over candidates: [ManagedWindow]) -> [ManagedWindow] {
+        guard let aim = candidates.firstIndex(where: { $0.id == aimingID }) else { return [] }
+        var ids = aimPinnedIDs
+        let anchor = candidates.firstIndex(where: { $0.id == aimAnchorID }) ?? aim
+        for window in candidates[min(aim, anchor)...max(aim, anchor)] { ids.insert(window.id) }
+        return candidates.filter { ids.contains($0.id) }
     }
 
     var aimedIDs: Set<CGWindowID> { Set(aimedWindows.map(\.id)) }

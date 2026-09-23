@@ -264,4 +264,74 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.aimedIDs, [2, 3], "started inside a group, A takes that group only")
     }
 
+    // MARK: - Aiming inside a group
+
+    /// Windows 1 and 3 are grouped; window 2 sits between them in the queue and is no part of it.
+    private func scatteredGroupModel() -> WindowQueueModel {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([1, 3])
+        return model
+    }
+
+    func testAimInsideAGroupNeverReachesAWindowBetweenItsMembers() {
+        let model = scatteredGroupModel()
+        model.select(id: 1, announce: false)
+        model.beginAiming()
+        XCTAssertEqual(model.aimInsideGroupID, 1, "aiming started on a grouped window aims in the group")
+        XCTAssertEqual(model.aimedIDs, [1])
+
+        model.extendAim(by: 1)
+        XCTAssertEqual(model.aimingID, 3, "the step lands on the next window of the group, not the queue")
+        XCTAssertEqual(model.aimedIDs, [1, 3], "window 2 is not in the group and must not join the run")
+
+        model.moveAim(by: 1)
+        XCTAssertEqual(model.aimedIDs, [1], "moving the aim wraps within the group")
+        XCTAssertEqual(model.aimingID, 1)
+    }
+
+    func testAimAllInsideAGroupTakesTheGroupAlone() {
+        let model = scatteredGroupModel()
+        model.select(id: 3, announce: false)
+        model.beginAiming()
+        XCTAssertTrue(model.aimAll())
+        XCTAssertEqual(model.aimedIDs, [1, 3])
+    }
+
+    func testPickingAWindowOutsideTheGroupDoesNotJoinTheRunInside() {
+        let model = scatteredGroupModel()
+        model.select(id: 1, announce: false)
+        model.beginAiming()
+        model.toggleAim(2)
+        XCTAssertFalse(model.aimedIDs.contains(2), "a window outside the open group is not on its strip")
+    }
+
+    func testAimingFromTheStripTakesAGroupWholeWithoutItsNeighbours() {
+        let model = scatteredGroupModel()
+        model.select(id: 4, announce: false)
+        model.beginAiming()
+        XCTAssertNil(model.aimInsideGroupID)
+        // The strip shows [group(1, 3)] [2] [4]: two steps back from window 4 is the group.
+        model.moveAim(by: -1)
+        XCTAssertEqual(model.aimingID, 2)
+        model.moveAim(by: -1)
+        XCTAssertEqual(model.aimedGroup?.id, 1, "the aim lands on the group as one stop")
+        XCTAssertEqual(model.aimedIDs, [1, 3], "the group is aimed at whole, and window 2 stays out")
+    }
+
+    func testSteppingIntoAndOutOfAGroupWhileAiming() {
+        let model = scatteredGroupModel()
+        model.select(id: 4, announce: false)
+        model.beginAiming()
+        model.moveAim(by: -2)
+        XCTAssertTrue(model.enterAimedGroup())
+        XCTAssertEqual(model.aimInsideGroupID, 1)
+        XCTAssertEqual(model.aimedIDs, [1], "inside, the aim is on one window of the group")
+
+        model.leaveAimedGroup()
+        XCTAssertNil(model.aimInsideGroupID)
+        XCTAssertEqual(model.aimedIDs, [1, 3], "back outside, the group is one stop again")
+        XCTAssertEqual(model.aimedGroup?.id, 1)
+    }
+
 }
