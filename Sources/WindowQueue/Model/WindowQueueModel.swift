@@ -48,6 +48,11 @@ final class WindowQueueModel: ObservableObject {
         didSet { if spaceOrder != oldValue { updateEmptySlot() } }
     }
 
+    /// The window filling its workspace, which the queue puts first there and cycling sticks to.
+    @Published private(set) var maximizedID: CGWindowID?
+    /// Where that window sat in the queue before, to put it back.
+    private var positionBeforeMaximize: Int?
+
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
 
@@ -186,6 +191,48 @@ final class WindowQueueModel: ObservableObject {
         return index + 1
     }
 
+    // MARK: - Focus on one window
+
+    /// A window has been maximized: it goes to the head of its workspace's run in the queue, and
+    /// everything else on that workspace steps aside — drawn as covered, and skipped while cycling.
+    func beginFocus(on id: CGWindowID) {
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        if maximizedID != id { endFocus() }
+        positionBeforeMaximize = index
+        maximizedID = id
+        guard let space = windows[index].spaceID,
+              let first = windows.firstIndex(where: { $0.spaceID == space })
+        else { return }
+        let window = windows.remove(at: index)
+        windows.insert(window, at: min(first, windows.count))
+    }
+
+    /// The window is no longer maximized: the queue goes back to the order it had.
+    func endFocus() {
+        guard let id = maximizedID else { return }
+        maximizedID = nil
+        defer { positionBeforeMaximize = nil }
+        guard let position = positionBeforeMaximize,
+              let index = windows.firstIndex(where: { $0.id == id })
+        else { return }
+        let window = windows.remove(at: index)
+        windows.insert(window, at: min(max(position, 0), windows.count))
+    }
+
+    /// Whether a window is one of those the maximized window is covering.
+    func isCovered(_ window: ManagedWindow) -> Bool {
+        guard let maximizedID, window.id != maximizedID,
+              let maximized = windows.first(where: { $0.id == maximizedID })
+        else { return false }
+        return window.spaceID != nil && window.spaceID == maximized.spaceID
+    }
+
+    /// Windows cycling can reach: everything, less the ones a maximized window is covering.
+    private var cyclableWindows: [ManagedWindow] {
+        guard maximizedID != nil else { return visibleWindows }
+        return visibleWindows.filter { !isCovered($0) }
+    }
+
     // MARK: - Reconciliation
 
     /// Merges a freshly enumerated set of windows into the queue, preserving existing order.
@@ -235,6 +282,11 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        // A maximized window that has gone takes the covering with it.
+        if let maximizedID, !windows.contains(where: { $0.id == maximizedID }) {
+            self.maximizedID = nil
+            positionBeforeMaximize = nil
+        }
         keepAimOnQueue(previousOrder: previousOrder)
         if autoSortByWorkspace { sortByWorkspace() }
         if let vanished = vanishedSelection {
@@ -299,9 +351,9 @@ final class WindowQueueModel: ObservableObject {
     /// Moves the selection by `delta` positions within the visible slice, wrapping around.
     @discardableResult
     func cycle(by delta: Int) -> ManagedWindow? {
-        let visible = visibleWindows
+        let visible = cyclableWindows
         guard !visible.isEmpty else { return nil }
-        let current = selectedVisiblePosition ?? (delta > 0 ? -1 : 0)
+        let current = visible.firstIndex { $0.id == selectedID } ?? (delta > 0 ? -1 : 0)
         let count = visible.count
         let next = ((current + delta) % count + count) % count
         let window = visible[next]

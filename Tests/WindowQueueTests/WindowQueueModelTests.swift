@@ -166,3 +166,30 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.aimedWindows.count, 1)
     }
 }
+
+extension WindowQueueModelTests {
+    func testMaximizingMovesWindowToFrontOfItsWorkspaceAndBack() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 20)])
+        model.select(id: 3, announce: false)
+        model.beginFocus(on: 3)
+        XCTAssertEqual(ids(model), [3, 1, 2, 4])
+
+        // Cycling stays on the maximized window while the rest of its workspace is covered.
+        XCTAssertTrue(model.isCovered(model.windows[1]))
+        XCTAssertFalse(model.isCovered(model.windows[3]))
+        XCTAssertEqual(model.cycle(by: 1)?.id, 4)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 3)
+
+        model.endFocus()
+        XCTAssertEqual(ids(model), [1, 2, 3, 4])
+        XCTAssertFalse(model.isCovered(model.windows[0]))
+    }
+
+    func testClosingTheMaximizedWindowEndsTheFocus() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10)])
+        model.beginFocus(on: 2)
+        model.reconcile(with: [window(1, space: 10)])
+        XCTAssertNil(model.maximizedID)
+        XCTAssertFalse(model.isCovered(model.windows[0]))
+    }
+}

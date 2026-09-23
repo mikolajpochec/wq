@@ -76,6 +76,13 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Maximized windows") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Focus on a maximized window", isOn: $store.prefs.focusMaximizedWindow)
+                    caption("Maximizing a window moves it to the front of its workspace in the queue and tints the workspace's other windows blue in the strip. Cycling then stays on the maximized window until it is restored, which puts the queue back as it was.")
+                }
+            }
+
             Section("Window titles") {
                 caption(titlesExplanation)
                 if !ScreenRecordingAccess.isGranted {

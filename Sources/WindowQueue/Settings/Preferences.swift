@@ -239,6 +239,10 @@ struct Preferences: Codable, Equatable {
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
 
+    /// Maximizing a window puts it first on its workspace and dims the rest of that workspace in the
+    /// strip, which cycling then skips until the window is restored.
+    var focusMaximizedWindow: Bool = true
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -278,6 +282,7 @@ struct Preferences: Codable, Equatable {
         trimWindowsOutsideReservation = value(.trimWindowsOutsideReservation, defaults.trimWindowsOutsideReservation)
         launchAtLogin = value(.launchAtLogin, defaults.launchAtLogin)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
+        focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
     }
 
     init() {}

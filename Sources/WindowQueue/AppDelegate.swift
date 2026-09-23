@@ -518,10 +518,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {
             framesBeforeMaximize[window.id] = nil
             WindowTiler.restore(window, to: previous)
+            model.endFocus()
             return
         }
         framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
         WindowTiler.fill(window, in: area)
+        if store.prefs.focusMaximizedWindow { model.beginFocus(on: window.id) }
     }
 
     /// Near enough to the maximized frame to count as maximized; apps round and snap to their own

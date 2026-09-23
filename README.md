@@ -25,6 +25,9 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
 - `⌥Space` opens a **window finder**: type to narrow the queue by application or title, arrows to
   pick, Return to focus. Like aiming mode it takes the keyboard without taking focus.
+- Maximizing a window (`⌥F`, again to restore) also focuses the queue on it: it moves to the front of
+  its workspace, the workspace's other windows are tinted blue in the strip, and cycling skips them
+  until the window is restored, which puts the order back. Off in Settings › General.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.

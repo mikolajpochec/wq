@@ -102,6 +102,7 @@ struct StripView: View {
         }
         .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
         .animation(.easeOut(duration: 0.16), value: model.selectedID)
+        .animation(.easeOut(duration: 0.2), value: model.maximizedID)
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? prefs.stripWidth : nil,
                height: side.isVertical ? nil : prefs.stripWidth)
@@ -280,6 +281,11 @@ struct StripView: View {
         }
     }
 
+    /// A window the maximized one is covering: still in the queue, just not in the way.
+    private func isCovered(_ window: ManagedWindow) -> Bool {
+        prefs.focusMaximizedWindow && model.isCovered(window)
+    }
+
     private func row(for window: ManagedWindow) -> some View {
         // While a run of windows is aimed, that run is the only highlight on the strip.
         let isSelected = window.id == model.selectedID && !isAimingRun
@@ -290,16 +296,18 @@ struct StripView: View {
         let isAimCursor = window.id == model.aimingID && !isAimingRun
         let isAimed = isAimCursor
         let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
+        let covered = isCovered(window)
         return ZStack(alignment: .bottomTrailing) {
             icon(for: window)
                 .frame(width: prefs.iconSize, height: prefs.iconSize)
-                .opacity(window.isMinimized ? 0.45 : 1)
-
+                .opacity(window.isMinimized ? 0.45 : covered ? 0.5 : 1)
+                // Behind the maximized window, and out of the way until it is restored.
+                .saturation(covered ? 0.2 : 1)
         }
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(highlight?.opacity(0.28) ?? .clear)
+                .fill(highlight?.opacity(0.28) ?? (covered ? Color.blue.opacity(0.22) : .clear))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
