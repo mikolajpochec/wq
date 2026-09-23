@@ -327,11 +327,15 @@ final class GroupPanelController {
         }()
         self.panel = panel
         // Room for the grown strip: the panel cannot resize mid-animation without clipping it.
+        // The size is worked out from the rows rather than read off the hosting view: SwiftUI lays
+        // the new contents out on a later turn, so `fittingSize` here still describes the old ones
+        // and the panel would keep the wrong size and place until the next change.
         let scale = max(1, store.prefs.aimingScale)
-        let content = hosting.fittingSize
+        let thickness = StripMetrics.thickness(prefs: store.prefs)
+        let along = contentLength(rows: rowCount(of: windows, covered: coveredIDs))
         let size = store.prefs.stripSide.isVertical
-            ? NSSize(width: content.width * scale, height: content.height * state.scale)
-            : NSSize(width: content.width * state.scale, height: content.height * scale)
+            ? NSSize(width: thickness * scale, height: along * state.scale)
+            : NSSize(width: along * state.scale, height: thickness * scale)
         panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
         if !panel.isVisible {
             panel.orderFrontRegardless()
@@ -380,13 +384,21 @@ final class GroupPanelController {
     /// - Parameter aiming: while aiming the strip is drawn larger, and takes more room with it.
     func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = [], aiming: Bool = false) -> CGFloat {
         guard windows.count > 1 else { return 0 }
-        let prefs = store.prefs
-        // Covered windows share one tile, so they take the room of a single row.
+        let content = contentLength(rows: rowCount(of: windows, covered: covered))
+        return content * (aiming ? max(1, store.prefs.aimingScale) : 1) + Self.gap
+    }
+
+    /// Rows the group's strip draws: covered windows share the cascade tile, so they count as one.
+    private func rowCount(of windows: [ManagedWindow], covered: Set<CGWindowID>) -> Int {
         let hidden = windows.count { covered.contains($0.id) }
-        let rows = CGFloat(windows.count - hidden + (hidden > 0 ? 1 : 0))
-        let content = StripMetrics.padding * 2 + rows * StripMetrics.rowHeight(prefs: prefs)
-            + max(0, rows - 1) * StripMetrics.spacing
-        return content * (aiming ? max(1, prefs.aimingScale) : 1) + Self.gap
+        return windows.count - hidden + (hidden > 0 ? 1 : 0)
+    }
+
+    /// How long that many rows are, padding included, before aiming scales them.
+    private func contentLength(rows: Int) -> CGFloat {
+        let count = CGFloat(rows)
+        return StripMetrics.padding * 2 + count * StripMetrics.rowHeight(prefs: store.prefs)
+            + max(0, count - 1) * StripMetrics.spacing
     }
 
     /// Screen rect of one window's row in the group's strip, so the name popup points at the icon
