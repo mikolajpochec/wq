@@ -710,6 +710,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// again — the tiler keeps correcting them for a moment after it places them.
     private func noteTiled(_ windows: [ManagedWindow], layout: TileLayout) {
         tilingSettledAt = Date().addingTimeInterval(2)
+        // A window laid out in a group is no longer a maximized one: its place now comes from the
+        // layout, and the size it had before it was ever maximized is no longer anything to go back
+        // to — or, worse, to grow back into when the screen's room changes.
+        for window in windows { framesBeforeMaximize.removeValue(forKey: window.id) }
         guard let group = model.setTiled(windows.map(\.id), layout: layout.name) else { return }
         tiledOrders[group.id] = group.ids
         // Read once the tiler has finished its own corrections, so what is stored is where the
@@ -848,8 +852,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Windows that were maximized and have not been touched since are still where WindowQueue
         // put them, so they take the new room too. One the user has moved or resized is theirs
         // again, and is left exactly as they left it.
+        let tiled = Set(model.tiledGroups.flatMap(\.ids))
         for window in model.windows where window.id != model.maximizedID {
-            guard framesBeforeMaximize[window.id] != nil,
+            // Windows held in a layout were laid out above; filling one would break its group.
+            guard !tiled.contains(window.id),
+                  framesBeforeMaximize[window.id] != nil,
                   let current = WindowTiler.frame(of: window)
             else { continue }
             let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
