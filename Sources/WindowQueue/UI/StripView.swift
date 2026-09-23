@@ -21,6 +21,8 @@ struct StripView: View {
     var onHold: (ManagedWindow?, CGFloat) -> Void
     /// The window being dragged and the queue position it would land in, or nil once it is dropped.
     var onDragTarget: (ManagedWindow?, Int) -> Void = { _, _ in }
+    /// The current-workspace badge was clicked.
+    var onBadgeTap: () -> Void = {}
 
     /// Drags are measured in this space rather than against a row, because a row moves while it is
     /// being dragged and a translation measured against a moving view lags behind the cursor.
@@ -33,6 +35,8 @@ struct StripView: View {
     /// Where the dragged icon started, captured once: headers come and go as the preview reorders,
     /// so recomputing this mid-drag would shift the icon out from under the cursor.
     @State private var dragOriginTop: CGFloat = 0
+    /// Where the press started, so a click that lands on no icon can still be placed.
+    @State private var dragStart: CGFloat = 0
     /// The collapsed tile is being dragged, which moves every window inside it as one.
     @State private var draggingStack = false
     /// The pointer has actually travelled: a press on its own is a click, not a drag.
@@ -603,6 +607,7 @@ struct StripView: View {
 
     private func dragChanged(start: CGFloat, offset: CGFloat) {
         let layout = committedLayout
+        dragStart = start
 
         if draggingID == nil {
             guard let origin = layout.windowIndex(atOffsetFromTop: start),
@@ -643,6 +648,10 @@ struct StripView: View {
             return
         }
         guard let window = draggedWindow else {
+            // A click on the badge is a click on the workspace itself, which opens aiming mode.
+            if abs(offset) < Self.dragThreshold, committedLayout.isBadge(atOffsetFromTop: dragStart) {
+                onBadgeTap()
+            }
             endDrag()
             return
         }

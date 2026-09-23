@@ -165,6 +165,13 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
          .openLauncher, .showOverview]
     }
 
+    /// What a double tap of the super key can be bound to: anything that makes sense with no window
+    /// picked out first.
+    static var doubleTapActions: [HotkeyAction] {
+        [.openLauncher, .showOverview, .search, .toggleMaximize, .maximizeWindow, .minimizeWindow,
+         .toggleGroup, .closeWindow, .sortByWorkspace, .moveToStart, .moveToEnd]
+    }
+
     static var spaceActions: [HotkeyAction] {
         allCases.filter { $0.spaceIndex != nil }
     }
@@ -278,6 +285,10 @@ struct Preferences: Codable, Equatable {
     /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
+    /// What a second tap of the super key does, straight after the first one opened aiming mode.
+    /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
+    var superDoubleTapAction: HotkeyAction?
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -324,6 +335,7 @@ struct Preferences: Codable, Equatable {
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
         launcher = value(.launcher, defaults.launcher)
+        superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
     }
 
     init() {}

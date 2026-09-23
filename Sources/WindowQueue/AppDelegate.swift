@@ -9,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeys = HotkeyManager()
     private let modifierTaps = ModifierTapMonitor()
     private let aimingKeys = AimingKeyCapture()
+    /// When aiming mode last opened, for telling a double tap of the super key from two separate ones.
+    private var aimingOpenedAt = Date.distantPast
+    /// Aiming was opened with the mouse, so it offers its actions as tiles to click.
+    private var aimStartedWithPointer = false
     private var dimOverlay: DimOverlay?
     private let orderStore = QueueOrderStore()
     private var search: SearchController?
@@ -154,6 +158,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         strip.onDragTarget = { [weak self] window, target in
             self?.previewTilePlacement(of: window, at: target)
+        }
+        // The workspace badge stands for the workspace itself: clicking it opens aiming mode, which
+        // is the keyboard-free way into everything the mode can do.
+        strip.onBadgeTap = { [weak self] in
+            guard let self, self.model.aimingID == nil else { return }
+            self.beginAiming(fromPointer: true)
         }
         // Hovering a group names it; opening it is a click, so the pointer can cross the strip
         // without strips unfolding under it.
@@ -317,14 +327,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The finder has the keyboard; a second grab on top of it would leave it deaf to typing.
         guard store.prefs.aimingEnabled, search?.isOpen != true else { return }
         if model.aimingID != nil {
-            // The same tap that opened the mode confirms it, so a switch is one key, twice.
+            // A second tap right on the heels of the first is a double tap, which can be bound to
+            // an action of its own; later on it is the plain confirm, and a switch is one key twice.
+            if let action = store.prefs.superDoubleTapAction,
+               Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
+                endAiming(commit: false)
+                perform(action)
+                return
+            }
             endAiming(commit: true)
         } else {
             beginAiming()
         }
     }
 
-    private func beginAiming() {
+    /// How long after opening aiming mode a second tap of the super key still counts as a double tap.
+    private static let doubleTapInterval: TimeInterval = 0.4
+
+    private func beginAiming(fromPointer: Bool = false) {
+        aimingOpenedAt = Date()
+        aimStartedWithPointer = fromPointer
         guard !model.visibleWindows.isEmpty else {
             Diagnostics.note("aiming: nothing to aim at")
             return

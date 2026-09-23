@@ -162,6 +162,15 @@ struct StripLayout {
         return nil
     }
 
+    /// Whether the point falls on the current-workspace badge at the head of the strip.
+    func isBadge(atOffsetFromTop offset: CGFloat) -> Bool {
+        for (index, element) in elements.enumerated() {
+            guard case .badge = element else { continue }
+            return offset >= tops[index] && offset < tops[index] + heights[index] + StripMetrics.spacing
+        }
+        return false
+    }
+
     /// Whether the point falls on the tile the covered windows are collapsed into.
     func isHiddenStack(atOffsetFromTop offset: CGFloat) -> Bool {
         for (index, element) in elements.enumerated() {

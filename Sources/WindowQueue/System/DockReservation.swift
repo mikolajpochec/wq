@@ -145,6 +145,21 @@ final class DockReservation {
               screen == NSScreen.screens.first
         else { return frame }
         let gap = CGFloat(RectangleIntegration.reservedWidth(for: prefs))
+        // Installing the rect and the screen picking it up are two different moments, and a display
+        // being plugged or unplugged pulls them apart: the Dock rewrites its own rect, every app is
+        // told, and ours goes back in a beat later. Giving back a gap that the frame does not
+        // actually carry would put the strip a gap outside the screen and take it back on the next
+        // pass — which is the strip jittering across a display change. So look at the frame itself.
+        let outer = screen.frame
+        let carriesGap: Bool
+        switch prefs.stripSide {
+        case .left: carriesGap = frame.minX - outer.minX >= gap - 0.5
+        case .right: carriesGap = outer.maxX - frame.maxX >= gap - 0.5
+        // The menu bar is taken off the top as well, and it is never thinner than the status bar.
+        case .top: carriesGap = outer.maxY - frame.maxY >= NSStatusBar.system.thickness + gap - 0.5
+        case .bottom: carriesGap = frame.minY - outer.minY >= gap - 0.5
+        }
+        guard carriesGap else { return frame }
         switch prefs.stripSide {
         case .left:
             frame.origin.x -= gap

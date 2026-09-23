@@ -150,6 +150,16 @@ struct SettingsView: View {
                     Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
                     caption("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Double tap of the super key", selection: $store.prefs.superDoubleTapAction) {
+                        Text("Confirm the aim").tag(HotkeyAction?.none)
+                        ForEach(HotkeyAction.doubleTapActions) { action in
+                            Text(action.title).tag(HotkeyAction?.some(action))
+                        }
+                    }
+                    caption("Two taps of the super key in quick succession. Confirming focuses the aimed window, which is what the second tap does on its own; any other choice leaves aiming mode and runs that action instead.")
+                }
+                .disabled(!store.prefs.aimingEnabled)
                 sliderRow("Dim the screens", value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05) {
                     $0 == 0 ? "off" : Self.percent($0)
                 }

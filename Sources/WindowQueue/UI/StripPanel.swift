@@ -129,6 +129,8 @@ final class StripController {
     var onGroupHover: (((group: WindowQueueModel.WindowGroup, row: ManagedWindow)?) -> Void)?
     /// The window being dragged along the strip and where it would land, or nil once dropped.
     var onDragTarget: ((ManagedWindow?, Int) -> Void)?
+    /// The current-workspace badge was clicked.
+    var onBadgeTap: (() -> Void)?
 
     /// Keyed by display id. Panels are kept while hidden so coming back is instant and nothing is
     /// rebuilt when a screen switches to a fullscreen space and back.
@@ -316,6 +318,7 @@ final class StripController {
             self.onHold(window)
         }
         view.onDragTarget = { [weak self] window, target in self?.onDragTarget?(window, target) }
+        view.onBadgeTap = { [weak self] in self?.onBadgeTap?() }
         let hosting = HoverHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         panel.acceptsMouseMovedEvents = true
