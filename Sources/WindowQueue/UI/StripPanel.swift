@@ -368,9 +368,12 @@ final class StripController {
     /// Distance from the start of the panel — its top for a vertical strip, its left for a
     /// horizontal one — to the start of the strip content, which alignment places along the edge.
     private func contentStart(inPanelLength length: CGFloat) -> CGFloat {
-        let margin = store.prefs.stripMargin
-        let free = max(0, length - margin * 2 - contentLayout.totalHeight)
-        return margin + free * store.prefs.stripAlignment.fraction
+        let alignment = store.prefs.stripAlignment
+        // Flush with the end it is aligned to; the margin only keeps the other end off the edge.
+        let leading = alignment == .start ? 0 : store.prefs.stripMargin
+        let trailing = alignment == .end ? 0 : store.prefs.stripMargin
+        let free = max(0, length - leading - trailing - contentLayout.totalHeight)
+        return leading + free * alignment.fraction
     }
 
     private func mainLength(of rect: NSRect) -> CGFloat {

@@ -46,7 +46,10 @@ struct StripView: View {
         // is also thicker than the strip, leaving room for aiming mode to grow into, so the strip
         // is pinned to the screen edge it lives on.
         strip
-            .padding(side.isVertical ? .vertical : .horizontal, prefs.stripMargin)
+            // The margin is a gap from the screen edge, not from the end of the strip: aligned to
+            // the start or the end, the strip lines up with the windows beside it.
+            .padding(side.isVertical ? .top : .leading, prefs.stripAlignment == .start ? 0 : prefs.stripMargin)
+            .padding(side.isVertical ? .bottom : .trailing, prefs.stripAlignment == .end ? 0 : prefs.stripMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Self.placement(of: prefs))
     }
 
