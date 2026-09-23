@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var aimStartedWithPointer = false
     /// Watches for a click anywhere outside WindowQueue's own panels while aiming.
     private var aimClickMonitor: Any?
+    /// Shows the mode once it is clear the tap was not the first half of a double tap.
+    private var aimingReveal: DispatchWorkItem?
     private var dimOverlay: DimOverlay?
     private let orderStore = QueueOrderStore()
     private var search: SearchController?
@@ -337,6 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let action = store.prefs.superDoubleTapAction,
                Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
                 endAiming(commit: false)
+                // Nothing of the mode should linger behind the action the double tap asked for.
+                toast?.hideNow()
                 perform(action)
                 return
             }
@@ -378,9 +382,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.note("aiming: begin at \(aimed.map { "\($0.appName) \($0.id)" } ?? "nil")")
         aimingKeys.begin()
         watchForClicksOutside()
-        syncActionPanel()
-        dimOverlay?.show()
-        if let aimed { toast?.show(aimed, pinned: true, everywhere: true) }
+
+        // With a double tap bound to something, the first tap may only be the start of it: hold the
+        // popup and the dimming back for as long as the second tap could still arrive, so the screen
+        // does not flash the mode up and take it away again. The keys are grabbed from the off all
+        // the same, so nothing typed in between reaches the app in front.
+        let show = { [weak self] in
+            guard let self, self.model.aimingID != nil else { return }
+            self.syncActionPanel()
+            self.dimOverlay?.show()
+            if let aimed { self.toast?.show(aimed, pinned: true, everywhere: true) }
+        }
+        aimingReveal?.cancel()
+        guard store.prefs.superDoubleTapAction != nil, !fromPointer else {
+            show()
+            return
+        }
+        let work = DispatchWorkItem(block: show)
+        aimingReveal = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.doubleTapInterval, execute: work)
     }
 
     private func endAiming(commit: Bool) {
@@ -390,6 +410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tilingMenu.hide()
         aimingKeys.end()
         stopWatchingForClicksOutside()
+        aimingReveal?.cancel()
+        aimingReveal = nil
         actionPanel.hide()
         dimOverlay?.hide()
         toast?.endHold()
