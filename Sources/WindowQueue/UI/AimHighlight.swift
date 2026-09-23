@@ -28,7 +28,10 @@ final class AimHighlightOverlay {
         let work = DispatchWorkItem { [weak panel] in
             guard let panel else { return }
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
+                // Up at once and gone slowly: the outline is a confirmation, and one that vanishes
+                // the moment it appears reads as a glitch.
+                context.duration = 0.5
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             } completionHandler: {
                 if panel.alphaValue == 0 { panel.orderOut(nil) }

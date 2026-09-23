@@ -25,6 +25,8 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
   Shift with a step grows the aimed run, `A` aims at everything within reach — the open group's
   windows from inside one, the whole visible queue otherwise, and again to drop back to one.
+- `⌥I` — or `I` in aiming mode, which stays open — hides or shows the strip, saying which it now is,
+  and the windows WindowQueue placed are laid out again for the room that just changed.
 - **Invisible mode** (Settings › Strip › Visibility) keeps the strip off screen except while aiming,
   where it swings open from its edge like a page; the queue works as always and a change is announced
   by the name popup alone.

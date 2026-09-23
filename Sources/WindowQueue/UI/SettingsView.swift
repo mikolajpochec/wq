@@ -169,9 +169,9 @@ struct SettingsView: View {
             Section("Focus") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Outline the window focus lands on", isOn: $store.prefs.flashFocusedWindow)
-                    caption("A brief outline around the window that just took focus, in the selection colour — the same mark aiming mode draws around what it is pointing at.")
+                    caption("A brief outline around the window that just took focus, in the selection colour — the same mark aiming mode draws around what it is pointing at. It appears at once, holds, then fades over half a second.")
                 }
-                sliderRow("Outline stays for", value: $store.prefs.flashFocusedWindowDuration,
+                sliderRow("Outline holds for", value: $store.prefs.flashFocusedWindowDuration,
                           in: 0.05...1, step: 0.05, format: Self.seconds)
                     .disabled(!store.prefs.flashFocusedWindow)
             }

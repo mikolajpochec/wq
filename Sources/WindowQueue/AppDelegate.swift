@@ -576,6 +576,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions.append(AimAction(kind: .shortcut(.openLauncher), title: store.prefs.launcher.title,
                                  symbol: "magnifyingglass"))
         actions.append(AimAction(kind: .shortcut(.showOverview), title: "Overview", symbol: "square.grid.3x3"))
+        actions.append(AimAction(kind: .shortcut(.toggleInvisibleStrip),
+                                 title: store.prefs.invisibleStrip ? "Show strip" : "Hide strip",
+                                 symbol: store.prefs.invisibleStrip ? "eye" : "eye.slash"))
         actions.append(AimAction(kind: .cancel, title: "Cancel", symbol: "escape"))
         actionPanel.show(actions)
     }
@@ -756,6 +759,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Turns invisible mode on or off, says which it now is, and gives the windows the room back —
+    /// or takes it away — since the strip's reservation has just changed.
+    private func toggleInvisibleStrip() {
+        store.prefs.invisibleStrip.toggle()
+        let hidden = store.prefs.invisibleStrip
+        let combo = store.prefs.combo(for: .toggleInvisibleStrip).displayString
+        toast?.showCentred(title: hidden ? "Strip hidden" : "Strip shown",
+                           subtitle: hidden
+                               ? "\(combo) brings it back; aiming mode shows it meanwhile"
+                               : "\(combo) hides it again")
+        dockReservation.update()
+        RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
+        // The reservation reaches the WindowServer and comes back as a new visible frame a moment
+        // later; laying the windows out before that would measure the screen as it just was.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.refitPlacedWindows()
+        }
+    }
+
+    /// Lays out again everything WindowQueue placed — the tiled groups and a fullscreen window — so
+    /// they match the room now on offer.
+    private func refitPlacedWindows() {
+        let area = tilingArea()
+        let gaps = WindowTiler.Gaps(prefs: store.prefs)
+        for group in model.tiledGroups {
+            let windows = model.tiledWindowsInQueueOrder(group)
+            guard windows.count > 1,
+                  let layout = TileLayout.options(for: windows.count).first(where: { $0.name == group.layout })
+                    ?? TileLayout.options(for: windows.count).first
+            else { continue }
+            // A window held fullscreen fills the screen on its own; it is refitted below.
+            if let maximized = model.maximizedID, group.ids.contains(maximized) { continue }
+            let placed = WindowTiler.tile(windows, layout: layout, in: area, gaps: gaps)
+            guard !placed.isEmpty else { continue }
+            noteTiled(placed, layout: layout)
+        }
+        if let id = model.maximizedID, let window = model.windows.first(where: { $0.id == id }) {
+            WindowTiler.fill(window, in: area, gaps: gaps)
+        }
+    }
+
     /// The screen being worked on, less the room the strip keeps for itself.
     private func tilingArea() -> NSRect {
         let prefs = store.prefs
@@ -812,6 +856,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // `where` would only bind to the last pattern, so the count is checked in the body.)
             case .toggleGroup:
                 toggleGroup()
+                return
+            // Showing or hiding the strip is about the strip, not about the aimed window: the mode
+            // stays open, with the strip appearing or folding away under the aim.
+            case .toggleInvisibleStrip:
+                toggleInvisibleStrip()
                 return
             // Both hand the keyboard to something else, so the mode ends first and takes its grab
             // with it — a launcher that cannot be typed into is no launcher.
@@ -876,6 +925,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SystemLaunchers.open(store.prefs.launcher)
         case .showOverview:
             SystemLaunchers.showMissionControl()
+        case .toggleInvisibleStrip:
+            toggleInvisibleStrip()
         default:
             break
         }
@@ -1140,14 +1191,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// aiming uses, in the selection's colour, for a moment.
     private func flashFocus(_ window: ManagedWindow) {
         guard store.prefs.flashFocusedWindow, store.prefs.flashFocusedWindowDuration > 0 else { return }
-        // Focusing a window on another workspace travels there first, and a window has no frame to
-        // draw around until it is on screen; a beat's wait covers both that and the raise.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+        let show = { [weak self] in
             guard let self, self.model.aimingID == nil,
                   let current = self.model.windows.first(where: { $0.id == window.id }),
                   current.spaceID == nil || current.spaceID == self.model.currentSpaceID
             else { return }
             self.aimHighlight.flash(current, for: self.store.prefs.flashFocusedWindowDuration)
+        }
+        // A window already here is marked at once. One on another workspace has to be travelled to
+        // first, and has no frame to draw around until it is on screen, so that one waits a beat.
+        if window.spaceID == nil || window.spaceID == model.currentSpaceID {
+            show()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: show)
         }
     }
 

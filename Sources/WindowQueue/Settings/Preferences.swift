@@ -114,6 +114,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case search
     case openLauncher
     case showOverview
+    case toggleInvisibleStrip
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
@@ -137,6 +138,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .search: return "Search windows"
         case .openLauncher: return "Open the launcher"
         case .showOverview: return "Show Mission Control"
+        case .toggleInvisibleStrip: return "Hide or show the strip (invisible mode)"
         default:
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
@@ -162,14 +164,15 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
          .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search,
-         .openLauncher, .showOverview]
+         .openLauncher, .showOverview, .toggleInvisibleStrip]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
     /// picked out first.
     static var doubleTapActions: [HotkeyAction] {
-        [.openLauncher, .showOverview, .search, .toggleMaximize, .maximizeWindow, .minimizeWindow,
-         .toggleGroup, .closeWindow, .sortByWorkspace, .moveToStart, .moveToEnd]
+        [.openLauncher, .showOverview, .search, .toggleInvisibleStrip, .toggleMaximize,
+         .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .sortByWorkspace,
+         .moveToStart, .moveToEnd]
     }
 
     static var spaceActions: [HotkeyAction] {
@@ -195,6 +198,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
         case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask)
         case .showOverview: return KeyCombo(keyCode: kVK_ANSI_O, modifiers: superMask)
+        case .toggleInvisibleStrip: return KeyCombo(keyCode: kVK_ANSI_I, modifiers: superMask)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
