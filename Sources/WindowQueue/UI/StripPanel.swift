@@ -96,6 +96,9 @@ final class StripScreenState: ObservableObject {
     var pendingBackdropIsLight: Bool?
     /// Room a second strip — a group's — takes beside this one, so the two can be centred together.
     @Published var companionLength: CGFloat = 0
+    /// In invisible mode the strip is folded flat against the screen edge and swings open when
+    /// aiming asks for it, the way a page opens. True while it is open.
+    @Published var isUnfolded = true
 }
 
 /// Owns the strip panels, one per screen that should show the strip, and keeps them positioned.
@@ -251,6 +254,18 @@ final class StripController {
         }
     }
 
+    /// Closes the strip like a page and takes the panel away once it is flat.
+    private func fold(_ strip: ScreenStrip) {
+        guard strip.state.isUnfolded else { return }
+        strip.state.isUnfolded = false
+        let panel = strip.panel
+        DispatchQueue.main.asyncAfter(deadline: .now() + StripMetrics.foldDuration) { [weak self, weak strip] in
+            guard let strip, strip.state.isUnfolded == false else { return }
+            guard self?.store.prefs.invisibleStrip == true, self?.model.aimingID == nil else { return }
+            panel.orderOut(nil)
+        }
+    }
+
     private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
         (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
     }
@@ -280,11 +295,15 @@ final class StripController {
             let hiddenByFullscreen = prefs.hideInFullscreen && (space?.isFullscreen ?? false)
             // Invisible mode keeps the queue out of sight until aiming mode asks for it.
             let hiddenUntilAiming = prefs.invisibleStrip && model.aimingID == nil
-            let wanted = (isActive || prefs.stripDisplay == .highlightActiveScreen)
-                && !hiddenByFullscreen && !hiddenUntilAiming
+            let wanted = (isActive || prefs.stripDisplay == .highlightActiveScreen) && !hiddenByFullscreen
 
-            guard wanted else {
-                strips[id]?.panel.orderOut(nil)
+            guard wanted, !hiddenUntilAiming else {
+                // Folding away is an animation, so the panel stays until the page has closed.
+                if let strip = strips[id], strip.panel.isVisible, wanted, prefs.invisibleStrip {
+                    fold(strip)
+                } else {
+                    strips[id]?.panel.orderOut(nil)
+                }
                 continue
             }
 
@@ -298,8 +317,14 @@ final class StripController {
             if strip.state.spaceIndex != index { strip.state.spaceIndex = index }
             layout(strip)
             if !strip.panel.isVisible {
+                // In invisible mode the strip starts folded flat and opens on the next turn of the
+                // run loop, which is what gives SwiftUI a state to animate away from.
+                strip.state.isUnfolded = !prefs.invisibleStrip
                 strip.panel.orderFrontRegardless()
                 OverlaySpace.shared.adopt(strip.panel)
+            }
+            if !strip.state.isUnfolded {
+                DispatchQueue.main.async { strip.state.isUnfolded = true }
             }
         }
 

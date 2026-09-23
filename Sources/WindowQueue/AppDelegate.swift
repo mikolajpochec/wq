@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let modifierTaps = ModifierTapMonitor()
     private let aimingKeys = AimingKeyCapture()
     private lazy var actionPanel = ActionPanelController(store: store)
+    private let aimHighlight = AimHighlightOverlay()
     /// When aiming mode last opened, for telling a double tap of the super key from two separate ones.
     private var aimingOpenedAt = Date.distantPast
     /// Aiming was opened with the mouse, so it offers its actions as tiles to click.
@@ -394,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, self.model.aimingID != nil else { return }
             self.aimingReveal = nil
             self.syncActionPanel()
+            self.syncAimHighlight()
             self.dimOverlay?.show()
             if let window = self.model.aimedWindow, self.model.aimedWindows.count == 1 {
                 self.toast?.show(window, pinned: true, everywhere: true)
@@ -419,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aimingReveal?.cancel()
         aimingReveal = nil
         actionPanel.hide()
+        aimHighlight.hide()
         dimOverlay?.hide()
         toast?.endHold()
 
@@ -534,6 +537,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Outlines the aimed windows where they actually are, for the ones on the workspace in view.
+    private func syncAimHighlight() {
+        guard model.aimingID != nil else {
+            aimHighlight.hide()
+            return
+        }
+        let here = model.aimedWindows.filter { $0.spaceID != nil && $0.spaceID == model.currentSpaceID }
+        aimHighlight.show(here, cursor: model.aimingID)
+    }
+
     /// The tiles beside the strip, for aiming started with the mouse: what the mode's keys do, in a
     /// form a pointer can reach. What is offered follows the aim — a run of windows can be tiled and
     /// cannot be sent fullscreen, a single one is the other way round.
@@ -596,6 +609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         syncGroupPanel()
         syncActionPanel()
+        syncAimHighlight()
         let aimed = model.aimedWindows
         if model.aimedGroup != nil {
             // The popup would name one window of several; the group's own strip shows what is there.

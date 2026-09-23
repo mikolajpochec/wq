@@ -79,6 +79,14 @@ struct StripView: View {
     }
 
     /// The point aiming mode grows the strip from: its screen edge, at the end it is aligned to.
+    /// Which way the folded page leans, so it opens outwards from its own edge of the screen.
+    static func foldedAngle(for side: StripSide) -> Double {
+        switch side {
+        case .left, .top: return -88
+        case .right, .bottom: return 88
+        }
+    }
+
     /// The aim is walking this strip, rather than a group's strip below it.
     private var isAimTarget: Bool {
         model.aimingID != nil && model.aimInsideGroupID == nil
@@ -183,6 +191,13 @@ struct StripView: View {
         // Applied last so the background and border grow with the icons, and outside the named
         // coordinate space so drag positions keep arriving in unscaled units. Growth is anchored to
         // the screen edge, so the strip expands inwards instead of off the side of its panel.
+        // Invisible mode: the strip is a page hinged on the screen edge, flat against it until
+        // aiming opens it. The perspective is what makes it read as opening rather than squashing.
+        .rotation3DEffect(.degrees(screen.isUnfolded ? 0 : Self.foldedAngle(for: side)),
+                          axis: side.isVertical ? (x: 0, y: 1, z: 0) : (x: 1, y: 0, z: 0),
+                          anchor: scaleAnchor, perspective: 0.6)
+        .animation(.spring(response: StripMetrics.foldDuration, dampingFraction: 0.82),
+                   value: screen.isUnfolded)
         // Only the strip the aim is actually on grows: stepped into a group, the aim walks the
         // group's own strip, and growing this one too would just push the pair around.
         .scaleEffect(isAimTarget ? prefs.aimingScale : 1, anchor: scaleAnchor)
@@ -706,6 +721,8 @@ enum StripMetrics {
     /// Shared timing so the panel resize and the SwiftUI content move together.
     static let layoutAnimation: Animation = .spring(response: 0.32, dampingFraction: 0.82)
     static let layoutDuration: TimeInterval = 0.32
+    /// How long the page takes to swing open or shut in invisible mode.
+    static let foldDuration: TimeInterval = 0.32
 
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }
