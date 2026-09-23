@@ -645,20 +645,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         endAiming(commit: false)
 
         // A layout wants a screen to itself: it fills the workspace, so anything else living there
-        // would end up underneath it. It gets a workspace of its own whenever the windows come from
-        // several, or whenever the one they would land on holds windows that are not in the layout.
-        // But only when they can all actually get there: moving a window moves its whole
-        // application, so a layout whose apps have other windows about stays where it is rather
-        // than being torn in half.
+        // would end up underneath it. Where it goes is worked out below; the windows that are not
+        // there yet are then carried over.
         let home = windows.last?.spaceID
         var target = home
         let tiled = Set(windows.map(\.id))
-        let spansWorkspaces = Set(windows.compactMap(\.spaceID)).count > 1
         let strangersAtHome = home.map { space in
             model.windows.contains { $0.spaceID == space && !$0.isMinimized && !tiled.contains($0.id) }
         } ?? false
 
-        if spansWorkspaces || strangersAtHome {
+        // Spanning workspaces is not itself a reason to go anywhere new: if the workspace the last
+        // aimed window is on holds nothing but windows of this layout, the rest are carried over to
+        // it. Only strangers there force the layout to look for a workspace of its own.
+        if strangersAtHome {
             if !canGatherAll(windows) {
                 Diagnostics.note("tiling in place: these apps have windows that would travel too")
                 toast?.showCentred(title: "Tiled where they are",
@@ -695,7 +694,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if group.count < windows.count {
                 Diagnostics.note("tiling in place: \(group.count) of \(windows.count) reached \(target)")
                 group = windows
-                target = model.currentSpaceID ?? home ?? target
+                // Wherever most of them ended up is where the layout does the least travelling.
+                let spaces = model.windows.filter { tiled.contains($0.id) }.compactMap(\.spaceID)
+                target = Dictionary(grouping: spaces, by: { $0 })
+                    .max { $0.value.count < $1.value.count }?.key
+                    ?? model.currentSpaceID ?? home ?? target
             }
         } else if target == model.currentSpaceID {
             finishTiling(windows, layout: layout)
