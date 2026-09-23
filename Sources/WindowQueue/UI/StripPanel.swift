@@ -94,6 +94,8 @@ final class StripScreenState: ObservableObject {
     @Published var backdropIsLight: Bool?
     /// The last sample's verdict, which has to be repeated before the number changes colour.
     var pendingBackdropIsLight: Bool?
+    /// Room a second strip — a group's — takes beside this one, so the two can be centred together.
+    @Published var companionLength: CGFloat = 0
 }
 
 /// Owns the strip panels, one per screen that should show the strip, and keeps them positioned.
@@ -144,7 +146,14 @@ final class StripController {
     private var scrollTravel: CGFloat = 0
     /// Room taken by the group's strip, so the two are centred and placed as one.
     var companionLength: CGFloat = 0 {
-        didSet { if companionLength != oldValue { sync() } }
+        didSet {
+            guard companionLength != oldValue else { return }
+            // The view draws itself from its screen's state; the controller only measures.
+            for strip in strips.values where strip.state.companionLength != companionLength {
+                strip.state.companionLength = companionLength
+            }
+            sync()
+        }
     }
 
     init(model: WindowQueueModel,
@@ -385,11 +394,11 @@ final class StripController {
         // Flush with the end it is aligned to; the margin only keeps the other end off the edge.
         let leading = alignment == .start ? 0 : store.prefs.stripMargin
         let trailing = alignment == .end ? 0 : store.prefs.stripMargin
-        // A group's strip carries on from this one, and the pair is placed as a whole: centred, the
-        // two share the middle; aligned to the end, the group goes first and this follows it.
-        let free = max(0, length - leading - trailing - contentLayout.totalHeight - companionLength)
-        let ahead = alignment == .end ? companionLength : 0
-        return leading + ahead + free * alignment.fraction
+        let free = max(0, length - leading - trailing - contentLayout.totalHeight)
+        // Centred, the pair shares the middle, so this strip moves up by half of what the group's
+        // takes. At either end the pair simply grows inwards and nothing has to move.
+        let shift = alignment == .center ? companionLength / 2 : 0
+        return leading + free * alignment.fraction - shift
     }
 
     private func mainLength(of rect: NSRect) -> CGFloat {

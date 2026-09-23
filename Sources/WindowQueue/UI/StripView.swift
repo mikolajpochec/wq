@@ -50,6 +50,9 @@ struct StripView: View {
         // is also thicker than the strip, leaving room for aiming mode to grow into, so the strip
         // is pinned to the screen edge it lives on.
         strip
+            // Centred, the strip shifts to leave room for a group's strip below it, so the two are
+            // centred as one; see `StripController.contentStart`.
+            .offset(x: side.isVertical ? 0 : -companionShift, y: side.isVertical ? -companionShift : 0)
             // The margin is a gap from the screen edge, not from the end of the strip: aligned to
             // the start or the end, the strip lines up with the windows beside it.
             .padding(side.isVertical ? .top : .leading, prefs.stripAlignment == .start ? 0 : prefs.stripMargin)
@@ -69,6 +72,11 @@ struct StripView: View {
     }
 
     /// The point aiming mode grows the strip from: its screen edge, at the end it is aligned to.
+    /// How far this strip moves to make room for a group's strip beside it.
+    private var companionShift: CGFloat {
+        prefs.stripAlignment == .center ? screen.companionLength / 2 : 0
+    }
+
     private var scaleAnchor: UnitPoint {
         let along = prefs.stripAlignment.fraction
         switch side {
