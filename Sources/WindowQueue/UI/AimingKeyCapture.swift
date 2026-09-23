@@ -25,6 +25,9 @@ final class AimingKeyCapture {
     }
 
     var onKey: ((Press) -> Void)?
+    /// A key press that is not one of the aiming keys, so it can be matched against WindowQueue's
+    /// own shortcuts: the tap swallows everything, and they would otherwise never fire.
+    var onShortcut: ((Int, CGEventFlags) -> Void)?
     /// Fires when the mode should end without the user having confirmed anything.
     var onDismiss: (() -> Void)? {
         didSet { grabber.onDismiss = onDismiss }
@@ -68,6 +71,11 @@ final class AimingKeyCapture {
         }
 
         // Acting inside the callback would hold up event delivery, and a slow tap gets disabled.
+        if key == nil {
+            let code = event.keyCode
+            let flags = event.flags
+            DispatchQueue.main.async { [weak self] in self?.onShortcut?(code, flags) }
+        }
         if let key {
             let flags = event.flags
             let press = Press(key: key,

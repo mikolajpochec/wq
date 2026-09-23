@@ -137,6 +137,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.hoverFocus = hoverFocus
 
         aimingKeys.onKey = { [weak self] press in self?.handleAimingPress(press) }
+        aimingKeys.onShortcut = { [weak self] keyCode, flags in
+            guard let self, let action = HotkeyAction.allCases.first(where: {
+                self.store.prefs.combo(for: $0).matches(keyCode: keyCode, flags: flags)
+            }) else { return }
+            self.perform(action)
+        }
         tilingMenu.anchorProvider = { [weak strip] ids in
             guard let strip, let first = ids.first, let last = ids.last,
                   let start = strip.rowFrame(for: first), let end = strip.rowFrame(for: last)
@@ -452,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             // Anything that makes sense window by window is applied to every aimed window. (The
             // `where` would only bind to the last pattern, so the count is checked in the body.)
-            case .maximizeWindow, .closeWindow, .moveToStart, .moveToEnd:
+            case .maximizeWindow, .minimizeWindow, .closeWindow, .moveToStart, .moveToEnd:
                 if model.aimedWindows.count > 1 {
                     applyToAimedGroup(action)
                     return
@@ -495,6 +501,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleMaximize()
         case .maximizeWindow:
             maximizeWindow()
+        case .minimizeWindow:
+            if let window = model.selectedWindow { minimize(window) }
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -534,19 +542,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let group = model.aimedWindows
         guard group.count > 1 else { return }
         endAiming(commit: false)
+        let count = group.count
         switch action {
         case .maximizeWindow:
             // One after another, so an app that snaps its own frame does not fight the next one.
             for window in group { maximize(window) }
+            announceGroup("Maximized \(count) windows")
+        case .minimizeWindow:
+            for window in group { minimize(window) }
+            announceGroup("Minimized \(count) windows")
         case .closeWindow:
             for window in group { close(window) }
+            announceGroup("Closed \(count) windows")
         case .moveToStart:
             model.move(ids: group.map(\.id), toVisiblePosition: 0)
+            announceGroup("Moved \(count) windows to the start of the queue")
         case .moveToEnd:
             model.move(ids: group.map(\.id), toVisiblePosition: model.visibleWindows.count)
+            announceGroup("Moved \(count) windows to the end of the queue")
         default:
             break
         }
+    }
+
+    /// What a group action did, in the middle of the screen: it is about several windows at once,
+    /// so there is no one icon for the popup to point at.
+    private func announceGroup(_ title: String) {
+        toast?.showCentred(title: title, subtitle: "WindowQueue")
+    }
+
+    private func minimize(_ window: ManagedWindow) {
+        let element = window.element ?? WindowSpaceMover.element(for: window)
+        element?.setAttribute(kAXMinimizedAttribute, value: kCFBooleanTrue)
     }
 
     /// Fills the screen with the selected window, less the strip's room. Nothing else changes: no

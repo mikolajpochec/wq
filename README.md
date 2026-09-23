@@ -29,6 +29,9 @@ always-on-top strip showing that list, and workspace switching by number.
 - Fullscreening a window (`⌥F`, again to restore) also focuses the queue on it: it moves to the front of
   its workspace, the workspace's other windows are tinted blue in the strip, and cycling skips them
   until the window is restored, which puts the order back. Off in Settings › General.
+- `⌥H` minimizes the selected window.
+- With several windows aimed at, `⌥M`, `⌥H`, `⌥Q`, `⌥⇧↖`, `⌥⇧↘` and `⌥⇧1`…`⌥⇧9` act on all of them
+  at once, and a popup in the middle of the screen says what happened.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
 - `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.

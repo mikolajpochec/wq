@@ -33,6 +33,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
         return mods
     }
 
+    /// Whether a key event matches this combo. Aiming mode swallows every key press, so the
+    /// shortcuts have to be recognised from the raw event rather than through Carbon.
+    func matches(keyCode: Int, flags: CGEventFlags) -> Bool {
+        guard UInt32(keyCode) == self.keyCode else { return false }
+        var held: UInt32 = 0
+        if flags.contains(.maskCommand) { held |= UInt32(cmdKey) }
+        if flags.contains(.maskAlternate) { held |= UInt32(optionKey) }
+        if flags.contains(.maskControl) { held |= UInt32(controlKey) }
+        if flags.contains(.maskShift) { held |= UInt32(shiftKey) }
+        return held == modifiers
+    }
+
     var modifierSymbols: String {
         var out = ""
         if modifiers & UInt32(controlKey) != 0 { out += "⌃" }

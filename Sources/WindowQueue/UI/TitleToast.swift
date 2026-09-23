@@ -71,6 +71,25 @@ final class ToastController {
              pinned: pinned, everywhere: everywhere)
     }
 
+    /// A popup in the middle of the screen, for something that is not about one window — a group
+    /// of windows just acted on, say.
+    func showCentred(title: String, subtitle: String) {
+        guard store.prefs.toastEnabled else { return }
+        generation += 1
+        if bubbles.isEmpty { bubbles.append(Bubble(view: ToastView(title: title, subtitle: subtitle))) }
+        guard let bubble = bubbles.first else { return }
+        bubble.hosting.rootView = ToastView(title: title, subtitle: subtitle)
+        let size = bubble.hosting.fittingSize
+        let clamped = NSSize(width: min(max(size.width, 140), 420), height: size.height)
+        let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
+        let origin = NSPoint(x: screen.midX - clamped.width / 2,
+                             y: screen.midY - clamped.height / 2)
+        present(bubble, at: NSRect(origin: origin, size: clamped))
+        for extra in bubbles.dropFirst() { extra.panel.orderOut(nil) }
+        hideWorkItem?.cancel()
+        scheduleHide(after: max(store.prefs.toastDuration, 1.2))
+    }
+
     /// A popup with any text, placed beside a window's icon.
     func show(title: String, subtitle: String, beside windowID: CGWindowID,
               pinned: Bool = false, everywhere: Bool = false) {
