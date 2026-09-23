@@ -408,9 +408,13 @@ final class StripController {
     /// Windows drawn as one collapsed tile, which has to match what `StripView` draws.
     private var collapsedIDs: Set<CGWindowID> {
         let prefs = store.prefs
-        guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil
+        guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, let maximized = model.maximizedID
         else { return [] }
-        return Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
+        var ids = Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
+        // The maximized window is drawn at the front of that tile, so it is part of it here too.
+        guard !ids.isEmpty else { return [] }
+        ids.insert(maximized)
+        return ids
     }
 
     /// The strip the popup points from: the one under the pointer, else the selected screen's.

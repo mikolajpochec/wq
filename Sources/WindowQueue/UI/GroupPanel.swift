@@ -46,7 +46,9 @@ struct GroupPanelView: View {
         var out: [Entry] = []
         var covered: [ManagedWindow] = []
         for window in state.windows {
-            if state.coveredIDs.contains(window.id) {
+            // The maximized window rides at the front of the cascade: the window on top and the
+            // windows under it are one thing, and take one place here.
+            if state.coveredIDs.contains(window.id) || isFrontOfCascade(window) {
                 covered.append(window)
             } else {
                 out.append(.window(window))
@@ -82,7 +84,6 @@ struct GroupPanelView: View {
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the panel's background, exactly as on the main strip.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
-        .background(alignment: side.isVertical ? .top : .leading) { maximizedGroupBackground }
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -120,7 +121,10 @@ struct GroupPanelView: View {
 
     /// The covered windows as one tile: the first few icons behind each other, and how many.
     private func cascade(_ windows: [ManagedWindow]) -> some View {
-        let peek = Array(windows.prefix(StripMetrics.stackPeek))
+        let ordered = windows.filter { $0.id == state.maximizedID } + windows.filter { $0.id != state.maximizedID }
+        let covered = max(ordered.count - 1, 0)
+        let selected = ordered.contains { $0.id == state.selectedID }
+        let peek = Array(ordered.prefix(StripMetrics.stackPeek))
         let middle = CGFloat(peek.count - 1) / 2
         return ZStack {
             ForEach(Array(peek.enumerated().reversed()), id: \.element.id) { depth, window in
@@ -137,7 +141,7 @@ struct GroupPanelView: View {
         }
         .frame(width: prefs.iconSize, height: prefs.iconSize)
         .overlay(alignment: .bottomTrailing) {
-            Text("+\(windows.count)")
+            Text("+\(covered)")
                 .font(.system(size: max(8, prefs.iconSize * 0.3), weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 3)
@@ -145,7 +149,15 @@ struct GroupPanelView: View {
                 .offset(x: 3, y: 3)
         }
         .padding(4)
-        .help("\(windows.count) window\(windows.count == 1 ? "" : "s") behind the fullscreen one")
+        .background(
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .fill(selected ? Color.accentColor.opacity(0.28) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5)
+        )
+        .help("\(covered) window\(covered == 1 ? "" : "s") behind the fullscreen one")
     }
 
     /// Marks a window still held in a layout, exactly as the main strip marks one.
@@ -174,57 +186,14 @@ struct GroupPanelView: View {
         }
     }
 
-    /// The stretch the fullscreen window and the tile of what it covers take together, so the two
-    /// are drawn — and selected — as one thing, the way the main strip draws them.
-    private var maximizedGroupSpan: (start: CGFloat, end: CGFloat)? {
-        guard !state.coveredIDs.isEmpty, let maximized = state.maximizedID else { return nil }
-        let places = entries
-        // With nothing else in the group, the shape would trace the whole strip: the panel's own
-        // border already says that much, and the row keeps its plain selection instead.
-        guard places.count > 2 else { return nil }
-        guard let window = places.firstIndex(where: {
-            if case .window(let one) = $0 { return one.id == maximized }
-            return false
-        }), let cascade = places.firstIndex(where: {
-            if case .cascade = $0 { return true }
-            return false
-        }) else { return nil }
-        let row = StripMetrics.rowHeight(prefs: prefs)
-        let step = row + StripMetrics.spacing
-        let first = min(window, cascade)
-        let last = max(window, cascade)
-        return (StripMetrics.padding + CGFloat(first) * step,
-                StripMetrics.padding + CGFloat(last) * step + row)
-    }
-
-    /// The fullscreen window and the windows it covers are one thing, so one selection covers both.
-    private var isMaximizedGroupSelected: Bool {
-        maximizedGroupSpan != nil && state.selectedID == state.maximizedID
-    }
-
-    /// The shape tying the fullscreen window to the tile of what it covers.
-    @ViewBuilder
-    private var maximizedGroupBackground: some View {
-        if let span = maximizedGroupSpan {
-            let selected = isMaximizedGroupSelected
-            let thickness = StripMetrics.rowHeight(prefs: prefs) + 4
-            RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
-                .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.09))
-                .overlay(
-                    RoundedRectangle(cornerRadius: StripMetrics.groupCorner(prefs: prefs), style: .continuous)
-                        .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-                )
-                .frame(width: side.isVertical ? thickness : span.end - span.start,
-                       height: side.isVertical ? span.end - span.start : thickness)
-                .offset(x: side.isVertical ? 0 : span.start, y: side.isVertical ? span.start : 0)
-                .animation(StripMetrics.layoutAnimation, value: state.coveredIDs)
-                .animation(.easeOut(duration: 0.16), value: selected)
-        }
+    /// Whether this window is the one the cascade is hiding windows behind.
+    private func isFrontOfCascade(_ window: ManagedWindow) -> Bool {
+        !state.coveredIDs.isEmpty && window.id == state.maximizedID
     }
 
     /// The windows that get a row of their own here: the covered ones share the cascade tile.
     private var rows: [ManagedWindow] {
-        state.windows.filter { !state.coveredIDs.contains($0.id) }
+        state.windows.filter { !state.coveredIDs.contains($0.id) && !isFrontOfCascade($0) }
     }
 
     /// Several windows are aimed at, which the group's strip shows as runs rather than a cursor.
@@ -276,7 +245,6 @@ struct GroupPanelView: View {
         let aimed = window.id == state.aimingID && !isAimingRun
         // The fullscreen window is highlighted together with its cascade, not as a row of its own.
         let selected = window.id == state.selectedID && !aimed && !isAimingRun
-            && !(isMaximizedGroupSelected && window.id == state.maximizedID)
         let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
@@ -524,7 +492,9 @@ final class GroupPanelController {
         guard offset >= 0 else { return nil }
         let index = Int(offset / (row + StripMetrics.spacing))
         // Windows folded into the cascade are not rows of their own.
-        let rows = state.windows.filter { !state.coveredIDs.contains($0.id) }
+        // The fullscreen window shares the cascade's tile, so it is not a row of its own either.
+        let folded = state.coveredIDs.isEmpty ? [] : state.coveredIDs.union([state.maximizedID].compactMap { $0 })
+        let rows = state.windows.filter { !folded.contains($0.id) }
         return rows.indices.contains(index) ? rows[index] : nil
     }
 
@@ -539,7 +509,10 @@ final class GroupPanelController {
 
     /// Rows the group's strip draws: covered windows share the cascade tile, so they count as one.
     private func rowCount(of windows: [ManagedWindow], covered: Set<CGWindowID>) -> Int {
-        let hidden = windows.count { covered.contains($0.id) }
+        // Covered windows and the fullscreen window in front of them share one tile.
+        var folded = covered
+        if !covered.isEmpty, let maximized = state.maximizedID { folded.insert(maximized) }
+        let hidden = windows.count { folded.contains($0.id) }
         return windows.count - hidden + (hidden > 0 ? 1 : 0)
     }
 
@@ -553,7 +526,9 @@ final class GroupPanelController {
     /// Screen rect of one window's row in the group's strip, so the name popup points at the icon
     /// the user is actually looking at rather than at the group's entry in the main strip.
     func rowFrame(for id: CGWindowID) -> (frame: NSRect, side: StripSide)? {
-        let rows = state.windows.filter { !state.coveredIDs.contains($0.id) }
+        // The fullscreen window shares the cascade's tile, so it is not a row of its own either.
+        let folded = state.coveredIDs.isEmpty ? [] : state.coveredIDs.union([state.maximizedID].compactMap { $0 })
+        let rows = state.windows.filter { !folded.contains($0.id) }
         guard let panel, panel.isVisible,
               let index = rows.firstIndex(where: { $0.id == id })
         else { return nil }

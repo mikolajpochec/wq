@@ -52,7 +52,9 @@ struct StripLayout {
     }
 
     /// - Parameters:
-    ///   - collapsed: windows drawn as one stacked tile instead of a row each.
+    ///   - collapsed: windows drawn as one stacked tile instead of a row each. The maximized
+    ///     window is one of them: it sits at the front of the cascade, so the tile is the whole
+    ///     thing — the window on top and everything it covers — in a single place on the strip.
     ///   - groups: windows that belong to a group, by group number, drawn as one entry each.
     init(windows: [ManagedWindow], prefs: Preferences, slot: SlotPlacement? = nil,
          collapsed: Set<CGWindowID> = [], groups: [CGWindowID: Int] = [:]) {
