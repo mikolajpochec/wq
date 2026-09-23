@@ -291,14 +291,20 @@ struct StripView: View {
 
     /// Marks a window still held in a layout. Any resize or move of it frees the whole group, so
     /// the mark is also a reminder that the arrangement is only there until the window is touched.
-    private var tiledMark: some View {
-        Image(systemName: "square.grid.2x2.fill")
-            .font(.system(size: max(7, prefs.iconSize * 0.3), weight: .bold))
-            .foregroundStyle(Color.accentColor)
-            .padding(1)
-            .background(Circle().fill(Color.black.opacity(0.5)))
-            .offset(x: 1, y: -1)
-            .help("Tiled — moving or resizing it frees the group")
+    private func tiledMark(_ group: WindowQueueModel.TiledGroup) -> some View {
+        let size = max(7, prefs.iconSize * 0.3)
+        return HStack(spacing: 1) {
+            Image(systemName: "square.grid.2x2.fill")
+            // Several layouts at once are told apart by number; one on its own needs none.
+            if model.tiledGroups.count > 1 { Text("\(group.id)") }
+        }
+        .font(.system(size: size, weight: .bold))
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(Color.black.opacity(0.55)))
+        .offset(x: -1, y: -1)
+        .help("Tiled group \(group.id) — moving or resizing a window frees it")
     }
 
     /// A dashed, hatched outline the size of an icon: a place a window could go.
@@ -462,8 +468,8 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
-        .overlay(alignment: side.isVertical ? .bottomLeading : .topTrailing) {
-            if model.isTiled(window) { tiledMark }
+        .overlay(alignment: .topLeading) {
+            if let group = model.tiledGroup(of: window.id) { tiledMark(group) }
         }
         .contentShape(Rectangle())
         .help(window.displayTitle)

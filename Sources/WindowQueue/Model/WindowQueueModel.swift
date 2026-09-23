@@ -53,11 +53,16 @@ final class WindowQueueModel: ObservableObject {
     /// Where that window sat in the queue before, to put it back.
     private var positionBeforeMaximize: Int?
 
-    /// Windows laid out together and still holding that layout, in the order it was applied. The
-    /// arrangement follows the queue: reorder them and they are laid out again that way.
-    @Published private(set) var tiledIDs: [CGWindowID] = []
-    /// Which arrangement they are in, by name.
-    private(set) var tiledLayout: String?
+    /// A set of windows laid out together and still holding that layout. The arrangement follows
+    /// the queue: reorder them and they are laid out again that way.
+    struct TiledGroup: Identifiable, Equatable {
+        /// Small number shown in the strip, so several groups can be told apart.
+        let id: Int
+        var ids: [CGWindowID]
+        var layout: String
+    }
+
+    @Published private(set) var tiledGroups: [TiledGroup] = []
 
     /// Fires whenever the selection changes in a way that should be announced to the user.
     let announcement = PassthroughSubject<ManagedWindow, Never>()
@@ -213,30 +218,57 @@ final class WindowQueueModel: ObservableObject {
 
     // MARK: - Tiled groups
 
-    func setTiled(_ ids: [CGWindowID], layout: String) {
-        guard ids.count > 1 else { return clearTiled() }
-        tiledIDs = ids
-        tiledLayout = layout
+    /// Records a layout. The windows leave whatever group they were in before, and a group that
+    /// loses too many windows to be a layout disappears.
+    @discardableResult
+    func setTiled(_ ids: [CGWindowID], layout: String) -> TiledGroup? {
+        let moving = Set(ids)
+        for index in tiledGroups.indices {
+            tiledGroups[index].ids.removeAll { moving.contains($0) }
+        }
+        tiledGroups.removeAll { $0.ids.count < 2 }
+        guard ids.count > 1 else {
+            objectWillChange.send()
+            return nil
+        }
+        // The lowest number nobody is using, so the numbers stay small as groups come and go.
+        var number = 1
+        while tiledGroups.contains(where: { $0.id == number }) { number += 1 }
+        let group = TiledGroup(id: number, ids: ids, layout: layout)
+        tiledGroups.append(group)
+        objectWillChange.send()
+        return group
+    }
+
+    /// Frees the group a window belongs to: its windows keep their frames, they are simply no
+    /// longer held in a layout.
+    func clearTiled(containing id: CGWindowID) {
+        guard tiledGroups.contains(where: { $0.ids.contains(id) }) else { return }
+        tiledGroups.removeAll { $0.ids.contains(id) }
         objectWillChange.send()
     }
 
-    /// The windows are no longer held in a layout — they keep their frames, they are simply free.
     func clearTiled() {
-        guard !tiledIDs.isEmpty else { return }
-        tiledIDs = []
-        tiledLayout = nil
+        guard !tiledGroups.isEmpty else { return }
+        tiledGroups = []
         objectWillChange.send()
     }
 
     func isTiled(_ window: ManagedWindow) -> Bool {
-        tiledIDs.contains(window.id)
+        tiledGroup(of: window.id) != nil
     }
 
-    /// The tiled windows in the order the queue has them now, which is the order they should be
+    func tiledGroup(of id: CGWindowID) -> TiledGroup? {
+        tiledGroups.first { $0.ids.contains(id) }
+    }
+
+    var tiledIDs: [CGWindowID] { tiledGroups.flatMap(\.ids) }
+
+    /// A group's windows in the order the queue has them now, which is the order they should be
     /// laid out in.
-    var tiledWindowsInQueueOrder: [ManagedWindow] {
-        let tiled = Set(tiledIDs)
-        return windows.filter { tiled.contains($0.id) }
+    func tiledWindowsInQueueOrder(_ group: TiledGroup) -> [ManagedWindow] {
+        let ids = Set(group.ids)
+        return windows.filter { ids.contains($0.id) }
     }
 
     // MARK: - Focus on one window
@@ -331,13 +363,13 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
-        // A tiled window that has gone leaves the group; below two there is no layout left.
-        if !tiledIDs.isEmpty {
+        // A tiled window that has gone leaves its group; below two there is no layout left.
+        if !tiledGroups.isEmpty {
             let present = Set(windows.map(\.id))
-            let remaining = tiledIDs.filter { present.contains($0) }
-            if remaining.count != tiledIDs.count {
-                if remaining.count > 1 { tiledIDs = remaining } else { clearTiled() }
+            for index in tiledGroups.indices {
+                tiledGroups[index].ids.removeAll { !present.contains($0) }
             }
+            tiledGroups.removeAll { $0.ids.count < 2 }
         }
         // A maximized window that has gone takes the covering with it.
         if let maximizedID, !windows.contains(where: { $0.id == maximizedID }) {

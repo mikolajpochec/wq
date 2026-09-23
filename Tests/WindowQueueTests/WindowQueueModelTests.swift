@@ -211,18 +211,37 @@ extension WindowQueueModelTests {
 extension WindowQueueModelTests {
     func testTiledGroupFollowsTheQueueAndDropsClosedWindows() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
-        model.setTiled([1, 2, 3], layout: "Main and stack")
+        let group = model.setTiled([1, 2, 3], layout: "Main and stack")
+        XCTAssertEqual(group?.id, 1)
         XCTAssertTrue(model.isTiled(model.windows[0]))
 
         model.select(id: 3, announce: false)
         model.move(by: -2)
-        XCTAssertEqual(model.tiledWindowsInQueueOrder.map(\.id), [3, 2, 1])
+        XCTAssertEqual(model.tiledWindowsInQueueOrder(group!).map(\.id), [3, 2, 1])
 
         model.reconcile(with: [window(3, space: 10), window(1, space: 10)])
-        XCTAssertEqual(model.tiledIDs, [1, 3])
+        XCTAssertEqual(model.tiledGroups.first?.ids, [1, 3])
 
         model.reconcile(with: [window(3, space: 10)])
-        XCTAssertTrue(model.tiledIDs.isEmpty)
-        XCTAssertNil(model.tiledLayout)
+        XCTAssertTrue(model.tiledGroups.isEmpty)
+    }
+
+    func testSeveralTiledGroupsAreNumberedAndFreedOnTheirOwn() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10),
+                               window(3, space: 20), window(4, space: 20)])
+        let first = model.setTiled([1, 2], layout: "Side by side")
+        let second = model.setTiled([3, 4], layout: "Stacked")
+        XCTAssertEqual([first?.id, second?.id], [1, 2])
+
+        model.clearTiled(containing: 3)
+        XCTAssertEqual(model.tiledGroups.map(\.id), [1])
+
+        // The number the freed group had is available again.
+        XCTAssertEqual(model.setTiled([3, 4], layout: "Stacked")?.id, 2)
+        // A window can only be in one layout at a time; taking 2 and 3 out leaves both of their
+        // old groups too small to be layouts, so both go and the numbers start again.
+        XCTAssertEqual(model.setTiled([2, 3], layout: "Side by side")?.id, 1)
+        XCTAssertEqual(model.tiledGroups.count, 1)
+        XCTAssertEqual(model.tiledGroups.first?.ids, [2, 3])
     }
 }
