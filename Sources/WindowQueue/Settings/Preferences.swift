@@ -47,18 +47,31 @@ enum StripAlignment: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Which end of the main strip a group's own strip carries on from.
+/// Where a group's own strip goes relative to the main one.
 enum GroupStripPlacement: String, Codable, CaseIterable, Identifiable {
     /// In front of the main strip when it is aligned to the end, after it otherwise.
     case automatic
     case before
     case after
+    /// Takes the main strip's place for as long as the user is inside the group.
+    case replace
+    /// Lies over the main strip, centred on the group's own entry in it.
+    case overGroup
     var id: String { rawValue }
     var title: String {
         switch self {
         case .automatic: return "Automatic"
         case .before: return "Before"
         case .after: return "After"
+        case .replace: return "Replace"
+        case .overGroup: return "Over group"
+        }
+    }
+    /// The group's strip sits beside the main one, which moves to make room for it.
+    var isBeside: Bool {
+        switch self {
+        case .automatic, .before, .after: return true
+        case .replace, .overGroup: return false
         }
     }
 }
@@ -479,7 +492,7 @@ struct Preferences: Codable, Equatable {
     /// top or bottom one — rather than after it.
     var groupStripIsBefore: Bool {
         switch groupStripPlacement {
-        case .automatic: return stripAlignment == .end
+        case .automatic, .replace, .overGroup: return stripAlignment == .end
         case .before: return true
         case .after: return false
         }
@@ -489,6 +502,8 @@ struct Preferences: Codable, Equatable {
     /// `length`, so the pair keeps the strip's alignment as one: centred, it shares the middle; at
     /// either end it grows inwards. Negative moves it towards its end.
     func stripShift(forCompanion length: CGFloat) -> CGFloat {
+        // Replacing the strip or lying over it, the group's strip takes no room beside it.
+        guard groupStripPlacement.isBeside else { return 0 }
         let before = groupStripIsBefore
         switch stripAlignment {
         case .center: return before ? -length / 2 : length / 2

@@ -318,6 +318,16 @@ private final class GroupHostingView: NSHostingView<GroupPanelView> {
 
 /// Owns the panel that shows a group's windows beside the strip.
 final class GroupPanelController {
+    /// Where the group's strip goes on screen.
+    enum Placement: Equatable {
+        /// Carrying on from one end of the main strip, as the preferences place it.
+        case beside
+        /// In the main strip's own place, which steps aside meanwhile.
+        case replacing
+        /// Over the main strip, centred on the entry of the group with this member.
+        case over(CGWindowID)
+    }
+
     let state = GroupPanelState()
     private let store: PreferencesStore
     private var panel: OverlayPanel?
@@ -344,12 +354,17 @@ final class GroupPanelController {
     }
 
     var isVisible: Bool { panel?.isVisible == true }
+    private var placement: Placement = .beside
+
+    /// Screen rect of a window's entry in the main strip, which the group's strip lies over when
+    /// it is placed over its group.
+    var entryFrameProvider: ((CGWindowID) -> NSRect?)?
 
     func show(number: Int, windows: [ManagedWindow], selected: CGWindowID?, peek: Bool,
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
               coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
               tiledNumbers: [CGWindowID: Int] = [:], showsTiledNumbers: Bool = false,
-              aiming: Bool = false) {
+              aiming: Bool = false, placement: Placement = .beside) {
         guard windows.count > 1 else {
             hide()
             return
@@ -365,6 +380,8 @@ final class GroupPanelController {
         state.tiledNumbers = tiledNumbers
         state.showsTiledNumbers = showsTiledNumbers
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
+        let moved = panel?.isVisible == true && self.placement != placement
+        self.placement = placement
 
         let view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
@@ -400,6 +417,17 @@ final class GroupPanelController {
             : NSSize(width: along * state.scale, height: thickness * scale)
         let target = NSRect(origin: origin(for: size), size: size)
 
+        if panel.isVisible, moved, !isHiding {
+            // Stepping in or out of a group it only peeked at moves the strip between the main
+            // strip's side and its place: a jump there would read as a different strip.
+            targetFrame = target
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = store.prefs.duration(.groupStrip, StripMetrics.layoutDuration)
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(target, display: true)
+            }
+            return
+        }
         if panel.isVisible {
             // A fade on the way out was under way, or the group changed size: either way the panel
             // travels to its new place rather than jumping there, in step with the main strip.
@@ -434,6 +462,15 @@ final class GroupPanelController {
     /// The panel as it starts and ends its life: folded away against the main strip.
     private func folded(_ target: NSRect) -> NSRect {
         let share: CGFloat = 0.25
+        guard placement == .beside else {
+            // Not carrying on from the strip, it grows out of its own middle: out of the group's
+            // entry, or out of the strip it replaces.
+            let vertical = store.prefs.stripSide.isVertical
+            let along = (vertical ? target.height : target.width) * share
+            return vertical
+                ? NSRect(x: target.minX, y: target.midY - along / 2, width: target.width, height: along)
+                : NSRect(x: target.midX - along / 2, y: target.minY, width: along, height: target.height)
+        }
         if store.prefs.stripSide.isVertical {
             let height = target.height * share
             // Aligned to the end, the group's strip sits above the main one and folds downwards.
@@ -579,6 +616,41 @@ final class GroupPanelController {
         }
         let screen = NSScreen.screens.first { $0.frame.intersects(strip.frame) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
+        let vertical = strip.side.isVertical
+        // Across the strip, pinned to the same screen edge as the main strip.
+        let across: CGFloat
+        switch strip.side {
+        case .left: across = strip.frame.minX
+        case .right: across = strip.frame.maxX - size.width
+        case .top: across = strip.frame.maxY - size.height
+        case .bottom: across = strip.frame.minY
+        }
+
+        // Along the strip: the start of the span, in screen coordinates (bottom for a side strip).
+        var start: CGFloat?
+        switch placement {
+        case .beside:
+            break
+        case .replacing:
+            // In the main strip's place, keeping its alignment: from the same end, or around the
+            // same middle. A side strip's start is its top, which is the frame's max Y.
+            let length = vertical ? size.height : size.width
+            let (low, high) = vertical ? (strip.frame.minY, strip.frame.maxY) : (strip.frame.minX, strip.frame.maxX)
+            let fromHigh = vertical ? store.prefs.stripAlignment == .start : store.prefs.stripAlignment == .end
+            switch store.prefs.stripAlignment {
+            case .center: start = (low + high) / 2 - length / 2
+            default: start = fromHigh ? high - length : low
+            }
+        case .over(let id):
+            // Centred on the group's entry, so it reads as the entry opening up.
+            let entry = entryFrameProvider?(id) ?? strip.frame
+            start = vertical ? entry.midY - size.height / 2 : entry.midX - size.width / 2
+        }
+        if let start {
+            return vertical
+                ? NSPoint(x: across, y: min(max(start, visible.minY), visible.maxY - size.height))
+                : NSPoint(x: min(max(start, visible.minX), visible.maxX - size.width), y: across)
+        }
 
         // The panel carries spare room for aiming to grow into, and the strip inside it sits against
         // the screen edge; line that edge up with the main strip's rather than the panel's middle,

@@ -96,6 +96,8 @@ final class StripScreenState: ObservableObject {
     var pendingBackdropIsLight: Bool?
     /// Room a second strip — a group's — takes beside this one, so the two can be centred together.
     @Published var companionLength: CGFloat = 0
+    /// A group's strip has taken this one's place while the user is inside the group.
+    @Published var isReplacedByGroup = false
     /// In invisible mode the strip is folded flat against the screen edge and swings open when
     /// aiming asks for it, the way a page opens. True while it is open.
     @Published var isUnfolded = true
@@ -159,6 +161,14 @@ final class StripController {
                 strip.state.companionLength = companionLength
             }
             sync()
+        }
+    }
+    /// A group's strip stands in for this one, which steps out of sight and out of the pointer's way.
+    var isReplacedByGroup = false {
+        didSet {
+            guard isReplacedByGroup != oldValue else { return }
+            for strip in strips.values { strip.state.isReplacedByGroup = isReplacedByGroup }
+            if isReplacedByGroup { pointerStrip.map { pointerMoved(to: nil, in: $0) } }
         }
     }
 
@@ -340,6 +350,7 @@ final class StripController {
                                                      width: StripMetrics.thickness(prefs: store.prefs),
                                                      height: 100))
         let state = StripScreenState()
+        state.isReplacedByGroup = isReplacedByGroup
         var view = StripView(model: model, store: store, screen: state, onSelect: onSelect) { [weak self, weak panel] window, offset in
             guard let self else { return }
             if window != nil { self.pointerStrip = self.strips.values.first { $0.panel === panel } }
@@ -453,8 +464,9 @@ final class StripController {
             pointerStrip = nil
         }
         // A drag already owns the popup, and aiming is keyboard-driven and drawn scaled, so the
-        // unscaled hit-test would land on the wrong icon.
-        guard dragOffset == nil, model.aimingID == nil else { return }
+        // unscaled hit-test would land on the wrong icon. A strip a group's has replaced is not
+        // there to hover.
+        guard dragOffset == nil, model.aimingID == nil, point == nil || !isReplacedByGroup else { return }
 
         // The collapsed tile is not one window, so it gets its own popup rather than the name of
         // whichever window happens to be first inside it.

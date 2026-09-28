@@ -68,6 +68,10 @@ struct StripView: View {
             .padding(side.isVertical ? .top : .leading, prefs.stripAlignment == .start ? 0 : prefs.stripMargin)
             .padding(side.isVertical ? .bottom : .trailing, prefs.stripAlignment == .end ? 0 : prefs.stripMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Self.placement(of: prefs))
+            // A group's strip stands in its place while the user is inside the group.
+            .opacity(screen.isReplacedByGroup ? 0 : 1)
+            .allowsHitTesting(!screen.isReplacedByGroup)
+            .animation(prefs.animation(.groupStrip, .easeOut(duration: 0.13)), value: screen.isReplacedByGroup)
     }
 
     /// Where the strip sits in its panel: against the screen edge, and along it by alignment.

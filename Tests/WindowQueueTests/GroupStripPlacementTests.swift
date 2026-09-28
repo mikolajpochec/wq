@@ -31,6 +31,23 @@ final class GroupStripPlacementTests: XCTestCase {
         XCTAssertEqual(prefs.stripShift(forCompanion: 40), -20)
     }
 
+    func testReplacingOrOverlayingTakesNoRoom() {
+        var prefs = Preferences()
+        prefs.stripAlignment = .center
+        for placement in [GroupStripPlacement.replace, .overGroup] {
+            prefs.groupStripPlacement = placement
+            XCTAssertFalse(placement.isBeside)
+            XCTAssertEqual(prefs.stripShift(forCompanion: 40), 0)
+        }
+    }
+
+    func testNewPlacementsRoundTrip() throws {
+        var prefs = Preferences()
+        prefs.groupStripPlacement = .overGroup
+        let decoded = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(prefs))
+        XCTAssertEqual(decoded.groupStripPlacement, .overGroup)
+    }
+
     func testOldPreferencesDecodeToAutomatic() throws {
         let prefs = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
         XCTAssertEqual(prefs.groupStripPlacement, .automatic)

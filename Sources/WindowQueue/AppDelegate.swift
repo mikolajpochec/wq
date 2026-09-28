@@ -166,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return strip?.rowFramesOnEveryStrip(for: id) ?? []
         }
         groupPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
+        groupPanel.entryFrameProvider = { [weak strip] id in strip?.rowFrame(for: id) }
         actionPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
         actionPanel.onPick = { [weak self] action in self?.pick(action) }
         groupPanel.onHover = { [weak self] window in
@@ -1371,6 +1372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !hiddenUntilAiming, let group = model.openGroup ?? aimed else {
             groupPanel.hide()
             strip?.companionLength = 0
+            strip?.isReplacedByGroup = false
             return
         }
         let windows = model.members(of: group)
@@ -1381,14 +1383,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The main strip gives up the room first, so both are laid out in their final places.
         // Only the strip the aim is on grows, so this one follows the aim into the group.
         let aiming = model.aimingID != nil && model.aimInsideGroupID == group.id
-        strip?.companionLength = groupPanel.length(for: windows, covered: covered, aiming: aiming)
+        // Replacing the main strip is for being inside the group; a group the aim only rests on
+        // opens over its entry instead, so the strip the aim is walking stays in view.
+        let inside = model.aimingID != nil ? model.aimInsideGroupID == group.id : model.openGroupID == group.id
+        let placement: GroupPanelController.Placement
+        switch prefs.groupStripPlacement {
+        case .automatic, .before, .after: placement = .beside
+        case .replace where inside: placement = .replacing
+        case .replace, .overGroup: placement = windows.first.map { .over($0.id) } ?? .beside
+        }
+        let replacing = placement == .replacing && windows.count > 1
+        strip?.isReplacedByGroup = replacing
+        strip?.companionLength = placement == .beside
+            ? groupPanel.length(for: windows, covered: covered, aiming: aiming) : 0
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
                         aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
                         maximizedID: model.maximizedID,
                         tiledNumbers: tiledNumbers(for: windows),
                         showsTiledNumbers: model.tiledGroups.count > 1,
-                        aiming: aiming)
+                        aiming: aiming, placement: placement)
     }
 
     /// The layout each of those windows is held in, for the marks in the group's strip.

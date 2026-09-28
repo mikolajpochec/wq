@@ -334,6 +334,8 @@ struct SettingsView: View {
             return "A group's windows open in a second strip \(before) the main one when it is aligned to the end, and \(after) it otherwise."
         case .before: return "A group's windows open in a second strip \(before) the main one."
         case .after: return "A group's windows open in a second strip \(after) the main one."
+        case .replace: return "While you are inside a group, its windows take the main strip's place; the main strip comes back when you leave it."
+        case .overGroup: return "A group's windows open in a strip laid over the main one, centred on the group's own entry."
         }
     }
 
