@@ -601,40 +601,10 @@ struct StripView: View {
 
     /// The icon, and under it a line of the window's title when labels are on. The pair is drawn
     /// inside the room one icon had, so turning labels on does not make the strip any longer.
-    @ViewBuilder
     private func iconWithLabel(for window: ManagedWindow) -> some View {
-        if prefs.showWindowLabels {
-            // Across the foot of the icon, not under it: the icon keeps its size and the row keeps
-            // its place, and the title is legible over whatever the icon happens to be.
-            ZStack(alignment: .bottom) {
-                icon(for: window)
-                    .frame(width: prefs.iconSize, height: prefs.iconSize)
-                Text(label(for: window))
-                    // A fixed, readable size rather than a fraction of the icon: a bigger icon is
-                    // room for more of the title, not for bigger letters.
-                    .font(.system(size: StripMetrics.labelSize, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 2)
-                    .frame(maxWidth: prefs.iconSize)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(Color.black.opacity(0.62))
-                    )
-            }
-        } else {
-            icon(for: window)
-        }
-    }
-
-    /// What the label says: the window's own title, which is what tells two windows of the same
-    /// application apart, falling back to the application's name.
-    private func label(for window: ManagedWindow) -> String {
-        let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return window.appName }
-        // Titles often start with a marker or a bullet the app draws itself; it says nothing here.
-        return String(title.drop { !$0.isLetter && !$0.isNumber })
+        icon(for: window)
+            .frame(width: prefs.iconSize, height: prefs.iconSize)
+            .windowLabel(window, prefs: prefs)
     }
 
     @ViewBuilder
@@ -816,5 +786,46 @@ private struct DiagonalStripes: Shape {
             x += spacing
         }
         return path
+    }
+}
+
+extension View {
+    /// A line of the window's title across the foot of an icon, when labels are on — shared by the
+    /// main strip and the group's strip so both show the same thing.
+    @ViewBuilder
+    func windowLabel(_ window: ManagedWindow, prefs: Preferences) -> some View {
+        if prefs.showWindowLabels {
+            // Across the foot of the icon, not under it: the icon keeps its size and the row keeps
+            // its place, and the title is legible over whatever the icon happens to be.
+            ZStack(alignment: .bottom) {
+                self
+                Text(WindowLabel.text(for: window))
+                    // A fixed, readable size rather than a fraction of the icon: a bigger icon is
+                    // room for more of the title, not for bigger letters.
+                    .font(.system(size: StripMetrics.labelSize, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 2)
+                    .frame(maxWidth: prefs.iconSize)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.black.opacity(0.62))
+                    )
+            }
+        } else {
+            self
+        }
+    }
+}
+
+enum WindowLabel {
+    /// What the label says: the window's own title, which is what tells two windows of the same
+    /// application apart, falling back to the application's name.
+    static func text(for window: ManagedWindow) -> String {
+        let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return window.appName }
+        // Titles often start with a marker or a bullet the app draws itself; it says nothing here.
+        return String(title.drop { !$0.isLetter && !$0.isNumber })
     }
 }

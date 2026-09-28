@@ -256,6 +256,7 @@ struct GroupPanelView: View {
         let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
+            .windowLabel(window, prefs: prefs)
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
