@@ -40,8 +40,12 @@ final class DimOverlay {
         }
 
         let target = store.prefs.aimingDimOpacity
+        guard !store.prefs.instantAiming, store.prefs.animates(.aimingMode) else {
+            panels.forEach { $0.alphaValue = target }
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
+            context.duration = 0.13
             panels.forEach { $0.animator().alphaValue = target }
         }
     }
@@ -51,13 +55,13 @@ final class DimOverlay {
         panels = []
         guard !closing.isEmpty else { return }
 
-        guard animated else {
+        guard animated, store.prefs.animates(.aimingMode) else {
             closing.forEach { $0.orderOut(nil) }
             return
         }
 
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.18
+            context.duration = 0.13
             closing.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: {
             closing.forEach { $0.orderOut(nil) }

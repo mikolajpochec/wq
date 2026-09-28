@@ -74,10 +74,16 @@ enum WindowFocuser {
 
     private static func bringForward(_ window: ManagedWindow, workspaceIndex: Int?, token: UInt64) {
         let appElement = AXPrivate.application(window.pid)
+        // The WindowServer is asked first, the way a click on the window would: it puts the app in
+        // front with this window key at once, without waiting on the app to answer anything. The
+        // accessibility calls that follow are round trips to the app — slow ones, for a busy or
+        // Electron app — and only have to order the window forward and settle its focus. A
+        // minimized window is not on screen for the WindowServer to front; it is restored first.
+        let fronted = !window.isMinimized && bringToFront(pid: window.pid, windowID: window.id)
         if let element = window.element,
-           raise(element, appElement: appElement, wasMinimized: window.isMinimized) {
+           raise(element, appElement: appElement, wasMinimized: window.isMinimized, fronted: fronted) {
             // Raised through the element; nothing else needed.
-        } else {
+        } else if !fronted {
             activate(window, appElement: appElement)
         }
 
@@ -212,7 +218,10 @@ enum WindowFocuser {
     ///   its window is recreated, and every call then fails silently.
     @discardableResult
     private static func raise(_ element: AXUIElement, appElement: AXUIElement,
-                              wasMinimized: Bool) -> Bool {
+                              wasMinimized: Bool, fronted: Bool = false) -> Bool {
+        // Window elements do not inherit the application's bounded timeout; a hung app would
+        // otherwise hold every call below for the system default of several seconds.
+        AXUIElementSetMessagingTimeout(element, AXPrivate.messagingTimeout)
         if wasMinimized {
             element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
         }
@@ -220,7 +229,8 @@ enum WindowFocuser {
         element.setAttribute(kAXFocusedAttribute, value: kCFBooleanTrue)
         let raised = element.perform(kAXRaiseAction)
         appElement.setAttribute(kAXFocusedWindowAttribute, value: element)
-        appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue)
+        // Already in front through the WindowServer; asking the app as well is one more wait.
+        if !fronted { appElement.setAttribute(kAXFrontmostAttribute, value: kCFBooleanTrue) }
         return raised
     }
 

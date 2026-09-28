@@ -230,6 +230,26 @@ enum WindowTiler {
         return NSRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
     }
 
+    /// The window's frame as the WindowServer has it, in Cocoa screen coordinates. Unlike the
+    /// accessibility frame it needs no element, and it is always the frame of this very window —
+    /// an element kept from earlier can belong to a window that has since been replaced, as a tab
+    /// that went behind another is.
+    static func serverFrame(of id: CGWindowID) -> NSRect? {
+        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
+              let bounds = info[kCGWindowBounds as String] as? [String: Any],
+              let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary)
+        else { return nil }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// Windows on screen right now, on any display.
+    static func onScreenWindowIDs() -> Set<CGWindowID> {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return Set(list.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value })
+    }
+
     /// Puts a window back where it was, in Cocoa screen coordinates.
     static func restore(_ window: ManagedWindow, to frame: NSRect) {
         guard let element = window.element else { return }

@@ -170,11 +170,11 @@ final class ActionPanelController {
         hosting.frame = NSRect(origin: .zero, size: size)
         panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
         if !panel.isVisible {
-            panel.alphaValue = 0
+            panel.alphaValue = store.prefs.instantAiming || !store.prefs.animates(.aimingMode) ? 1 : 0
             panel.orderFrontRegardless()
             OverlaySpace.shared.adopt(panel)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.14
+                context.duration = store.prefs.instantAiming ? 0 : store.prefs.duration(.aimingMode, 0.1)
                 panel.animator().alphaValue = 1
             }
         }

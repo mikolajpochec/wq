@@ -259,7 +259,8 @@ final class StripController {
         guard strip.state.isUnfolded else { return }
         strip.state.isUnfolded = false
         let panel = strip.panel
-        DispatchQueue.main.asyncAfter(deadline: .now() + StripMetrics.foldDuration) { [weak self, weak strip] in
+        let delay = store.prefs.duration(.aimingMode, StripMetrics.foldDuration)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak strip] in
             guard let strip, strip.state.isUnfolded == false else { return }
             guard self?.store.prefs.invisibleStrip == true, self?.model.aimingID == nil else { return }
             panel.orderOut(nil)
@@ -319,7 +320,7 @@ final class StripController {
             if !strip.panel.isVisible {
                 // In invisible mode the strip starts folded flat and opens on the next turn of the
                 // run loop, which is what gives SwiftUI a state to animate away from.
-                strip.state.isUnfolded = !prefs.invisibleStrip
+                strip.state.isUnfolded = !prefs.invisibleStrip || prefs.instantAiming || !prefs.animates(.aimingMode)
                 strip.panel.orderFrontRegardless()
                 OverlaySpace.shared.adopt(strip.panel)
             }

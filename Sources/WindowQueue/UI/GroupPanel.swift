@@ -96,7 +96,9 @@ struct GroupPanelView: View {
         )
         // Grown from the screen edge, the way the main strip grows while aiming.
         .scaleEffect(state.scale, anchor: scaleAnchor)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: state.scale)
+        .animation(prefs.instantAiming && state.scale > 1
+                   ? nil : prefs.animation(.aimingMode, .spring(response: 0.18, dampingFraction: 0.82)),
+                   value: state.scale)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 
@@ -158,6 +160,12 @@ struct GroupPanelView: View {
                 .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5)
         )
         .help("\(covered) window\(covered == 1 ? "" : "s") behind the fullscreen one")
+        // A click on the tile is a click on the card on top of it: the fullscreen window, the one
+        // the tile shows and the one the user can see.
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onEnded { _ in
+            if let front = ordered.first { pick(front) }
+        })
     }
 
     /// Marks a window still held in a layout, exactly as the main strip marks one.
@@ -235,7 +243,7 @@ struct GroupPanelView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.isVertical ? .top : .leading)
-            .animation(.spring(response: 0.22, dampingFraction: 0.85), value: state.aimedIDs)
+            .animation(prefs.animation(.aimCursor, .spring(response: 0.16, dampingFraction: 0.87)), value: state.aimedIDs)
         }
     }
 
@@ -399,7 +407,7 @@ final class GroupPanelController {
             guard targetFrame != target || panel.alphaValue < 1 else { return }
             targetFrame = target
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = StripMetrics.layoutDuration
+                context.duration = store.prefs.duration(.groupStrip, StripMetrics.layoutDuration)
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(target, display: true)
@@ -416,7 +424,7 @@ final class GroupPanelController {
         panel.orderFrontRegardless()
         OverlaySpace.shared.adopt(panel)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = StripMetrics.layoutDuration
+            context.duration = store.prefs.duration(.groupStrip, StripMetrics.layoutDuration)
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(target, display: true)
@@ -449,7 +457,7 @@ final class GroupPanelController {
         isHiding = true
         clearHover()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = StripMetrics.layoutDuration * 0.6
+            context.duration = store.prefs.duration(.groupStrip, StripMetrics.layoutDuration * 0.6)
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
             panel.animator().setFrame(folded(panel.frame), display: true)

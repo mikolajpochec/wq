@@ -62,7 +62,7 @@ struct StripView: View {
             .offset(x: side.isVertical ? 0 : -companionShift, y: side.isVertical ? -companionShift : 0)
             // Making room for a group's strip is a slide, not a jump; the group's own panel moves
             // on the same timing.
-            .animation(.easeOut(duration: StripMetrics.layoutDuration), value: screen.companionLength)
+            .animation(prefs.animation(.groupStrip, .easeOut(duration: StripMetrics.layoutDuration)), value: screen.companionLength)
             // The margin is a gap from the screen edge, not from the end of the strip: aligned to
             // the start or the end, the strip lines up with the windows beside it.
             .padding(side.isVertical ? .top : .leading, prefs.stripAlignment == .start ? 0 : prefs.stripMargin)
@@ -153,10 +153,10 @@ struct StripView: View {
                 }
             }
         }
-        .animation(StripMetrics.layoutAnimation, value: previewLayout.elements.map(\.id))
-        .animation(.easeOut(duration: 0.16), value: model.selectedID)
-        .animation(.easeOut(duration: 0.2), value: model.maximizedID)
-        .animation(StripMetrics.layoutAnimation, value: collapsedIDs)
+        .animation(prefs.animation(.stripLayout, StripMetrics.layoutAnimation), value: previewLayout.elements.map(\.id))
+        .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.11)), value: model.selectedID)
+        .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.14)), value: model.maximizedID)
+        .animation(prefs.animation(.stripLayout, StripMetrics.layoutAnimation), value: collapsedIDs)
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
@@ -175,8 +175,8 @@ struct StripView: View {
         // so does the whole strip while the user is working inside a group.
         .saturation(screen.isActive ? 1 : 0)
         .opacity(screen.isActive ? (model.openGroupID == nil ? 1 : 0.55) : prefs.inactiveStripOpacity)
-        .animation(.easeOut(duration: 0.18), value: model.openGroupID)
-        .animation(.easeOut(duration: 0.2), value: screen.isActive)
+        .animation(prefs.animation(.groupStrip, .easeOut(duration: 0.13)), value: model.openGroupID)
+        .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.14)), value: screen.isActive)
         .overlay(alignment: side.isVertical ? .top : .leading) { floatingRow }
         .coordinateSpace(name: Self.dragSpace)
         // One gesture for the whole strip: a per-row recogniser would be destroyed the moment its
@@ -205,12 +205,16 @@ struct StripView: View {
         // Past ninety degrees the page is face down over the screen, so it fades out rather than
         // showing its back, and the last of the turn is what brings it into view.
         .opacity(screen.isUnfolded ? 1 : 0)
-        .animation(.spring(response: StripMetrics.foldDuration, dampingFraction: 0.78),
+        // Opening can be told to happen at once; folding away always animates.
+        .animation(prefs.instantAiming && screen.isUnfolded
+                   ? nil : prefs.animation(.aimingMode, .spring(response: StripMetrics.foldDuration, dampingFraction: 0.78)),
                    value: screen.isUnfolded)
         // Only the strip the aim is actually on grows: stepped into a group, the aim walks the
         // group's own strip, and growing this one too would just push the pair around.
         .scaleEffect(isAimTarget ? prefs.aimingScale : 1, anchor: scaleAnchor)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isAimTarget)
+        .animation(prefs.instantAiming && isAimTarget
+                   ? nil : prefs.animation(.aimingMode, .spring(response: 0.18, dampingFraction: 0.82)),
+                   value: isAimTarget)
     }
 
     // MARK: - Layout
@@ -351,7 +355,7 @@ struct StripView: View {
                 RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
                     .fill(badgeFill)
             )
-            .animation(.easeOut(duration: 0.25), value: screen.backdropIsLight)
+            .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.25)), value: screen.backdropIsLight)
             // The same inset every row has, so the badge sits the same distance from the end of the
             // strip as the icons do from its sides.
             .padding(4)
@@ -399,7 +403,7 @@ struct StripView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.isVertical ? .top : .leading)
-            .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.aimedIDs)
+            .animation(prefs.animation(.aimCursor, .spring(response: 0.16, dampingFraction: 0.87)), value: model.aimedIDs)
         }
     }
 
@@ -546,7 +550,7 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5)
         )
-        .animation(.easeOut(duration: 0.16), value: selected)
+        .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.11)), value: selected)
         .contentShape(Rectangle())
         .help("\(covered) window\(covered == 1 ? "" : "s") behind the maximized one")
     }
@@ -713,13 +717,22 @@ struct StripView: View {
             return
         }
 
-        model.move(id: window.id, toVisiblePosition: dragTargetIndex)
+        // Dropped on a group, the window goes beside the group — past all of it when carried down
+        // the strip — never between its windows.
+        var target = dragTargetIndex
+        let visible = model.visibleWindows
+        if visible.indices.contains(target),
+           model.group(of: window.id)?.id != model.group(of: visible[target].id)?.id,
+           let span = model.groupSpan(of: visible[target].id) {
+            target = target > dragOriginIndex ? span.upperBound : span.lowerBound
+        }
+        model.move(id: window.id, toVisiblePosition: target)
 
         // Let the floating icon travel from the cursor to the slot it was dropped on, then hand
         // over to the row underneath, which has been holding that place all along. The destination
         // is read from the layout the move has just produced, headers included.
-        let destination = committedLayout.topOffset(ofWindowAt: dragTargetIndex)
-        withAnimation(Self.settleAnimation) {
+        let destination = committedLayout.topOffset(ofWindowAt: target)
+        withAnimation(prefs.animation(.stripLayout, Self.settleAnimation)) {
             dragTranslation = destination - dragOriginTop
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDuration) {
@@ -730,8 +743,8 @@ struct StripView: View {
     /// How far the pointer has to travel before a press counts as a drag.
     private static let dragThreshold: CGFloat = 4
 
-    private static let settleAnimation: Animation = .spring(response: 0.22, dampingFraction: 0.9)
-    private static let settleDuration: TimeInterval = 0.22
+    private static let settleAnimation: Animation = .spring(response: 0.16, dampingFraction: 0.9)
+    private static let settleDuration: TimeInterval = 0.16
 
     private func endDrag() {
         onDragTarget(nil, 0)
@@ -756,10 +769,10 @@ enum StripMetrics {
     static func iconCorner(prefs: Preferences) -> CGFloat { prefs.iconSize * 0.23 }
     static func groupCorner(prefs: Preferences) -> CGFloat { (rowHeight(prefs: prefs) + 4) * 0.3 }
     /// Shared timing so the panel resize and the SwiftUI content move together.
-    static let layoutAnimation: Animation = .spring(response: 0.32, dampingFraction: 0.82)
-    static let layoutDuration: TimeInterval = 0.32
+    static let layoutAnimation: Animation = .spring(response: 0.22, dampingFraction: 0.85)
+    static let layoutDuration: TimeInterval = 0.22
     /// How long the page takes to swing open or shut in invisible mode.
-    static let foldDuration: TimeInterval = 0.32
+    static let foldDuration: TimeInterval = 0.24
 
     /// Height of one window row: the icon plus the row's own padding.
     static func rowHeight(prefs: Preferences) -> CGFloat { prefs.iconSize + 8 }

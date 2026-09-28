@@ -16,6 +16,8 @@ final class WindowEnumerator {
     /// Enumeration runs here rather than on the main thread: an accessibility call to a busy or
     /// wedged application blocks until it times out, which on the main thread freezes the strip.
     private let enumerationQueue = DispatchQueue(label: "com.mpochec.windowqueue.enumeration")
+    /// Kept apart from the enumeration, which can take seconds, so a focus answer is not queued behind it.
+    private let focusQueue = DispatchQueue(label: "com.mpochec.windowqueue.focus", qos: .userInitiated)
     private var isRefreshing = false
     /// A refresh asked for while one was running: it may have started before the change it is
     /// about, so it runs again once that one is done rather than waiting for the timer.
@@ -189,7 +191,8 @@ final class WindowEnumerator {
                 bundleID: app.bundleID,
                 title: candidate.title,
                 isMinimized: false,
-                spaceID: candidate.spaceID
+                spaceID: candidate.spaceID,
+                frame: candidate.frame
             )
         }
 
@@ -238,7 +241,8 @@ final class WindowEnumerator {
                     bundleID: app.bundleID,
                     title: element.attribute(kAXTitleAttribute, as: String.self) ?? "",
                     isMinimized: minimized,
-                    spaceID: discovered[id]?.spaceID
+                    spaceID: discovered[id]?.spaceID,
+                    frame: discovered[id]?.frame
                 )
             }
         }
@@ -576,9 +580,17 @@ final class WindowEnumerator {
         // Some applications only honour the request while they are frontmost; the next refresh
         // asks again, off the main thread.
         accessibilityEnabledPIDs.remove(app.processIdentifier)
-        if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self) {
-            onWindowSettled?(focused)
-            if let id = AXPrivate.windowID(of: focused) { adoptExternalFocus(id, element: focused) }
+        // Asked off the main thread: activation comes with every Space switch, while the app is
+        // still busy drawing it, and waiting on its answer here holds up the strip's redraw.
+        focusQueue.async { [weak self] in
+            guard let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+            else { return }
+            let id = AXPrivate.windowID(of: focused)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.onWindowSettled?(focused)
+                if let id { self.adoptExternalFocus(id, element: focused) }
+            }
         }
         scheduleRefresh()
     }

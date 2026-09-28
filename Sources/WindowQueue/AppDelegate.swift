@@ -53,6 +53,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onManualReorder = { [weak self] in
             self?.store.prefs.autoSortByWorkspace = false
         }
+        // A tab that came to the front is the same window to the user: whatever was remembered
+        // about the tab it replaced — its layout, its frame before fullscreen — is its now.
+        model.onHandoff = { [weak self] old, new in
+            guard let self else { return }
+            if let frame = self.tiledFrames.removeValue(forKey: old) { self.tiledFrames[new] = frame }
+            if let frame = self.framesBeforeMaximize.removeValue(forKey: old) { self.framesBeforeMaximize[new] = frame }
+            for (group, order) in self.tiledOrders where order.contains(old) {
+                self.tiledOrders[group] = order.map { $0 == old ? new : $0 }
+            }
+        }
         store.$prefs
             .receive(on: RunLoop.main)
             .sink { [weak self] prefs in
@@ -90,7 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         model.$windows
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.retileIfOrderChanged() }
+            .sink { [weak self] _ in
+                self?.releaseTiledWindowsThatLeft()
+                self?.retileIfOrderChanged()
+            }
             .store(in: &cancellables)
 
         let strip = StripController(
@@ -227,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nor while a jump to another desktop is under way: whatever slides under the pointer
             // on the way is not where the user is going, and focusing it would turn the jump back.
             return self.model.aimingID != nil || self.search?.isOpen == true
-                || SpaceSwitcher.destination != nil
+                || SpaceSwitcher.destination != nil || WindowDragMover.isCarrying
         }
         hoverFocus.start()
         self.hoverFocus = hoverFocus
@@ -413,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         aimingReveal?.cancel()
-        guard store.prefs.superDoubleTapAction != nil, !fromPointer else {
+        guard store.prefs.superDoubleTapAction != nil, !fromPointer, !store.prefs.instantAiming else {
             show()
             return
         }
@@ -554,8 +567,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             aimHighlight.hide()
             return
         }
-        let here = model.aimedWindows.filter { $0.spaceID != nil && $0.spaceID == model.currentSpaceID }
-        aimHighlight.show(here, cursor: model.aimingID)
+        // What is on screen, on every display, as the WindowServer says — not the workspace the
+        // model last read for each window, nor the one desktop of the main display.
+        let onScreen = WindowTiler.onScreenWindowIDs()
+        let here = model.aimedWindows.filter { onScreen.contains($0.id) }
+        aimHighlight.show(here, cursor: model.aimingID,
+                          animated: !store.prefs.instantAiming && store.prefs.animates(.aimCursor))
     }
 
     /// The tiles beside the strip, for aiming started with the mouse: what the mode's keys do, in a
@@ -579,6 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         actions.append(AimAction(kind: .shortcut(.maximizeWindow), title: "Maximize", symbol: "rectangle.expand.vertical"))
         actions.append(AimAction(kind: .shortcut(.minimizeWindow), title: "Minimize", symbol: "minus.rectangle"))
+        actions.append(AimAction(kind: .shortcut(.declutter), title: "Declutter", symbol: "rectangle.3.group"))
         actions.append(AimAction(kind: .shortcut(.closeWindow), title: "Close", symbol: "xmark"))
         actions.append(AimAction(kind: .selectAll, title: "Select all", symbol: "checklist"))
         actions.append(AimAction(kind: .shortcut(.openLauncher), title: store.prefs.launcher.title,
@@ -686,13 +704,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // The WindowServer moves what it is willing to move; an application whose other windows
-        // would travel with it is left for the trick below.
+        // The WindowServer moves what it is willing to move; a window of an application with
+        // windows elsewhere is carried over by hand, as ⌥⇧N does, and the layout follows once it
+        // is there.
+        var stragglers: [ManagedWindow] = []
         if windows.contains(where: { $0.spaceID != target }) {
             let result = spaceMover.move(windows, to: target, queue: model.windows)
             model.relocate(result.arrived.map(\.id), toSpace: target)
+            stragglers = result.leftBehind
         }
+        guard stragglers.isEmpty || WindowDragMover.isCarrying else {
+            let destination = target
+            Diagnostics.note("tiling: carrying \(stragglers.count) window(s) to space \(destination) by hand")
+            WindowDragMover.carry(stragglers, to: destination) { [weak self] carried in
+                guard let self else { return }
+                self.model.relocate(carried.map(\.id), toSpace: destination)
+                self.gatherAndTile(windows, last: last, on: destination, layout: layout)
+            }
+            return
+        }
+        gatherAndTile(windows, last: last, on: target, layout: layout)
+    }
 
+    /// Goes to the layout's workspace, waits for the windows to be reachable there, and lays out
+    /// the ones that made it.
+    private func gatherAndTile(_ windows: [ManagedWindow], last: ManagedWindow, on target: UInt64,
+                               layout: TileLayout) {
         // Go there, then give the windows time to show up in their apps' window lists: one that
         // arrived from, or still sits on, a workspace out of view has no accessibility element yet.
         // Focusing the last window takes us there when it is there itself — as the model now has
@@ -783,18 +820,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tiledOrders: [Int: [CGWindowID]] = [:]
     /// The frames the layout gave them, to tell a real move from a notification about nothing.
     private var tiledFrames: [CGWindowID: NSRect] = [:]
+    /// The workspace each group was laid out on. A window that turns up on another one has left
+    /// the layout, however it got there.
+    private var tiledHomes: [Int: UInt64] = [:]
+
+    /// Makes sure every window has a live accessibility element before it is laid out: one kept from
+    /// earlier may belong to a window since replaced, and an app that lists nothing leaves none.
+    /// The slow way of finding one runs off the main thread; the layout waits for it.
+    private func withReachableElements(_ windows: [ManagedWindow],
+                                       then: @escaping ([ManagedWindow]) -> Void) {
+        let snapshot = windows
+        DispatchQueue.global(qos: .userInitiated).async {
+            var found: [CGWindowID: AXUIElement] = [:]
+            let ready = snapshot.map { window -> ManagedWindow in
+                var copy = window
+                if let element = window.element, AXPrivate.windowID(of: element) == window.id { return copy }
+                copy.element = AXPrivate.windowElement(pid: window.pid, id: window.id)
+                if let element = copy.element { found[window.id] = element }
+                return copy
+            }
+            DispatchQueue.main.async { [weak self] in
+                if !found.isEmpty {
+                    Diagnostics.note("tiling: found elements for \(found.count) window(s) the queue had none for")
+                    self?.model.adoptElements(found)
+                }
+                then(ready)
+            }
+        }
+    }
 
     private func finishTiling(_ windows: [ManagedWindow], layout: TileLayout) {
+        withReachableElements(windows) { [weak self] ready in
+            self?.placeTiling(ready, layout: layout)
+        }
+    }
+
+    private func placeTiling(_ windows: [ManagedWindow], layout: TileLayout) {
+        dropFocusFlash()
         // Only windows with an element can be placed; the layout is picked for the ones that can,
-        // so a window that could not be reached does not leave a hole.
+        // so a window that could not be reached does not leave a hole — and the user is told.
+        let unreachable = windows.filter { $0.element == nil }
         let windows = windows.filter { $0.element != nil }
+        if !unreachable.isEmpty {
+            Diagnostics.note("tiling without \(unreachable.map { "\($0.appName) \($0.id)" }.joined(separator: ", ")): no element")
+            toast?.showCentred(title: "Tiled \(windows.count) of \(windows.count + unreachable.count) windows",
+                               subtitle: "\(unreachable.map(\.appName).joined(separator: ", ")) could not be reached")
+        }
         let layout = windows.count == layout.frames.count
             ? layout
             : TileLayout.options(for: windows.count).first { $0.kind == layout.kind }
                 ?? TileLayout.options(for: windows.count).first
         guard let layout else { return }
-        let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(),
-                                      gaps: WindowTiler.Gaps(prefs: store.prefs))
+        let area = tilingArea()
+        let gaps = WindowTiler.Gaps(prefs: store.prefs)
+        let placed = WindowTiler.tile(windows, layout: layout, in: area, gaps: gaps)
+        finishPlacing(placed, layout: layout)
+    }
+
+    private func finishPlacing(_ placed: [ManagedWindow], layout: TileLayout) {
         guard let first = placed.first else { return }
         WindowTiler.raise(placed)
         noteTiled(placed, layout: layout)
@@ -817,12 +900,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let group = model.setTiled(windows.map(\.id), layout: layout.name) else { return }
         relayout(shorthanded.map(\.id).filter { $0 != group.id })
         tiledOrders[group.id] = group.ids
-        // Read once the tiler has finished its own corrections, so what is stored is where the
-        // windows actually came to rest.
+        // Where the model has them now: the copies passed in can predate a move to this workspace.
+        // A layout that could only be made across several workspaces has no home to leave, and is
+        // not taken apart for being where it was made.
+        let homes = Set(windows.compactMap { window in model.windows.first { $0.id == window.id }?.spaceID })
+        tiledHomes[group.id] = homes.count == 1 ? homes.first : nil
+        recordTiledFrames(windows)
+    }
+
+    /// Remembers where the windows came to rest, read once the tiler has finished its own
+    /// corrections — anything else later is the user moving them.
+    private func recordTiledFrames(_ windows: [ManagedWindow]) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
             for window in windows where self.model.tiledIDs.contains(window.id) {
                 self.tiledFrames[window.id] = WindowTiler.frame(of: window)
+            }
+        }
+    }
+
+    /// A window of a layout sent to another workspace has left it: the ones still there close up
+    /// and take its room, and a single one left takes the whole screen.
+    private func releaseTiledWindowsThatLeft() {
+        for group in model.tiledGroups {
+            guard let home = tiledHomes[group.id] else { continue }
+            let members = model.tiledWindowsInQueueOrder(group)
+            let leavers = Set(members.filter { $0.spaceID != nil && $0.spaceID != home }.map(\.id))
+            guard !leavers.isEmpty else { continue }
+            let staying = members.filter { !leavers.contains($0.id) }
+            Diagnostics.note("tiled group \(group.id): \(leavers.count) window(s) left for another workspace, "
+                             + "\(staying.count) stay")
+            for id in leavers { tiledFrames[id] = nil }
+            model.releaseFromTiled(leavers)
+            if staying.count > 1 {
+                relayout([group.id])
+            } else {
+                tiledOrders[group.id] = nil
+                tiledHomes[group.id] = nil
+                for window in staying {
+                    tiledFrames[window.id] = nil
+                    tilingSettledAt = Date().addingTimeInterval(2)
+                    // Left alone by the others, not asked for: it grows in place without taking focus.
+                    maximize(window, bringUp: false)
+                }
             }
         }
     }
@@ -846,6 +966,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !placed.isEmpty else { continue }
                 self.tilingSettledAt = Date().addingTimeInterval(2)
                 self.tiledOrders[group.id] = placed.map(\.id)
+                // The frames they had are gone; without the new ones, the next notification about
+                // any of them would read as the user moving it and break the layout.
+                self.recordTiledFrames(placed)
             }
         }
     }
@@ -993,8 +1116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The screen being worked on, less the room the strip keeps for itself.
     private func tilingArea() -> NSRect {
+        tilingArea(on: NSScreen.main ?? NSScreen.screens.first)
+    }
+
+    /// That screen less the room the strip keeps for itself.
+    private func tilingArea(on screen: NSScreen?) -> NSRect {
         let prefs = store.prefs
-        let screen = NSScreen.main ?? NSScreen.screens.first
         // The room the strip keeps is taken off here, so the screen has to be measured without the
         // reservation that keeps it — otherwise it is subtracted twice.
         var area = screen.map { DockReservation.unreservedFrame(of: $0, prefs: prefs) } ?? .zero
@@ -1037,6 +1164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case _ where action.moveSpaceIndex != nil:
                 moveWindows(toWorkspace: action.moveSpaceIndex!)
                 return
+            case .moveToEmptySpace:
+                moveToEmptySpace()
+                return
             // Fullscreen hides every other window of its workspace, so several windows cannot each
             // be the one on top: the aim stays as it is and nothing happens.
             case .toggleMaximize where model.aimedWindows.count > 1:
@@ -1062,6 +1192,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let windows = model.aimedWindows
                 endAiming(commit: false)
                 screenshot(windows)
+                return
+            // A run of aimed windows is decluttered among themselves; a single aim means the lot.
+            case .declutter:
+                let aimed = model.aimedWindows
+                endAiming(commit: false)
+                declutter(aimed.count > 1 ? aimed : nil)
                 return
             // Both hand the keyboard to something else, so the mode ends first and takes its grab
             // with it — a launcher that cannot be typed into is no launcher.
@@ -1113,6 +1249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             maximizeWindow()
         case .minimizeWindow:
             if let window = model.selectedWindow { minimize(window) }
+        case .declutter:
+            declutter(nil)
         case .toggleGroup:
             toggleGroup()
         case .closeWindow:
@@ -1121,6 +1259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             search?.toggle()
         case .openLauncher:
             SystemLaunchers.open(store.prefs.launcher)
+        case .goToEmptySpace:
+            goToEmptySpace()
+        case .moveToEmptySpace:
+            moveToEmptySpace()
         case .showOverview:
             SystemLaunchers.showMissionControl()
         case .toggleInvisibleStrip:
@@ -1215,7 +1357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           y: area.maxY - (unit.minY + unit.height) * area.height,
                           width: unit.width * area.width,
                           height: unit.height * area.height)
-        tilePreview.show(cell.insetBy(dx: gap, dy: gap))
+        tilePreview.show(cell.insetBy(dx: gap, dy: gap), animated: store.prefs.animates(.windowOutlines))
     }
 
     /// Keeps the panel beside the strip in step: the open group, or the one the pointer rests on.
@@ -1267,7 +1409,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch action {
         case .maximizeWindow:
             // One after another, so an app that snaps its own frame does not fight the next one.
-            for window in group { maximize(window) }
+            for window in group { maximize(window, bringUp: false) }
+            if let first = group.first { bringUp(first) }
             announceGroup("Maximized \(count) windows")
         case .minimizeWindow:
             for window in group { minimize(window) }
@@ -1297,6 +1440,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         element?.setAttribute(kAXMinimizedAttribute, value: kCFBooleanTrue)
     }
 
+    /// Moves and, where it has to, shrinks windows so that none of them covers another, leaving
+    /// each as close to where and how big it was as it can. With nil, every window on screen right
+    /// now is decluttered, each screen on its own; otherwise just these, among themselves.
+    private func declutter(_ chosen: [ManagedWindow]?) {
+        let onScreen = WindowTiler.onScreenWindowIDs()
+        let candidates = (chosen ?? model.windows).filter { !$0.isMinimized && onScreen.contains($0.id) }
+        guard candidates.count > 1 else {
+            toast?.showCentred(title: "Nothing to declutter", subtitle: "Fewer than two windows on screen")
+            return
+        }
+        withReachableElements(candidates) { [weak self] ready in
+            self?.placeDecluttered(ready.filter { $0.element != nil })
+        }
+    }
+
+    private func placeDecluttered(_ windows: [ManagedWindow]) {
+        dropFocusFlash()
+        let gaps = WindowTiler.Gaps(prefs: store.prefs)
+        var byScreen: [Int: [(window: ManagedWindow, frame: NSRect)]] = [:]
+        for window in windows {
+            guard let frame = WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id),
+                  let screen = NSScreen.screens.indices.max(by: {
+                      Self.overlapArea(NSScreen.screens[$0].frame, frame) < Self.overlapArea(NSScreen.screens[$1].frame, frame)
+                  })
+            else { continue }
+            byScreen[screen, default: []].append((window, frame))
+        }
+
+        var moved: [ManagedWindow] = []
+        for (screen, entries) in byScreen {
+            let area = tilingArea(on: NSScreen.screens[screen]).insetBy(dx: gaps.outer, dy: gaps.outer)
+            let frames = Declutter.arrange(entries.map(\.frame), in: area, gap: max(gaps.inner, 0))
+            for (entry, target) in zip(entries, frames) where !WindowTiler.matches(entry.frame, target) {
+                // A window given a new place by hand is no longer the fullscreen or maximized one.
+                if model.maximizedID == entry.window.id { model.endFocus() }
+                framesBeforeMaximize.removeValue(forKey: entry.window.id)
+                // Nor part of a layout: the group is freed where it stands, as a move by hand frees it.
+                if let group = model.tiledGroup(of: entry.window.id) {
+                    model.clearTiled(containing: entry.window.id)
+                    tiledOrders[group.id] = nil
+                    for member in group.ids { tiledFrames[member] = nil }
+                }
+                WindowTiler.restore(entry.window, to: target)
+                moved.append(entry.window)
+            }
+        }
+        Diagnostics.note("declutter: moved \(moved.count) of \(windows.count) windows")
+        if moved.isEmpty {
+            toast?.showCentred(title: "Nothing to declutter", subtitle: "Every window is already in view")
+        } else {
+            announceGroup("Decluttered \(moved.count) of \(windows.count) windows")
+        }
+    }
+
+    private static func overlapArea(_ a: NSRect, _ b: NSRect) -> CGFloat {
+        let common = a.intersection(b)
+        return common.isNull ? 0 : common.width * common.height
+    }
+
     /// Fills the screen with the selected window, less the strip's room. Nothing else changes: no
     /// way back through the same shortcut, and the rest of the workspace stays where it is.
     private func maximizeWindow() {
@@ -1304,7 +1506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         maximize(window)
     }
 
-    private func maximize(_ window: ManagedWindow) {
+    private func maximize(_ window: ManagedWindow, bringUp: Bool = true) {
+        dropFocusFlash()
         var window = window
         window.element = window.element ?? WindowSpaceMover.element(for: window)
         // Its old frame is still worth keeping: the fullscreen shortcut can put it back later.
@@ -1312,11 +1515,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
         }
         WindowTiler.fill(window, in: tilingArea(), gaps: WindowTiler.Gaps(prefs: store.prefs))
+        if bringUp { self.bringUp(window) }
+    }
+
+    /// Puts a window just filled to the screen in front with the keyboard: maximizing or sending
+    /// fullscreen something left behind another window would change nothing anyone can see. No
+    /// cursor warp or outline — the window now covers the screen, so there is nothing to point out.
+    private func bringUp(_ window: ManagedWindow) {
+        guard !WindowFocuser.isFocused(window) else { return }
+        WindowFocuser.focus(window,
+                            workspaceIndex: model.workspaceNumber(of: window),
+                            siblingCount: model.windows.count { $0.pid == window.pid })
     }
 
     /// Fills the screen with the selected window, less the strip's room; again restores it.
     private func toggleMaximize() {
         guard var window = model.selectedWindow else { return }
+        dropFocusFlash()
         window.element = window.element ?? WindowSpaceMover.element(for: window)
         let area = tilingArea()
 
@@ -1336,6 +1551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
         WindowTiler.fill(window, in: area, gaps: WindowTiler.Gaps(prefs: store.prefs))
+        bringUp(window)
         if store.prefs.focusMaximizedWindow { model.beginFocus(on: window.id) }
     }
 
@@ -1420,70 +1636,124 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // travel is over — the switch animation takes as long as it takes, and an outline drawn
         // while it runs is spent before the window is even on screen. So: wait for the workspace to
         // actually be the one in view, and give up if it never is.
-        markFocus(window.id, attempt: 0)
+        focusMarkRequest &+= 1
+        markFocus(window.id, attempt: 0, request: focusMarkRequest)
     }
 
-    private func markFocus(_ id: CGWindowID, attempt: Int) {
-        guard model.aimingID == nil, let window = model.windows.first(where: { $0.id == id }) else { return }
-        let arrived = window.spaceID == nil || window.spaceID == model.currentSpaceID
-        if arrived, WindowTiler.frame(of: window) != nil {
-            aimHighlight.flash(window, for: store.prefs.flashFocusedWindowDuration)
+    /// Counts focus outlines asked for, so one still waiting for its window's workspace to arrive
+    /// stands down when the window is resized — or another outline is asked for — meanwhile.
+    private var focusMarkRequest = 0
+
+    /// Drops the focus outline, drawn or still waiting to be: the window's frame is about to change,
+    /// and an outline of where it was is an outline of nothing.
+    private func dropFocusFlash() {
+        focusMarkRequest &+= 1
+        aimHighlight.cancelFlash()
+    }
+
+    private func markFocus(_ id: CGWindowID, attempt: Int, request: Int) {
+        guard request == focusMarkRequest, model.aimingID == nil, let window = model.windows.first(where: { $0.id == id }) else { return }
+        if WindowTiler.onScreenWindowIDs().contains(id) {
+            aimHighlight.flash(window, for: store.prefs.flashFocusedWindowDuration,
+                               fading: store.prefs.animates(.windowOutlines))
             return
         }
         guard attempt < 20 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.markFocus(id, attempt: attempt + 1)
+            self?.markFocus(id, attempt: attempt + 1, request: request)
         }
     }
 
-    /// Sends the selected window — or every aimed window, while aiming — to a workspace, staying
-    /// where the user is. Windows move with their whole app, so one whose app has other windows
-    /// elsewhere stays put, and the popup says so.
+    /// Sends the selected window — or every aimed window, while aiming — to a workspace, and takes
+    /// the user there with it: the window is what they were working on. The WindowServer moves
+    /// what it will; a window it would only move along with the rest of its app, while that app has
+    /// windows elsewhere, is held by its title bar while the desktop changes, as a person would.
     private func moveWindows(toWorkspace index: Int) {
         let windows = model.aimingID != nil ? model.aimedWindows : model.selectedWindow.map { [$0] } ?? []
         if model.aimingID != nil { endAiming(commit: false) }
         let spaces = SpacesBridge.shared.userSpaceIDs
-        guard !windows.isEmpty, spaces.indices.contains(index - 1), spaceMover.isAvailable else { return }
+        guard !windows.isEmpty, spaces.indices.contains(index - 1), spaceMover.isAvailable,
+              !WindowDragMover.isCarrying
+        else { return }
 
         let target = spaces[index - 1]
-        let orderBefore = model.visibleWindows.map(\.id)
-        let selectedBefore = model.selectedID
-
         let result = spaceMover.move(windows, to: target, queue: model.windows)
         model.relocate(result.arrived.map(\.id), toSpace: target)
 
-        // The selected window has left the workspace the user is on, so the selection follows
-        // what is still here rather than pointing at something out of sight.
-        let movedAway = Set(result.arrived.filter { $0.id == selectedBefore }.map(\.id))
-        if let selectedBefore, movedAway.contains(selectedBefore),
-           let current = model.currentSpaceID, current != target {
-            selectNearestRemaining(to: selectedBefore, in: orderBefore, on: current,
-                                   excluding: Set(result.arrived.map(\.id)))
+        let done = { [weak self] (moved: [ManagedWindow], stayed: [ManagedWindow]) in
+            guard let self else { return }
+            // Follow the windows: the first of them, as the model now has it, is focused there —
+            // which is also what takes the user to the workspace, if the carry has not already.
+            let movedIDs = Set(moved.map(\.id))
+            if let lead = windows.first(where: { movedIDs.contains($0.id) })
+                .flatMap({ lead in self.model.windows.first { $0.id == lead.id } }) {
+                self.model.select(id: lead.id, announce: false)
+                self.focus(lead)
+            }
+            if let kept = stayed.first {
+                let others = stayed.count > 1 ? " and \(stayed.count - 1) more" : ""
+                self.toast?.show(title: "\(kept.appName) stayed where it was\(others)",
+                                 subtitle: "It could not be moved to workspace \(index)", beside: kept.id)
+            } else if let first = windows.first {
+                self.toast?.show(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows",
+                                 subtitle: "Moved to workspace \(index)", beside: first.id)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.enumerator?.refresh()
+            }
         }
-        if let kept = result.leftBehind.first {
-            let others = result.leftBehind.count > 1 ? " and \(result.leftBehind.count - 1) more" : ""
-            toast?.show(title: "\(kept.appName) stayed here\(others)",
-                        subtitle: "Its app has windows on other workspaces, and moves as a whole",
-                        beside: kept.id)
-        } else if let first = windows.first {
-            toast?.show(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows",
-                        subtitle: "Moved to workspace \(index)", beside: first.id)
+
+        guard !result.leftBehind.isEmpty else {
+            done(result.arrived, [])
+            return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.enumerator?.refresh()
+        Diagnostics.note("moving \(result.leftBehind.count) window(s) to workspace \(index) by holding it through the switch")
+        WindowDragMover.carry(result.leftBehind, to: target) { [weak self] carried in
+            guard let self else { return }
+            self.model.relocate(carried.map(\.id), toSpace: target)
+            let carriedIDs = Set(carried.map(\.id))
+            done(result.arrived + carried, result.leftBehind.filter { !carriedIDs.contains($0.id) })
         }
     }
 
-    /// Focuses the window on `space` closest in the queue to where `id` was, or, when the workspace
-    /// has nothing left, leaves the strip showing an empty slot there.
-    private func selectNearestRemaining(to id: CGWindowID, in order: [CGWindowID], on space: UInt64,
-                                        excluding moved: Set<CGWindowID>) {
-        if let nearest = model.nearestWindow(on: space, to: id, in: order, excluding: moved) {
-            model.select(id: nearest.id, announce: false)
-            focus(nearest)
-        } else {
-            model.showEmptySlot(for: space)
+    /// Goes to the empty workspace nearest the one in view on this monitor, the way `⌥N` goes to
+    /// workspace N. WindowQueue does not make desktops, so with none empty it says so instead.
+    private func goToEmptySpace() {
+        guard let current = SpacesBridge.shared.currentSpaceID else { return }
+        let onThisDisplay = Set(SpacesBridge.shared.spacesSharingDisplay(with: current))
+        let candidates = model.spaceOrder.filter { onThisDisplay.contains($0) }
+        guard let empty = model.nearestEmptySpace(to: current, among: candidates) else {
+            toast?.showCentred(title: "No empty workspace",
+                               subtitle: "Every workspace on this monitor has windows; Mission Control adds more")
+            return
         }
+        guard empty != current, let index = model.workspaceNumber(ofSpace: empty) else {
+            toast?.showCentred(title: "This workspace is empty", subtitle: "WindowQueue")
+            return
+        }
+        Diagnostics.note("nearest empty workspace: \(index) (space \(empty))")
+        switchToSpace(index)
+    }
+
+    /// Sends the selected window — or every aimed window — to the empty workspace nearest the one in
+    /// view on this monitor, and goes there with it, as `⌥⇧N` does for workspace N.
+    private func moveToEmptySpace() {
+        let windows = model.aimingID != nil ? model.aimedWindows : model.selectedWindow.map { [$0] } ?? []
+        guard !windows.isEmpty, let current = SpacesBridge.shared.currentSpaceID else { return }
+        let onThisDisplay = Set(SpacesBridge.shared.spacesSharingDisplay(with: current))
+        let candidates = model.spaceOrder.filter { onThisDisplay.contains($0) }
+        // The workspace being left is no destination, even when the windows leaving are all it has.
+        guard let empty = model.nearestEmptySpace(to: current, among: candidates,
+                                                  ignoring: Set(windows.map(\.id)), includingOrigin: false),
+              let index = model.workspaceNumber(ofSpace: empty)
+        else {
+            if model.aimingID != nil { endAiming(commit: false) }
+            toast?.showCentred(title: "No empty workspace",
+                               subtitle: "Every other workspace on this monitor has windows; Mission Control adds more")
+            return
+        }
+        Diagnostics.note("moving to the nearest empty workspace: \(index) (space \(empty))")
+        moveWindows(toWorkspace: index)
     }
 
     /// Changes workspace using the configured strategy, falling back through the others.

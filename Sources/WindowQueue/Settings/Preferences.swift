@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import SwiftUI
 
 enum QueueScope: String, Codable, CaseIterable, Identifiable {
     case global
@@ -42,6 +43,34 @@ enum StripAlignment: String, Codable, CaseIterable, Identifiable {
         case .start: return 0
         case .center: return 0.5
         case .end: return 1
+        }
+    }
+}
+
+/// The animations that can be switched off one by one, each covering one part of the interface.
+enum AnimationKind: String, Codable, CaseIterable, Identifiable {
+    /// Windows arriving, leaving and moving in the strip, the selection, and a dropped icon settling.
+    case stripLayout
+    /// Aiming mode coming and going: the dimming, the strip growing and the invisible strip unfolding.
+    case aimingMode
+    /// The aim stepping from window to window, on the strip and around the windows themselves.
+    case aimCursor
+    /// A group's own strip folding out of the main one and back.
+    case groupStrip
+    /// The outline that marks where focus landed, and the preview of where a dragged window will go.
+    case windowOutlines
+    /// The name popup fading in and out.
+    case namePopup
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .stripLayout: return "Windows arriving, leaving and moving"
+        case .aimingMode: return "Entering and leaving"
+        case .aimCursor: return "Aim moving"
+        case .groupStrip: return "Group strip folding out"
+        case .windowOutlines: return "Window outlines"
+        case .namePopup: return "Name popup"
         }
     }
 }
@@ -110,6 +139,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case toggleMaximize
     case maximizeWindow
     case minimizeWindow
+    case declutter
     case toggleGroup
     case search
     case openLauncher
@@ -117,6 +147,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case toggleInvisibleStrip
     case toggleRecording
     case screenshotWindow
+    case goToEmptySpace
+    case moveToEmptySpace
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
@@ -136,6 +168,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleMaximize: return "Fullscreen window (again to restore)"
         case .maximizeWindow: return "Maximize window"
         case .minimizeWindow: return "Minimize window"
+        case .declutter: return "Declutter windows (show every one, resizing as little as possible)"
         case .toggleGroup: return "Group or ungroup windows"
         case .search: return "Search windows"
         case .openLauncher: return "Open the launcher"
@@ -143,6 +176,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleInvisibleStrip: return "Hide or show the strip (invisible mode)"
         case .toggleRecording: return "Start or stop recording the screen"
         case .screenshotWindow: return "Take a picture of the window"
+        case .goToEmptySpace: return "Go to the nearest empty workspace"
+        case .moveToEmptySpace: return "Move window to the nearest empty workspace"
         default:
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
@@ -167,16 +202,17 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
-         .toggleMaximize, .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .search,
-         .openLauncher, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow]
+         .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .search,
+         .openLauncher, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
+         .goToEmptySpace, .moveToEmptySpace]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
     /// picked out first.
     static var doubleTapActions: [HotkeyAction] {
-        [.openLauncher, .showOverview, .search, .toggleInvisibleStrip, .toggleRecording,
+        [.openLauncher, .showOverview, .search, .goToEmptySpace, .toggleInvisibleStrip, .toggleRecording,
          .screenshotWindow, .toggleMaximize,
-         .maximizeWindow, .minimizeWindow, .toggleGroup, .closeWindow, .sortByWorkspace,
+         .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .sortByWorkspace,
          .moveToStart, .moveToEnd]
     }
 
@@ -185,6 +221,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     }
 
     /// Default combo for this action given the chosen "super" modifier.
+    ///
+    /// No default takes a letter that Option turns into a Polish one on the Polish Pro layout —
+    /// A, C, E, L, N, O, S, X, Z — so with Option as the super key, ą ć ę ł ń ó ś ź ż still type.
     func defaultCombo(superMask: UInt32) -> KeyCombo {
         let shift = UInt32(shiftKey)
         switch self {
@@ -194,18 +233,22 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .moveRight: return KeyCombo(keyCode: kVK_ANSI_RightBracket, modifiers: superMask | shift)
         case .moveToStart: return KeyCombo(keyCode: kVK_Home, modifiers: superMask | shift)
         case .moveToEnd: return KeyCombo(keyCode: kVK_End, modifiers: superMask | shift)
-        case .sortByWorkspace: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask | shift)
+        case .sortByWorkspace: return KeyCombo(keyCode: kVK_ANSI_W, modifiers: superMask | shift)
         case .closeWindow: return KeyCombo(keyCode: kVK_ANSI_Q, modifiers: superMask)
         case .toggleMaximize: return KeyCombo(keyCode: kVK_ANSI_F, modifiers: superMask)
         case .maximizeWindow: return KeyCombo(keyCode: kVK_ANSI_M, modifiers: superMask)
         case .minimizeWindow: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: superMask)
+        case .declutter: return KeyCombo(keyCode: kVK_ANSI_D, modifiers: superMask)
         case .toggleGroup: return KeyCombo(keyCode: kVK_ANSI_G, modifiers: superMask)
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
-        case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: superMask)
-        case .showOverview: return KeyCombo(keyCode: kVK_ANSI_O, modifiers: superMask)
+        case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_R, modifiers: superMask)
+        case .showOverview: return KeyCombo(keyCode: kVK_ANSI_W, modifiers: superMask)
         case .toggleInvisibleStrip: return KeyCombo(keyCode: kVK_ANSI_I, modifiers: superMask)
-        case .toggleRecording: return KeyCombo(keyCode: kVK_ANSI_C, modifiers: superMask)
-        case .screenshotWindow: return KeyCombo(keyCode: kVK_ANSI_X, modifiers: superMask)
+        case .toggleRecording: return KeyCombo(keyCode: kVK_ANSI_V, modifiers: superMask)
+        case .screenshotWindow: return KeyCombo(keyCode: kVK_ANSI_P, modifiers: superMask)
+        // Next to the numbered workspaces: the one with nothing on it.
+        case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
+        case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -256,7 +299,7 @@ struct Preferences: Codable, Equatable {
     var aimingDimOpacity: Double = 0.45
     /// How long scrolling over the strip has to stop before the selected window is focused, so
     /// running through the queue does not focus everything on the way past.
-    var scrollFocusDelay: Double = 0.5
+    var scrollFocusDelay: Double = 0.3
     /// Move the pointer to the middle of a window when it is focused, so the cursor follows the
     /// keyboard instead of being left behind on another screen.
     var warpCursorToWindow: Bool = true
@@ -293,13 +336,22 @@ struct Preferences: Codable, Equatable {
     /// of the same application. The row keeps its size; the icon gives up the room.
     var showWindowLabels: Bool = true
 
-    /// Which finder the launcher shortcut opens — `S` in aiming mode, or its own shortcut.
+    /// Which finder the launcher shortcut opens — its key in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
     /// Outline a window for a moment when focus lands on it, the way aiming outlines what it is on.
     var flashFocusedWindow: Bool = true
     /// How long that outline stays up.
     var flashFocusedWindowDuration: Double = 0.15
+
+    /// Aiming mode appears at once: no dimming fading in, no strip growing or unfolding, and no
+    /// wait to see whether a second tap of the super key is coming.
+    var instantAiming: Bool = false
+
+    /// Off, nothing in WindowQueue animates; everything changes at once.
+    var animationsEnabled: Bool = true
+    /// Animations switched off on their own while the rest keep running.
+    var disabledAnimations: Set<AnimationKind> = []
 
     /// The strip is only on screen while aiming mode is open; the rest of the time the queue is
     /// there but out of sight, and a change is announced by the popup alone.
@@ -363,6 +415,9 @@ struct Preferences: Codable, Equatable {
         aimBindings = value(.aimBindings, defaults.aimBindings)
         flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)
         flashFocusedWindowDuration = value(.flashFocusedWindowDuration, defaults.flashFocusedWindowDuration)
+        instantAiming = value(.instantAiming, defaults.instantAiming)
+        animationsEnabled = value(.animationsEnabled, defaults.animationsEnabled)
+        disabledAnimations = value(.disabledAnimations, defaults.disabledAnimations)
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
     }
 
@@ -378,6 +433,41 @@ struct Preferences: Codable, Equatable {
             out[action.rawValue] = action.defaultCombo(superMask: superMask)
         }
         return out
+    }
+
+    /// The keys these actions had by default before the defaults gave the Polish letters back.
+    private static let formerDefaultKeys: [HotkeyAction: Int] = [
+        .sortByWorkspace: kVK_ANSI_S, .openLauncher: kVK_ANSI_S, .showOverview: kVK_ANSI_O,
+        .toggleRecording: kVK_ANSI_C, .screenshotWindow: kVK_ANSI_X,
+    ]
+
+    /// Moves every binding still on its former default to the current one. A binding the user
+    /// chose themselves is left alone.
+    /// - Returns: whether anything changed.
+    mutating func moveOffFormerDefaults() -> Bool {
+        var changed = false
+        for (action, key) in Self.formerDefaultKeys {
+            let current = action.defaultCombo(superMask: superModifier.carbonMask)
+            let former = KeyCombo(keyCode: UInt32(key), modifiers: current.modifiers)
+            guard bindings[action.rawValue] == former else { continue }
+            bindings[action.rawValue] = current
+            changed = true
+        }
+        return changed
+    }
+
+    func animates(_ kind: AnimationKind) -> Bool {
+        animationsEnabled && !disabledAnimations.contains(kind)
+    }
+
+    /// The animation to use for this part of the interface, or nil when it is switched off.
+    func animation(_ kind: AnimationKind, _ animation: Animation?) -> Animation? {
+        animates(kind) ? animation : nil
+    }
+
+    /// An AppKit fade's length for this part of the interface: none when it is switched off.
+    func duration(_ kind: AnimationKind, _ duration: TimeInterval) -> TimeInterval {
+        animates(kind) ? duration : 0
     }
 
     func combo(for action: HotkeyAction) -> KeyCombo {
@@ -398,7 +488,17 @@ final class PreferencesStore: ObservableObject {
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.key),
-           let decoded = try? JSONDecoder().decode(Preferences.self, from: data) {
+           var decoded = try? JSONDecoder().decode(Preferences.self, from: data) {
+            // Once only: a binding put back on one of those keys later on is the user's choice.
+            let migration = "bindings.polishLettersFree.v1"
+            if !UserDefaults.standard.bool(forKey: migration) {
+                UserDefaults.standard.set(true, forKey: migration)
+                if decoded.moveOffFormerDefaults() {
+                    if let data = try? JSONEncoder().encode(decoded) {
+                        UserDefaults.standard.set(data, forKey: Self.key)
+                    }
+                }
+            }
             prefs = decoded
         } else {
             var fresh = Preferences()

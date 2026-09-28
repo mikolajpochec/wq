@@ -13,8 +13,10 @@ final class AimHighlightOverlay {
     private var flashWork: DispatchWorkItem?
 
     /// Outlines one window for a moment, in the selection's own colour, to say where focus landed.
-    func flash(_ window: ManagedWindow, for duration: TimeInterval) {
-        guard let frame = WindowTiler.frame(of: window), frame.width > 20, frame.height > 20 else { return }
+    /// - Parameter fading: whether the outline fades away rather than going at once.
+    func flash(_ window: ManagedWindow, for duration: TimeInterval, fading: Bool = true) {
+        guard let frame = WindowTiler.serverFrame(of: window.id) ?? WindowTiler.frame(of: window),
+                  frame.width > 20, frame.height > 20 else { return }
         let panel = flashPanel ?? make()
         flashPanel = panel
         (panel.contentView as? HighlightView)?.style = .focus
@@ -30,7 +32,7 @@ final class AimHighlightOverlay {
             NSAnimationContext.runAnimationGroup { context in
                 // Up at once and gone slowly: the outline is a confirmation, and one that vanishes
                 // the moment it appears reads as a glitch.
-                context.duration = 0.5
+                context.duration = fading ? 0.5 : 0
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             } completionHandler: {
@@ -41,11 +43,20 @@ final class AimHighlightOverlay {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
+    /// Takes the focus outline away at once. It is drawn to the frame the window had when focus
+    /// landed, so once the window is resized it outlines nothing.
+    func cancelFlash() {
+        flashWork?.cancel()
+        flashWork = nil
+        flashPanel?.orderOut(nil)
+    }
+
     /// Draws around exactly these windows, taking away whatever was drawn before.
-    func show(_ windows: [ManagedWindow], cursor: CGWindowID?) {
+    func show(_ windows: [ManagedWindow], cursor: CGWindowID?, animated: Bool = true) {
         var live: Set<CGWindowID> = []
         for window in windows {
-            guard let frame = WindowTiler.frame(of: window), frame.width > 20, frame.height > 20 else { continue }
+            guard let frame = WindowTiler.serverFrame(of: window.id) ?? WindowTiler.frame(of: window),
+                  frame.width > 20, frame.height > 20 else { continue }
             live.insert(window.id)
             let panel = panels[window.id] ?? make()
             panels[window.id] = panel
@@ -54,11 +65,11 @@ final class AimHighlightOverlay {
             // the edge of the screen keeps its outline on screen with it.
             panel.setFrame(frame, display: true)
             if !panel.isVisible {
-                panel.alphaValue = 0
+                panel.alphaValue = animated ? 0 : 1
                 panel.orderFrontRegardless()
                 OverlaySpace.shared.adopt(panel)
                 NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.12
+                    context.duration = animated ? 0.09 : 0
                     panel.animator().alphaValue = 1
                 }
             }

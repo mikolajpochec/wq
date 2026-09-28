@@ -8,7 +8,7 @@ final class TilePreviewOverlay {
     private var panel: NSPanel?
 
     /// - Parameter frame: the cell, in Cocoa screen coordinates, or nil to take the preview away.
-    func show(_ frame: NSRect?) {
+    func show(_ frame: NSRect?, animated: Bool = true) {
         guard let frame else {
             panel?.orderOut(nil)
             return
@@ -17,11 +17,11 @@ final class TilePreviewOverlay {
         self.panel = panel
         panel.setFrame(frame, display: true)
         if !panel.isVisible {
-            panel.alphaValue = 0
+            panel.alphaValue = animated ? 0 : 1
             panel.orderFrontRegardless()
             OverlaySpace.shared.adopt(panel)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.1
+                context.duration = animated ? 0.1 : 0
                 panel.animator().alphaValue = 1
             }
         }

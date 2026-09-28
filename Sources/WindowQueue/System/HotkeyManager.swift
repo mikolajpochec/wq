@@ -51,13 +51,20 @@ final class HotkeyManager {
 
     private func dispatch(_ id: UInt32) -> OSStatus {
         guard let action = actionsByID[id] else { return OSStatus(eventNotHandledErr) }
+        if Diagnostics.isEnabled { Diagnostics.note("hotkey \(action.rawValue)") }
         DispatchQueue.main.async { [weak self] in self?.onAction?(action) }
         return noErr
     }
 
     // MARK: - Registration
 
+    /// Every setting passes through here, not just the shortcuts, and registering afresh leaves a
+    /// moment with nothing registered — a key pressed then reaches the app in front as the
+    /// character it types, ś for ⌥S. So nothing is touched unless a shortcut actually changed.
     func apply(_ prefs: Preferences) {
+        let wanted = Dictionary(uniqueKeysWithValues: HotkeyAction.allCases.map { ($0, prefs.combo(for: $0)) })
+        guard wanted != appliedCombos else { return }
+        appliedCombos = wanted
         unregisterAll()
         failures = []
 
@@ -75,9 +82,13 @@ final class HotkeyManager {
                 actionsByID[id] = action
             } else {
                 failures.append(RegistrationFailure(id: action.rawValue, action: action, combo: combo))
+                Diagnostics.note("hotkey \(action.rawValue) \(combo.displayString) not registered: \(status)")
             }
         }
+        Diagnostics.note("hotkeys registered: \(hotkeyRefs.count) of \(HotkeyAction.allCases.count)")
     }
+
+    private var appliedCombos: [HotkeyAction: KeyCombo]?
 
     private func unregisterAll() {
         for ref in hotkeyRefs {

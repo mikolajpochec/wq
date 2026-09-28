@@ -16,6 +16,9 @@ struct ManagedWindow: Identifiable, Equatable {
     var isMinimized: Bool
     /// Space the window lives on, resolved lazily through `SpacesBridge`.
     var spaceID: UInt64?
+    /// Where the WindowServer last had it. Tabs of one window share it, which is how a tab coming
+    /// to the front is told from a new window.
+    var frame: CGRect? = nil
 
     /// Identity that survives a relaunch. Window ids are handed out per session, so a saved order
     /// is stored as these instead — good enough to put familiar windows back where they were, and

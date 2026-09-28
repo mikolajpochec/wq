@@ -149,7 +149,7 @@ final class ToastController {
             panel.orderFrontRegardless()
             // It may be halfway through fading out; bring it back rather than let it finish.
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.08
+                context.duration = store.prefs.duration(.namePopup, 0.08)
                 panel.animator().alphaValue = 1
             }
         } else {
@@ -159,7 +159,7 @@ final class ToastController {
             // it would be drawn underneath the strip it points from.
             OverlaySpace.shared.adopt(panel)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
+                context.duration = store.prefs.duration(.namePopup, 0.09)
                 panel.animator().alphaValue = 1
             }
         }
@@ -216,7 +216,7 @@ final class ToastController {
         let panels = bubbles.map(\.panel).filter(\.isVisible)
         guard !panels.isEmpty else { return }
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.18
+            context.duration = store.prefs.duration(.namePopup, 0.13)
             panels.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: { [weak self] in
             // Shown again while fading: that popup is the one on screen now.

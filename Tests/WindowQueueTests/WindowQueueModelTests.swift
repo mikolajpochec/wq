@@ -1,4 +1,5 @@
 import XCTest
+import Carbon.HIToolbox
 @testable import WindowQueue
 
 final class WindowQueueModelTests: XCTestCase {
@@ -249,6 +250,100 @@ extension WindowQueueModelTests {
         XCTAssertEqual(ids(model), [2, 3, 4, 5])
     }
 
+    func testAWindowLeavingALayoutLeavesTheRestInIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        let group = model.setTiled([1, 2, 3], layout: "Columns")
+        model.releaseFromTiled([2])
+        XCTAssertEqual(model.tiledGroups.first?.ids, [1, 3])
+        XCTAssertEqual(model.tiledGroups.first?.id, group?.id)
+        model.releaseFromTiled([3])
+        XCTAssertTrue(model.tiledGroups.isEmpty, "one window is no layout")
+    }
+
+    func testAWindowOpenedInsideAGroupJoinsIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.makeGroup([1, 2])
+        model.select(id: 2, announce: false)
+        XCTAssertEqual(model.openGroupID, 1)
+        model.reconcile(with: [window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        XCTAssertEqual(ids(model), [1, 2, 4, 3])
+        XCTAssertEqual(Set(model.groups.first?.ids ?? []), [1, 2, 4])
+    }
+
+    func testAWindowOpenedOutsideAGroupStaysOutOfIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.makeGroup([1, 2])
+        model.select(id: 3, announce: false)
+        model.reconcile(with: [window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        XCTAssertEqual(Set(model.groups.first?.ids ?? []), [1, 2])
+    }
+
+    func testNearestEmptyWorkspaceIsTheClosestOneWithNothingOnIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 20), window(3, space: 40, minimized: true)])
+        let order: [UInt64] = [10, 20, 30, 40, 50]
+        XCTAssertEqual(model.nearestEmptySpace(to: 20, among: order), 30, "the later one on a tie")
+        XCTAssertEqual(model.nearestEmptySpace(to: 10, among: order), 30)
+        XCTAssertEqual(model.nearestEmptySpace(to: 50, among: order), 50, "an empty workspace is its own nearest")
+        XCTAssertEqual(model.nearestEmptySpace(to: 20, among: [10, 20]), nil)
+        XCTAssertEqual(model.nearestEmptySpace(to: 20, among: [10, 20, 40]), 40, "a minimized window occupies nothing")
+    }
+
+    func testNearestEmptyWorkspaceForWindowsLeavingOne() {
+        let model = makeModel([window(1, space: 10), window(2, space: 20)])
+        let order: [UInt64] = [10, 20, 30]
+        // Window 2 leaving its workspace does not make that workspace the answer.
+        XCTAssertEqual(model.nearestEmptySpace(to: 20, among: order, ignoring: [2], includingOrigin: false), 30)
+        // From the first workspace the nearest empty one further along is found.
+        XCTAssertEqual(model.nearestEmptySpace(to: 10, among: order, ignoring: [1], includingOrigin: false), 30)
+        // With 2 leaving too, 20 would be free — but only windows actually leaving are ignored.
+        XCTAssertEqual(model.nearestEmptySpace(to: 10, among: [10, 20], ignoring: [1], includingOrigin: false), nil)
+    }
+
+    func testATabComingToTheFrontKeepsItsWindowsPlace() {
+        func tab(_ id: CGWindowID, space: UInt64, pid: pid_t = 1) -> ManagedWindow {
+            var window = window(id, space: space, pid: pid)
+            window.frame = CGRect(x: 100, y: 100, width: 800, height: 600)
+            return window
+        }
+        let model = makeModel([window(1, space: 10, pid: 2), tab(2, space: 10), window(3, space: 10, pid: 3)])
+        model.makeGroup([2, 3])
+        model.select(id: 2, announce: false)
+        // Tab 2 goes behind, tab 4 of the same window comes to the front.
+        model.reconcile(with: [window(1, space: 10, pid: 2), tab(4, space: 10), window(3, space: 10, pid: 3)])
+        XCTAssertEqual(ids(model), [1, 4, 3])
+        XCTAssertEqual(model.selectedID, 4)
+        XCTAssertEqual(Set(model.groups.first?.ids ?? []), [3, 4])
+    }
+
+    func testANewWindowElsewhereIsNotTakenForATab() {
+        var moved = window(4, space: 10)
+        moved.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        var old = window(2, space: 10)
+        old.frame = CGRect(x: 100, y: 100, width: 800, height: 600)
+        let model = makeModel([window(1, space: 10, pid: 2), old, window(3, space: 10, pid: 3)])
+        model.select(id: 3, announce: false)
+        model.reconcile(with: [window(1, space: 10, pid: 2), window(3, space: 10, pid: 3), moved])
+        XCTAssertEqual(ids(model), [1, 3, 4], "a different frame is a different window, inserted after the selection")
+    }
+
+    func testInsideAGroupTheWalkStaysWithItsWindowsWhateverLiesBetween() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 4])
+        model.select(id: 2, announce: false)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 4, "window 3 lies between them but is not in the group")
+        XCTAssertEqual(model.cycle(by: 1)?.id, 3)
+    }
+
+    func testMovingAWindowPastAGroupStepsOverAllOfIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 3])
+        model.select(id: 1, announce: false)
+        model.move(by: 1)
+        XCTAssertEqual(ids(model), [2, 3, 1, 4])
+        model.move(by: -1)
+        XCTAssertEqual(ids(model), [1, 2, 3, 4])
+    }
+
     func testRegroupingTheOpenGroupsWindowsClosesIt() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
         model.makeGroup([1, 2])
@@ -467,4 +562,61 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.openGroupID, 1)
     }
 
+}
+
+final class PreferencesMigrationTests: XCTestCase {
+    func testBindingsOnTheFormerDefaultsMoveAndChosenOnesStay() {
+        var prefs = Preferences()
+        let option = SuperModifier.option.carbonMask
+        prefs.bindings = Preferences.defaultBindings(superMask: option)
+        prefs.bindings["openLauncher"] = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: option)
+        prefs.bindings["showOverview"] = KeyCombo(keyCode: UInt32(kVK_ANSI_O), modifiers: option)
+        prefs.bindings["toggleRecording"] = KeyCombo(keyCode: UInt32(kVK_ANSI_K), modifiers: option)
+
+        XCTAssertTrue(prefs.moveOffFormerDefaults())
+        XCTAssertEqual(prefs.combo(for: .openLauncher), KeyCombo(keyCode: UInt32(kVK_ANSI_R), modifiers: option))
+        XCTAssertEqual(prefs.combo(for: .showOverview), KeyCombo(keyCode: UInt32(kVK_ANSI_W), modifiers: option))
+        XCTAssertEqual(prefs.combo(for: .toggleRecording), KeyCombo(keyCode: UInt32(kVK_ANSI_K), modifiers: option),
+                       "a key the user picked is theirs")
+        XCTAssertFalse(prefs.moveOffFormerDefaults())
+    }
+
+    func testNoDefaultTakesAPolishLetter() {
+        let polish: Set<Int> = [kVK_ANSI_A, kVK_ANSI_C, kVK_ANSI_E, kVK_ANSI_L, kVK_ANSI_N,
+                                kVK_ANSI_O, kVK_ANSI_S, kVK_ANSI_X, kVK_ANSI_Z]
+        for action in HotkeyAction.allCases {
+            let combo = action.defaultCombo(superMask: SuperModifier.option.carbonMask)
+            XCTAssertFalse(polish.contains(Int(combo.keyCode)), "\(action) takes a Polish letter")
+        }
+    }
+}
+
+final class AnimationPreferencesTests: XCTestCase {
+    func testEachAnimationCanBeSwitchedOffAloneOrAllAtOnce() {
+        var prefs = Preferences()
+        XCTAssertTrue(AnimationKind.allCases.allSatisfy(prefs.animates))
+
+        prefs.disabledAnimations = [.namePopup]
+        XCTAssertFalse(prefs.animates(.namePopup))
+        XCTAssertEqual(prefs.duration(.namePopup, 0.2), 0)
+        XCTAssertTrue(prefs.animates(.stripLayout))
+        XCTAssertEqual(prefs.duration(.stripLayout, 0.2), 0.2)
+
+        prefs.animationsEnabled = false
+        XCTAssertFalse(AnimationKind.allCases.contains(where: prefs.animates))
+        XCTAssertNil(prefs.animation(.stripLayout, .easeOut))
+    }
+
+    func testSettingsSurviveARoundTripAndOlderBlobsKeepAnimating() throws {
+        var prefs = Preferences()
+        prefs.animationsEnabled = false
+        prefs.disabledAnimations = [.aimCursor, .groupStrip]
+        let decoded = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(prefs))
+        XCTAssertEqual(decoded.animationsEnabled, false)
+        XCTAssertEqual(decoded.disabledAnimations, [.aimCursor, .groupStrip])
+
+        let older = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+        XCTAssertTrue(older.animationsEnabled)
+        XCTAssertTrue(older.disabledAnimations.isEmpty)
+    }
 }

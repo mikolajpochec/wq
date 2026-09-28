@@ -34,7 +34,17 @@ enum Diagnostics {
         }
     }
 
+    /// The WindowServer and accessibility halves of a dump ask every application about every
+    /// window, each question allowed to block; on the main thread that stalls the strip right after
+    /// every refresh — a Space switch included. They run here instead, one dump at a time.
+    private static let dumpQueue = DispatchQueue(label: "WindowQueue.diagnostics", qos: .utility)
+    private static var isDumping = false
+
+    /// Call on the main thread: the model is read here, the slow part runs on `dumpQueue`.
     static func dump(model: WindowQueueModel) {
+        // A dump still in flight is about to write a snapshot just as fresh.
+        guard !isDumping else { return }
+        isDumping = true
         var lines: [String] = []
         lines.append("=== WindowQueue diagnostics \(Date()) ===")
         lines.append("AX trusted: \(AXIsProcessTrusted())  window numbers: \(AXPrivate.supportsWindowNumbers)")
@@ -51,18 +61,19 @@ enum Diagnostics {
                                 window.appName, window.title))
         }
 
-        lines.append("--- WindowServer real windows (all spaces) ---")
-        for entry in windowServerList() {
-            lines.append(entry)
-        }
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            .map { (pid: $0.processIdentifier, name: $0.localizedName ?? "?") }
+        let url = logURL
+        dumpQueue.async {
+            lines.append("--- WindowServer real windows (all spaces) ---")
+            lines.append(contentsOf: windowServerList())
+            lines.append("--- accessibility, per application ---")
+            lines.append(contentsOf: accessibilityList(apps: apps))
 
-        lines.append("--- accessibility, per application ---")
-        for entry in accessibilityList() {
-            lines.append(entry)
+            let text = lines.joined(separator: "\n") + "\n"
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+            DispatchQueue.main.async { isDumping = false }
         }
-
-        let text = lines.joined(separator: "\n") + "\n"
-        try? text.write(to: logURL, atomically: true, encoding: .utf8)
     }
 
     private static func windowServerList() -> [String] {
@@ -89,9 +100,8 @@ enum Diagnostics {
         }
     }
 
-    private static func accessibilityList() -> [String] {
+    private static func accessibilityList(apps: [(pid: pid_t, name: String)]) -> [String] {
         var lines: [String] = []
-        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
 
         // Per-pid window counts straight from the WindowServer, to compare against what AX reports.
         var serverCounts: [pid_t: Int] = [:]
@@ -102,7 +112,7 @@ enum Diagnostics {
         }
 
         for app in apps {
-            let element = AXPrivate.application(app.processIdentifier)
+            let element = AXPrivate.application(app.pid)
             var value: CFTypeRef?
             let error = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value)
             let windows = value as? [AXUIElement]
@@ -114,13 +124,13 @@ enum Diagnostics {
             let rangedError = AXUIElementCopyAttributeValues(element, kAXWindowsAttribute as CFString, 0, 50, &ranged)
             let rangedCount = (ranged as? [AXUIElement])?.count ?? -1
 
-            let name = app.localizedName ?? "?"
-            let server = serverCounts[app.processIdentifier] ?? 0
+            let name = app.name
+            let server = serverCounts[app.pid] ?? 0
             let hidden = element.boolAttribute(kAXHiddenAttribute) ?? false
             let focusedID = element.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                 .flatMap { AXPrivate.windowID(of: $0) }
                 .map(String.init) ?? "nil"
-            lines.append("\(name) pid=\(app.processIdentifier) axError=\(error.rawValue) ax=\(windows?.count ?? -1) count=\(count) ranged=\(rangedCount)/\(rangedError.rawValue) server=\(server) hidden=\(hidden) focusedWindow=\(focusedID)")
+            lines.append("\(name) pid=\(app.pid) axError=\(error.rawValue) ax=\(windows?.count ?? -1) count=\(count) ranged=\(rangedCount)/\(rangedError.rawValue) server=\(server) hidden=\(hidden) focusedWindow=\(focusedID)")
             guard let windows else { continue }
             for window in windows {
                 let id = AXPrivate.windowID(of: window).map(String.init) ?? "nil"

@@ -25,8 +25,8 @@ always-on-top strip showing that list, and workspace switching by number.
   super key again — or Return, or Space — focuses it. Escape leaves the queue as it was.
   Shift with a step grows the aimed run, `A` aims at everything within reach — the open group's
   windows from inside one, the whole visible queue otherwise, and again to drop back to one.
-- `⌥C` — or `C` in aiming mode, which stays open — starts recording the screen and stops it again;
-  while it records, the strip shows a record mark in place of the workspace number. `⌥X`, or `X`
+- `⌥V` — or `V` in aiming mode, which stays open — starts recording the screen and stops it again;
+  while it records, the strip shows a record mark in place of the workspace number. `⌥P`, or `P`
   while aiming, photographs the aimed windows, one file each, where your own screenshots go.
 - Settings › Shortcuts › **Aiming mode only** binds bare keys that work in aiming mode and nowhere
   else; they win over the shortcut of the same key.
@@ -41,12 +41,16 @@ always-on-top strip showing that list, and workspace switching by number.
   one the aim is on, so a run of windows of the same application is still telling.
 - Clicking the workspace number opens aiming mode, and a click anywhere outside WindowQueue's own
   panels leaves it. Opened that way, the mode's actions appear as tiles beside the strip.
-- `⌥S` opens the **launcher** — Spotlight, Raycast or Alfred, whichever Settings names — and `⌥O`
-  opens **Mission Control**. In aiming mode they are `S` and `O`, and the mode steps aside first so
+- `⌥R` opens the **launcher** — Spotlight, Raycast or Alfred, whichever Settings names — and `⌥W`
+  opens **Mission Control**. In aiming mode they are `R` and `W`, and the mode steps aside first so
   the launcher has the keyboard.
 - `⌥Space` opens a **window finder**: type to narrow the queue by application or title, arrows to
   pick, Return to focus. Like aiming mode it takes the keyboard without taking focus.
 - `⌥M` maximizes the selected window to the screen less the strip, and leaves everything else alone.
+- `⌥D` — or `D` in aiming mode — **declutters**: every window on screen is moved, and only where it has to
+  be shrunk, so that none covers another. Windows already in the clear stay exactly where they are; a pile
+  of maximized ones ends up sharing the screen. With several windows aimed at, only those are sorted out
+  among themselves. Each screen is done on its own, less the strip's room.
 - Fullscreening a window (`⌥F`, again to restore) also focuses the queue on it: it moves to the front of
   its workspace, the workspace's other windows are tinted blue in the strip, and cycling skips them
   until the window is restored, which puts the order back. Off in Settings › General.
@@ -62,13 +66,18 @@ always-on-top strip showing that list, and workspace switching by number.
 - With several windows aimed at, `⌥M`, `⌥H`, `⌥Q`, `⌥⇧↖`, `⌥⇧↘` and `⌥⇧1`…`⌥⇧9` act on all of them
   at once, and a popup in the middle of the screen says what happened.
 - `⌥Q` closes the selected window, wherever it is, and hands the selection to its neighbour.
-- `⌥⇧S`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
+- `⌥⇧W`, or "Sort queue by workspace" in the menu bar item, groups the queue by workspace in
   Mission Control order, keeping the order you arranged inside each one.
-- `⌥1` … `⌥9` switch workspace.
-- `⌥⇧1` … `⌥⇧9` move the selected window (or every aimed window) to that workspace. macOS only
-  lets another app move windows a whole application at a time, so a window whose app has windows on
-  other workspaces stays where it is.
+- `⌥1` … `⌥9` switch workspace, and `⌥0` goes to the nearest empty one on the same monitor (the later
+  one when two are as near).
+- `⌥⇧1` … `⌥⇧9` move the selected window (or every aimed window) to that workspace, and take you
+  there with it. macOS only lets another app move windows a whole application at a time, so a window
+  whose app has windows on other workspaces is carried the way a person would: held by its title bar
+  while the desktop changes. (A minimized window is no way round it: macOS 26 restores it to the
+  desktop it came from.)
 - Option is the "super" key by default; the super key and every individual shortcut are remappable.
+  No default takes A, C, E, L, N, O, S, X or Z, which Option turns into ą ć ę ł ń ó ś ź ż on the
+  Polish Pro layout.
 
 Order is **stable**: a new window is inserted directly after the currently selected one, cycling
 never reorders, and only the move shortcuts change the order.
@@ -131,13 +140,23 @@ Turn both off in Settings › Strip.
 
 ## Workspace switching
 
-`⌥1` … `⌥9` focus the first queued window on that workspace, which makes macOS animate to it. For a
-workspace with no windows it falls back to the system's own `⌃N` Mission Control shortcut — macOS
-only ships those for desktops 1-4, so `Scripts/enable-desktop-shortcuts.sh` registers 5-9.
+`⌥1` … `⌥9` switch workspace in one of three ways (Settings › General):
 
-The private `CGSManagedDisplaySetCurrentSpace` call is deliberately *not* used: on current macOS it
-switches the desktop but leaves the WindowServer drawing several desktops on top of each other until
-Mission Control redraws. It remains selectable in Settings for completeness.
+- **Carry an invisible window there** (the default): a one-pixel panel of WindowQueue's own is put on
+  the target desktop — a process may place its own windows on any space — and brought to the front
+  through the WindowServer, and the Dock animates there the way it follows any activation. Works for
+  empty desktops and past `⌃9`.
+- **Focus a window on that workspace**: the selected window, if it is there, or the first queued
+  one, which makes macOS travel to it; an empty workspace is reached the carrier's way.
+- **The `⌃N` Mission Control shortcut**: macOS only ships those for desktops 1-4, so
+  `Scripts/enable-desktop-shortcuts.sh` registers 5-9.
+
+Whichever it is, WindowQueue checks 0.8s later that the desktop really is on show and tries the
+other ways if not — unless a newer request came in, or the user went somewhere else meanwhile.
+
+The private `CGSManagedDisplaySetCurrentSpace` call is deliberately *not* used: it switches the
+WindowServer without telling the Dock, which goes on believing the old desktop is current — the
+screen may not move at all, and later switches start from the wrong place.
 
 ## What macOS makes difficult
 

@@ -423,6 +423,15 @@ final class WindowQueueModel: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Takes windows out of their layouts, leaving the rest of each layout in it. A layout left
+    /// with a single window is no layout any more and goes.
+    func releaseFromTiled(_ ids: Set<CGWindowID>) {
+        guard tiledGroups.contains(where: { !Set($0.ids).isDisjoint(with: ids) }) else { return }
+        for index in tiledGroups.indices { tiledGroups[index].ids.removeAll { ids.contains($0) } }
+        tiledGroups.removeAll { $0.ids.count < 2 }
+        objectWillChange.send()
+    }
+
     func clearTiled() {
         guard !tiledGroups.isEmpty else { return }
         tiledGroups = []
@@ -511,10 +520,90 @@ final class WindowQueueModel: ObservableObject {
 
     private func cyclableWindows(backwards: Bool) -> [ManagedWindow] {
         let reachable = visibleWindows.filter { !isCovered($0) }
-        return reachable.filter { !isSkippedInsideGroup($0, backwards: backwards, among: reachable) }
+        var stops = reachable.filter { !isSkippedInsideGroup($0, backwards: backwards, among: reachable) }
+        // A group's windows need not sit next to each other in the queue, but inside the group they
+        // are walked one after another, from where the group stands, before the walk leaves it —
+        // a window that happens to lie between two of them is not part of the group.
+        if let open = openGroup, let first = stops.firstIndex(where: { open.ids.contains($0.id) }) {
+            let ids = Set(open.ids)
+            let members = stops.filter { ids.contains($0.id) }
+            stops.removeAll { ids.contains($0.id) }
+            stops.insert(contentsOf: members, at: min(first, stops.count))
+        }
+        return stops
+    }
+
+    /// Visible positions of the first and last window of the group `id` belongs to, which the strip
+    /// shows as a single entry. Nil for a window in no group.
+    func groupSpan(of id: CGWindowID) -> ClosedRange<Int>? {
+        guard let group = group(of: id) else { return nil }
+        let ids = Set(group.ids)
+        let positions = visibleWindows.indices.filter { ids.contains(visibleWindows[$0].id) }
+        guard let low = positions.first, let high = positions.last else { return nil }
+        return low...high
     }
 
     // MARK: - Reconciliation
+
+    /// Keeps accessibility elements found for windows the enumeration could not reach, so the next
+    /// action on them does not have to look again.
+    func adoptElements(_ elements: [CGWindowID: AXUIElement]) {
+        guard !elements.isEmpty else { return }
+        var updated = windows
+        for index in updated.indices {
+            if let element = elements[updated[index].id] { updated[index].element = element }
+        }
+        windows = updated
+    }
+
+    /// Called when a window takes over another's place: a tab coming to the front in place of the
+    /// one that was. Old id first.
+    var onHandoff: ((CGWindowID, CGWindowID) -> Void)?
+
+    /// Tabs of an app's window — Ghostty's, Finder's, any native macOS tabs — are separate windows,
+    /// and only the tab in front is ordered in. Switching tabs therefore looks like one window
+    /// closing and another opening: same app, same workspace, same frame. The one arriving takes the
+    /// place of the one that went, rather than being treated as new and put after the selection.
+    private func tabHandoffs(vanished: [ManagedWindow], arriving: inout [ManagedWindow])
+        -> [CGWindowID: ManagedWindow] {
+        var handoffs: [CGWindowID: ManagedWindow] = [:]
+        for old in vanished {
+            guard let frame = old.frame, let spaceID = old.spaceID,
+                  let index = arriving.firstIndex(where: { new in
+                      new.pid == old.pid && new.spaceID == spaceID
+                          && new.frame.map { Self.sameFrame($0, frame) } == true
+                  })
+            else { continue }
+            handoffs[old.id] = arriving.remove(at: index)
+        }
+        return handoffs
+    }
+
+    private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= 2 && abs(a.minY - b.minY) <= 2
+            && abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2
+    }
+
+    /// Points everything that named `old` at `new` instead.
+    private func handOff(_ old: CGWindowID, to new: CGWindowID) {
+        let swap = { (id: CGWindowID) in id == old ? new : id }
+        if selectedID == old { selectedID = new }
+        if aimingID == old { aimingID = new }
+        if aimAnchorID == old { aimAnchorID = new }
+        if aimPinnedIDs.contains(old) { aimPinnedIDs = Set(aimPinnedIDs.map(swap)) }
+        if maximizedID == old { maximizedID = new }
+        for index in groups.indices where groups[index].ids.contains(old) {
+            groups[index].ids = groups[index].ids.map(swap)
+        }
+        for index in tiledGroups.indices where tiledGroups[index].ids.contains(old) {
+            tiledGroups[index].ids = tiledGroups[index].ids.map(swap)
+        }
+        if let slot = emptySlot, slot.beforeID == old {
+            emptySlot = EmptySlot(spaceID: slot.spaceID, beforeID: new)
+        }
+        Diagnostics.note("tab handoff: \(old) → \(new)")
+        onHandoff?(old, new)
+    }
 
     // MARK: - Where new windows go
 
@@ -553,6 +642,11 @@ final class WindowQueueModel: ObservableObject {
     /// Merges a freshly enumerated set of windows into the queue, preserving existing order.
     func reconcile(with discovered: [ManagedWindow]) {
         let discoveredByID = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
+        let knownIDs = Set(windows.map(\.id))
+        var arriving = discovered.filter { !knownIDs.contains($0.id) }
+        let handoffs = tabHandoffs(vanished: windows.filter { discoveredByID[$0.id] == nil },
+                                   arriving: &arriving)
+        for (old, new) in handoffs { handOff(old, to: new.id) }
         // If the selected window is about to disappear, where it was decides what comes next.
         let previousOrder = windows.map(\.id)
         let vanishedSelection = selectedID.flatMap { id in
@@ -561,6 +655,11 @@ final class WindowQueueModel: ObservableObject {
         var next: [ManagedWindow] = []
 
         for existing in windows {
+            // A tab brought to the front stands where the tab it replaced stood.
+            if let tab = handoffs[existing.id] {
+                next.append(tab)
+                continue
+            }
             guard var updated = discoveredByID[existing.id] else { continue }
             updated.spaceID = updated.spaceID ?? existing.spaceID
             // AX only sees the active Space, so keep what we learned while the window was visible.
@@ -571,8 +670,7 @@ final class WindowQueueModel: ObservableObject {
 
         // New windows land directly after the current one, the way a tiling WM inserts next to the
         // focused client, rather than at the far end of the queue.
-        let known = Set(next.map(\.id))
-        var fresh = discovered.filter { !known.contains($0.id) }
+        var fresh = arriving
 
         // A window opening on the empty workspace the user is on takes the marked place.
         if let slot = emptySlot,
@@ -603,6 +701,12 @@ final class WindowQueueModel: ObservableObject {
                 Diagnostics.note("new \(fresh.map { "\($0.appName) \($0.id)" }.joined(separator: ", ")) "
                                  + "after \(anchor.map(String.init) ?? "none") (selected "
                                  + "\(selectedID.map(String.init) ?? "none"))")
+            }
+            // Opened from inside a group, a window belongs with the one it was opened beside: it
+            // joins the group, rather than landing in the queue between the group's windows.
+            if let anchor, let index = groups.firstIndex(where: { $0.id == openGroupID }),
+               groups[index].ids.contains(anchor) {
+                groups[index].ids.append(contentsOf: fresh.map(\.id))
             }
         }
 
@@ -733,6 +837,14 @@ final class WindowQueueModel: ObservableObject {
         guard let position = selectedVisiblePosition else { return }
         let target = position + delta
         guard indices.indices.contains(target) else { return }
+        // Stepping past a group steps past all of it: the strip shows it as one entry, and a window
+        // swapped in next to its first member would sit in the middle of it in the queue.
+        let neighbour = windows[indices[target]]
+        if let selectedID, self.group(of: selectedID)?.id != self.group(of: neighbour.id)?.id,
+           let span = groupSpan(of: neighbour.id) {
+            move(id: selectedID, toVisiblePosition: delta > 0 ? span.upperBound : span.lowerBound)
+            return
+        }
         noteManualReorder()
         windows.swapAt(indices[position], indices[target])
     }
@@ -809,6 +921,23 @@ final class WindowQueueModel: ObservableObject {
         } else {
             showEmptySlot(for: space)
         }
+    }
+
+    /// The workspace among `candidates` with no windows on it that lies closest to `origin` in the
+    /// order given, the later one on a tie. `origin` itself counts when it is empty, unless it is
+    /// to be left. Minimized windows are nowhere, so they do not occupy a workspace, and neither do
+    /// the windows `ignoring` names — the ones about to leave.
+    func nearestEmptySpace(to origin: UInt64, among candidates: [UInt64],
+                           ignoring leaving: Set<CGWindowID> = [], includingOrigin: Bool = true) -> UInt64? {
+        guard let start = candidates.firstIndex(of: origin) else { return nil }
+        let occupied = Set(windows.filter { !$0.isMinimized && !leaving.contains($0.id) }.compactMap(\.spaceID))
+        return candidates.indices
+            .filter { !occupied.contains(candidates[$0]) && (includingOrigin || $0 != start) }
+            .min { left, right in
+                let (l, r) = (abs(left - start), abs(right - start))
+                return l == r ? left > right : l < r
+            }
+            .map { candidates[$0] }
     }
 
     /// The window on `space` closest in `order` to where `id` sits, `id` itself excluded.

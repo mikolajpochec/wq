@@ -15,6 +15,7 @@ struct SettingsView: View {
             focus.tabItem { Label("Focus", systemImage: "cursorarrow.rays") }
             shortcuts.tabItem { Label("Shortcuts", systemImage: "keyboard") }
             strip.tabItem { Label("Strip", systemImage: "sidebar.left") }
+            animations.tabItem { Label("Animations", systemImage: "wand.and.stars") }
         }
         .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
     }
@@ -185,7 +186,7 @@ struct SettingsView: View {
                                 .tag(launcher)
                         }
                     }
-                    caption("What the launcher shortcut opens, and what `S` opens in aiming mode. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
+                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
                 }
             }
 
@@ -334,6 +335,57 @@ struct SettingsView: View {
     }
 
     // MARK: - Strip
+
+    private var animations: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Animate the interface", isOn: $store.prefs.animationsEnabled)
+                    caption("Off, the strip, aiming mode, outlines and popups change at once. Animations macOS runs itself, like switching workspaces, are not WindowQueue's to turn off.")
+                }
+            }
+
+            Section("Strip") {
+                animationToggle(.stripLayout)
+                animationToggle(.groupStrip)
+            }
+
+            Section("Aiming mode") {
+                animationToggle(.aimingMode)
+                animationToggle(.aimCursor)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show aiming mode instantly", isOn: $store.prefs.instantAiming)
+                    caption("The mode appears the moment the super key is tapped: the screens dim, the strip grows and — in invisible mode — opens without animating, and nothing waits to see whether a double tap is coming. With a double-tap action set, the mode shows for an instant before the second tap replaces it. Leaving the mode still animates.")
+                }
+            }
+
+            Section("Windows and popups") {
+                animationToggle(.windowOutlines)
+                animationToggle(.namePopup)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// One animation's own switch, greyed out while the main switch is off.
+    private func animationToggle(_ kind: AnimationKind) -> some View {
+        Toggle(kind.title, isOn: animationBinding(kind))
+            .disabled(!store.prefs.animationsEnabled)
+    }
+
+    /// On while the animation is not switched off on its own; the main switch is shown separately.
+    private func animationBinding(_ kind: AnimationKind) -> Binding<Bool> {
+        Binding(
+            get: { !store.prefs.disabledAnimations.contains(kind) },
+            set: { on in
+                if on {
+                    store.prefs.disabledAnimations.remove(kind)
+                } else {
+                    store.prefs.disabledAnimations.insert(kind)
+                }
+            }
+        )
+    }
 
     private var strip: some View {
         Form {
