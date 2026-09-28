@@ -82,6 +82,10 @@ struct SettingsView: View {
                 sliderRow("Screen gap", value: $store.prefs.tileOuterGap, in: 0...40, step: 1, format: Self.points)
                 sliderRow("Gap between windows", value: $store.prefs.tileInnerGap, in: 0...40, step: 1, format: Self.points)
                 caption("Room left around windows that WindowQueue places: tiled from aiming mode, maximized, or sent fullscreen.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Tile on a separate workspace", isOn: $store.prefs.tileOnSeparateWorkspace)
+                    caption("When other windows share the workspace, the tiled windows move to one holding nothing else. Off, they are gathered on the first aimed window's workspace.")
+                }
             }
 
             Section("Fullscreen windows") {

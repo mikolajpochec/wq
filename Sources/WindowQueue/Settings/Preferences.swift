@@ -352,6 +352,9 @@ struct Preferences: Codable, Equatable {
     /// Gap left around a tiled or maximized window, at the edge of the screen and between windows.
     var tileOuterGap: Double = 0
     var tileInnerGap: Double = 4
+    /// Tiling from aiming mode gives the layout a workspace of its own when others share the
+    /// windows'. Off, the layout goes to the first aimed window's workspace, whoever else is there.
+    var tileOnSeparateWorkspace: Bool = false
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -438,6 +441,7 @@ struct Preferences: Codable, Equatable {
         showWindowPreview = value(.showWindowPreview, defaults.showWindowPreview)
         tileOuterGap = value(.tileOuterGap, defaults.tileOuterGap)
         tileInnerGap = value(.tileInnerGap, defaults.tileInnerGap)
+        tileOnSeparateWorkspace = value(.tileOnSeparateWorkspace, defaults.tileOnSeparateWorkspace)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)

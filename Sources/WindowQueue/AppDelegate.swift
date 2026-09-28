@@ -668,13 +668,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let layout = tilingMenu.selectedLayout, windows.count >= 2 else { return }
         endAiming(commit: false)
 
-        // A layout wants a screen to itself: it fills the workspace, so anything else living there
-        // would end up underneath it. Where it goes is worked out below; the windows that are not
-        // there yet are then carried over.
-        let home = windows.last?.spaceID
+        // By default the layout goes where the first aimed window is, and the rest are carried
+        // over to it. Optionally a layout wants a screen to itself: it fills the workspace, so
+        // anything else living there would end up underneath it. Where it goes is then worked out
+        // below; the windows that are not there yet are carried over.
+        let separate = store.prefs.tileOnSeparateWorkspace
+        let home = separate ? windows.last?.spaceID : windows.first?.spaceID
         var target = home
         let tiled = Set(windows.map(\.id))
-        let strangersAtHome = home.map { space in
+        let strangersAtHome = separate && home.map { space in
             model.windows.contains { $0.spaceID == space && !$0.isMinimized && !tiled.contains($0.id) }
         } ?? false
 
