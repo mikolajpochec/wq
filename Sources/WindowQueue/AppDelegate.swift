@@ -1667,7 +1667,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func markFocus(_ id: CGWindowID, attempt: Int, request: Int) {
         guard request == focusMarkRequest, model.aimingID == nil, let window = model.windows.first(where: { $0.id == id }) else { return }
-        if WindowTiler.onScreenWindowIDs().contains(id) {
+        // On screen is not enough: the window of the workspace being switched to is listed as on
+        // screen from the first frame of the slide, and an outline drawn then stays put while the
+        // desktops move underneath it. The workspace only counts as in view once it is the current
+        // one, which the WindowServer makes it at the end of the slide.
+        let spaces = SpacesBridge.shared.allSpaces(forWindow: id)
+        let spaceInView = spaces.isEmpty || spaces.contains { SpacesBridge.shared.isShowing($0) }
+        if spaceInView, WindowTiler.onScreenWindowIDs().contains(id) {
+            // Arrived after a switch: let the last frame of the slide go by, so the outline lands
+            // on the window where it rests rather than on the desktop still sliding in.
+            if attempt > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    self?.markFocus(id, attempt: 0, request: request)
+                }
+                return
+            }
             aimHighlight.flash(window, for: store.prefs.flashFocusedWindowDuration,
                                fading: store.prefs.animates(.windowOutlines))
             return
