@@ -516,6 +516,40 @@ final class WindowQueueModel: ObservableObject {
 
     // MARK: - Reconciliation
 
+    // MARK: - Where new windows go
+
+    /// The window a new window is to follow, noted when the app starts opening it. The enumeration
+    /// only sees the window a moment later, and by then the selection may already have moved.
+    private var arrivalAnchor: (id: CGWindowID, at: Date)?
+    /// The last time the selection followed focus the user gave some app outside the queue.
+    private var lastFocusFollow: (from: CGWindowID?, pid: pid_t, at: Date)?
+
+    /// Selects a window because it took focus outside the queue.
+    func followFocus(to id: CGWindowID) {
+        guard let window = windows.first(where: { $0.id == id }) else { return }
+        let from = selectedID
+        // Unlike a pick the user makes in the queue, this can be the app shuffling focus as it
+        // opens a window, so where that window is to go stands.
+        let anchor = arrivalAnchor
+        select(id: id, announce: false)
+        arrivalAnchor = anchor
+        if from != id { lastFocusFollow = (from, window.pid, Date()) }
+    }
+
+    /// Called as an app starts opening a window, before the enumeration has it: remembers the
+    /// window it is to land beside. An app coming forward to open one first focuses a window it
+    /// already had, which drags the selection there for a moment; that detour is not where the user
+    /// was, so the window selected before it is the one kept.
+    func noteWindowOpening(pid: pid_t, now: Date = Date()) {
+        if let anchor = arrivalAnchor, now.timeIntervalSince(anchor.at) < 1 { return }
+        var anchor = selectedID
+        if let follow = lastFocusFollow, follow.pid == pid, now.timeIntervalSince(follow.at) < 1,
+           let from = follow.from, windows.contains(where: { $0.id == from }) {
+            anchor = from
+        }
+        arrivalAnchor = anchor.map { ($0, now) }
+    }
+
     /// Merges a freshly enumerated set of windows into the queue, preserving existing order.
     func reconcile(with discovered: [ManagedWindow]) {
         let discoveredByID = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
@@ -555,10 +589,21 @@ final class WindowQueueModel: ObservableObject {
         }
 
         if !fresh.isEmpty {
-            let insertionIndex = selectedID
+            // Beside the window selected when the app began opening it, if that is still here.
+            let anchor = arrivalAnchor
+                .flatMap { anchor in Date().timeIntervalSince(anchor.at) < 5 ? anchor.id : nil }
+                .flatMap { id in next.contains { $0.id == id } ? id : nil }
+                ?? selectedID
+            arrivalAnchor = nil
+            let insertionIndex = anchor
                 .flatMap { id in next.firstIndex { $0.id == id } }
                 .map { $0 + 1 } ?? next.count
             next.insert(contentsOf: fresh, at: insertionIndex)
+            if Diagnostics.isEnabled {
+                Diagnostics.note("new \(fresh.map { "\($0.appName) \($0.id)" }.joined(separator: ", ")) "
+                                 + "after \(anchor.map(String.init) ?? "none") (selected "
+                                 + "\(selectedID.map(String.init) ?? "none"))")
+            }
         }
 
         guard next != windows else { return }
@@ -643,6 +688,9 @@ final class WindowQueueModel: ObservableObject {
         }
         selectedID = id
         emptySlot = nil
+        // Picking a window says where the user is now; an earlier note of where a window being
+        // opened should go (one that never turned up, like a sheet) no longer applies.
+        arrivalAnchor = nil
         if announce { announcement.send(window) }
     }
 

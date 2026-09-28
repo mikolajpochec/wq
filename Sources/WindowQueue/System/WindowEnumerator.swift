@@ -17,6 +17,9 @@ final class WindowEnumerator {
     /// wedged application blocks until it times out, which on the main thread freezes the strip.
     private let enumerationQueue = DispatchQueue(label: "com.mpochec.windowqueue.enumeration")
     private var isRefreshing = false
+    /// A refresh asked for while one was running: it may have started before the change it is
+    /// about, so it runs again once that one is done rather than waiting for the timer.
+    private var refreshAgain = false
     /// Told about every window resize, which the queue itself does not care about.
     var onWindowResized: ((AXUIElement) -> Void)?
     /// Told when a window moves or takes focus.
@@ -102,7 +105,10 @@ final class WindowEnumerator {
     /// the WindowServer, enrich whatever AX can currently see, and keep previously enriched entries
     /// until the WindowServer says the window is really gone.
     func refresh() {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else {
+            refreshAgain = true
+            return
+        }
         isRefreshing = true
 
         // Cheap, and the Space a window reports has to be compared against a current value.
@@ -134,6 +140,10 @@ final class WindowEnumerator {
                 self.model.reconcile(with: result.windows)
                 self.adoptPendingFocus()
                 if Diagnostics.isEnabled { Diagnostics.dump(model: self.model) }
+                if self.refreshAgain {
+                    self.refreshAgain = false
+                    self.scheduleRefresh()
+                }
             }
         }
     }
@@ -478,9 +488,12 @@ final class WindowEnumerator {
         if notification == kAXFocusedWindowChangedNotification {
             onWindowSettled?(element)
         }
+        if notification == kAXWindowCreatedNotification {
+            noteWindowOpening(element)
+        }
         if notification == kAXFocusedWindowChangedNotification,
            let id = AXPrivate.windowID(of: element) {
-            adoptExternalFocus(id)
+            adoptExternalFocus(id, element: element)
         }
         scheduleRefresh()
     }
@@ -491,10 +504,11 @@ final class WindowEnumerator {
     ///
     /// A brand new window takes focus before the enumeration has seen it, so an id we do not know
     /// yet is remembered and adopted on the next refresh instead of being dropped.
-    private func adoptExternalFocus(_ id: CGWindowID) {
+    private func adoptExternalFocus(_ id: CGWindowID, element: AXUIElement) {
         if let pending = WindowFocuser.pendingTargetID, pending != id { return }
         guard model.windows.contains(where: { $0.id == id }) else {
             pendingExternalFocusID = id
+            noteWindowOpening(element)
             return
         }
         pendingExternalFocusID = nil
@@ -504,7 +518,14 @@ final class WindowEnumerator {
            model.windows.first(where: { $0.id == id })?.spaceID != slot.spaceID {
             return
         }
-        model.select(id: id, announce: false)
+        model.followFocus(to: id)
+    }
+
+    /// Remembers where a window an app is opening should go, before the enumeration sees it.
+    private func noteWindowOpening(_ element: AXUIElement) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return }
+        model.noteWindowOpening(pid: pid)
     }
 
     /// Picks up a focus change that arrived before its window was in the queue.
@@ -557,7 +578,7 @@ final class WindowEnumerator {
         accessibilityEnabledPIDs.remove(app.processIdentifier)
         if let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self) {
             onWindowSettled?(focused)
-            if let id = AXPrivate.windowID(of: focused) { adoptExternalFocus(id) }
+            if let id = AXPrivate.windowID(of: focused) { adoptExternalFocus(id, element: focused) }
         }
         scheduleRefresh()
     }

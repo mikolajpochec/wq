@@ -76,6 +76,38 @@ final class WindowQueueModelTests: XCTestCase {
         XCTAssertEqual(ids(model), [1, 5, 2, 3])
     }
 
+    func testNewWindowGoesAfterWindowSelectedWhenItWasOpened() {
+        let all = [window(1, space: 10), window(2, space: 10), window(3, space: 10)]
+        let model = makeModel(all)
+        model.select(id: 1, announce: false)
+        model.noteWindowOpening(pid: 1)
+        // The app shuffles focus onto another of its windows before the new one shows up.
+        model.followFocus(to: 3)
+        model.reconcile(with: all + [window(5, space: 10)])
+        XCTAssertEqual(ids(model), [1, 5, 2, 3])
+    }
+
+    func testAppComingForwardToOpenWindowDoesNotMoveWhereItGoes() {
+        let all = [window(1, space: 10, pid: 1), window(2, space: 10, pid: 2), window(3, space: 10, pid: 2)]
+        let model = makeModel(all)
+        model.select(id: 1, announce: false)
+        // App 2 activates on its existing window 3 first, then creates window 5.
+        model.followFocus(to: 3)
+        model.noteWindowOpening(pid: 2)
+        model.reconcile(with: all + [window(5, space: 10, pid: 2)])
+        XCTAssertEqual(ids(model), [1, 5, 2, 3])
+    }
+
+    func testPickingAWindowOverridesAnEarlierOpeningNote() {
+        let all = [window(1, space: 10), window(2, space: 10), window(3, space: 10)]
+        let model = makeModel(all)
+        model.select(id: 1, announce: false)
+        model.noteWindowOpening(pid: 1)
+        model.select(id: 2, announce: false)
+        model.reconcile(with: all + [window(5, space: 10)])
+        XCTAssertEqual(ids(model), [1, 2, 5, 3])
+    }
+
     func testRelocateToEmptyWorkspaceKeepsWorkspaceOrder() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 30)])
         model.relocate([1], toSpace: 20)
