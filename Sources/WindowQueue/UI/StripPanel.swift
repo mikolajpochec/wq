@@ -435,9 +435,9 @@ final class StripController {
         let leading = alignment == .start ? 0 : store.prefs.stripMargin
         let trailing = alignment == .end ? 0 : store.prefs.stripMargin
         let free = max(0, length - leading - trailing - contentLayout.totalHeight)
-        // Centred, the pair shares the middle, so this strip moves up by half of what the group's
-        // takes. At either end the pair simply grows inwards and nothing has to move.
-        let shift = alignment == .center ? companionLength / 2 : 0
+        // The pair keeps the alignment as one: centred it shares the middle, at either end it grows
+        // inwards, so this strip moves out of the way of the group's strip where that is needed.
+        let shift = store.prefs.stripShift(forCompanion: companionLength)
         return leading + free * alignment.fraction - shift
     }
 

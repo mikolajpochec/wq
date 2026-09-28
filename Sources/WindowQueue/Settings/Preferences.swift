@@ -47,6 +47,22 @@ enum StripAlignment: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Which end of the main strip a group's own strip carries on from.
+enum GroupStripPlacement: String, Codable, CaseIterable, Identifiable {
+    /// In front of the main strip when it is aligned to the end, after it otherwise.
+    case automatic
+    case before
+    case after
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .before: return "Before"
+        case .after: return "After"
+        }
+    }
+}
+
 /// The animations that can be switched off one by one, each covering one part of the interface.
 enum AnimationKind: String, Codable, CaseIterable, Identifiable {
     /// Windows arriving, leaving and moving in the strip, the selection, and a dropped icon settling.
@@ -277,6 +293,8 @@ struct Preferences: Codable, Equatable {
     var inactiveStripOpacity: Double = 0.55
     var stripSide: StripSide = .left
     var stripAlignment: StripAlignment = .center
+    /// Where a group's strip goes: before the main strip (above or left of it) or after it.
+    var groupStripPlacement: GroupStripPlacement = .automatic
     /// Gap between the strip and the screen edges around it.
     var stripMargin: Double = 4
     /// No longer set by hand: the strip is as thick as an icon row needs. Kept so an old stored
@@ -386,6 +404,7 @@ struct Preferences: Codable, Equatable {
         inactiveStripOpacity = value(.inactiveStripOpacity, defaults.inactiveStripOpacity)
         stripSide = value(.stripSide, defaults.stripSide)
         stripAlignment = value(.stripAlignment, defaults.stripAlignment)
+        groupStripPlacement = value(.groupStripPlacement, defaults.groupStripPlacement)
         stripMargin = value(.stripMargin, defaults.stripMargin)
         stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
@@ -454,6 +473,28 @@ struct Preferences: Codable, Equatable {
             changed = true
         }
         return changed
+    }
+
+    /// A group's strip goes in front of the main one — above it on a side strip, left of it on a
+    /// top or bottom one — rather than after it.
+    var groupStripIsBefore: Bool {
+        switch groupStripPlacement {
+        case .automatic: return stripAlignment == .end
+        case .before: return true
+        case .after: return false
+        }
+    }
+
+    /// How far the main strip moves towards its start to make room for a group's strip that takes
+    /// `length`, so the pair keeps the strip's alignment as one: centred, it shares the middle; at
+    /// either end it grows inwards. Negative moves it towards its end.
+    func stripShift(forCompanion length: CGFloat) -> CGFloat {
+        let before = groupStripIsBefore
+        switch stripAlignment {
+        case .center: return before ? -length / 2 : length / 2
+        case .start: return before ? -length : 0
+        case .end: return before ? 0 : length
+        }
     }
 
     func animates(_ kind: AnimationKind) -> Bool {

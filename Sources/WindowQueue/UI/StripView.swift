@@ -57,8 +57,8 @@ struct StripView: View {
         // is also thicker than the strip, leaving room for aiming mode to grow into, so the strip
         // is pinned to the screen edge it lives on.
         strip
-            // Centred, the strip shifts to leave room for a group's strip below it, so the two are
-            // centred as one; see `StripController.contentStart`.
+            // The strip shifts to leave room for a group's strip beside it, so the two keep the
+            // strip's alignment as one; see `StripController.contentStart`.
             .offset(x: side.isVertical ? 0 : -companionShift, y: side.isVertical ? -companionShift : 0)
             // Making room for a group's strip is a slide, not a jump; the group's own panel moves
             // on the same timing.
@@ -100,7 +100,7 @@ struct StripView: View {
 
     /// How far this strip moves to make room for a group's strip beside it.
     private var companionShift: CGFloat {
-        prefs.stripAlignment == .center ? screen.companionLength / 2 : 0
+        prefs.stripShift(forCompanion: screen.companionLength)
     }
 
     private var scaleAnchor: UnitPoint {

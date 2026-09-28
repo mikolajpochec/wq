@@ -327,6 +327,16 @@ struct SettingsView: View {
         }
     }
 
+    private var groupStripPlacementExplanation: String {
+        let (before, after) = store.prefs.stripSide.isVertical ? ("above", "below") : ("left of", "right of")
+        switch store.prefs.groupStripPlacement {
+        case .automatic:
+            return "A group's windows open in a second strip \(before) the main one when it is aligned to the end, and \(after) it otherwise."
+        case .before: return "A group's windows open in a second strip \(before) the main one."
+        case .after: return "A group's windows open in a second strip \(after) the main one."
+        }
+    }
+
     private var reservationExplanation: String {
         let gap = RectangleIntegration.reservedWidth(for: store.prefs)
         let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free — in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
@@ -413,6 +423,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 sliderRow("Margin", value: $store.prefs.stripMargin, in: 0...40, step: 1, format: Self.points)
+                Picker("Group strip", selection: $store.prefs.groupStripPlacement) {
+                    ForEach(GroupStripPlacement.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                caption(groupStripPlacementExplanation)
             }
 
             Section("Appearance") {

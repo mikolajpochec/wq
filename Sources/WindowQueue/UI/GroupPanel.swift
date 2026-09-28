@@ -445,8 +445,8 @@ final class GroupPanelController {
         return NSRect(x: x, y: target.minY, width: width, height: target.height)
     }
 
-    /// The group's strip goes in front of the main one when the strip is aligned to the end.
-    private var isBeforeStrip: Bool { store.prefs.stripAlignment == .end }
+    /// The group's strip goes in front of the main one, as the preferences place it.
+    private var isBeforeStrip: Bool { store.prefs.groupStripIsBefore }
 
     func hide() {
         guard let panel, panel.isVisible, !isHiding else {
@@ -570,9 +570,9 @@ final class GroupPanelController {
     /// of the strip would cover the windows instead.
     private func origin(for size: NSSize) -> NSPoint {
         let gap = Self.gap
-        // Aligned to the end of the strip, the group goes in front of it; otherwise after it. Either
-        // way the two read as one strip broken by a gap.
-        let before = store.prefs.stripAlignment == .end
+        // Before or after the strip, as the preferences place it. Either way the two read as one
+        // strip broken by a gap.
+        let before = isBeforeStrip
         guard let strip = stripFrameProvider?() else {
             let visible = NSScreen.main?.visibleFrame ?? .zero
             return NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
