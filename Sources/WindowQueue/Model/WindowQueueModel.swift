@@ -613,6 +613,10 @@ final class WindowQueueModel: ObservableObject {
     /// The last time the selection followed focus the user gave some app outside the queue.
     private var lastFocusFollow: (from: CGWindowID?, pid: pid_t, at: Date)?
 
+    /// Called whenever the selection follows focus given outside the queue, even to the window
+    /// already selected — coming back to its app is still arriving at it.
+    var onFocusFollowed: ((CGWindowID) -> Void)?
+
     /// Selects a window because it took focus outside the queue.
     func followFocus(to id: CGWindowID) {
         guard let window = windows.first(where: { $0.id == id }) else { return }
@@ -623,6 +627,7 @@ final class WindowQueueModel: ObservableObject {
         select(id: id, announce: false)
         arrivalAnchor = anchor
         if from != id { lastFocusFollow = (from, window.pid, Date()) }
+        onFocusFollowed?(id)
     }
 
     /// Called as an app starts opening a window, before the enumeration has it: remembers the

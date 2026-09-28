@@ -261,7 +261,35 @@ enum WindowTiler {
     /// Brings the tiled windows forward together, so none of them is left behind another app.
     static func raise(_ windows: [ManagedWindow]) {
         for window in windows.reversed() {
-            window.element?.perform(kAXRaiseAction)
+            (window.element ?? WindowSpaceMover.element(for: window))?.perform(kAXRaiseAction)
         }
+    }
+
+    /// Those of `ids` that some other ordinary window overlaps from in front. Windows of the apps in
+    /// `ownPIDs` do not count: an app's own popovers, palettes and dialogs belong on top of it.
+    static func coveredWindowIDs(among ids: Set<CGWindowID>, ownPIDs: Set<pid_t>) -> Set<CGWindowID> {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]]
+        else { return [] }
+        var covered = Set<CGWindowID>()
+        var above: [CGRect] = []
+        // Front to back: every ordinary window met before one of `ids` is in front of it.
+        for info in list where (info[kCGWindowLayer as String] as? Int) == 0 {
+            guard let number = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict)
+            else { continue }
+            if ids.contains(number) {
+                // A sliver — a shadow's edge, a gap's worth of a neighbour — does not bury a window.
+                if above.contains(where: { let hit = $0.intersection(bounds); return hit.width > 8 && hit.height > 8 }) {
+                    covered.insert(number)
+                }
+            } else if (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                      let owner = info[kCGWindowOwnerPID as String] as? pid_t,
+                      owner != ProcessInfo.processInfo.processIdentifier, !ownPIDs.contains(owner) {
+                above.append(bounds)
+            }
+        }
+        return covered
     }
 }

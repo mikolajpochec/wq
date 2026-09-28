@@ -98,6 +98,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { window in toast.show(window) }
             .store(in: &cancellables)
 
+        // However focus gets to a tiled window — the strip, the keyboard, hovering, a click, ⌘Tab —
+        // its layout comes up with it.
+        model.$selectedID
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] id in self?.raiseLayoutOnceFocused(id) }
+            .store(in: &cancellables)
+        model.onFocusFollowed = { [weak self] id in self?.raiseLayoutOnceFocused(id) }
+
         model.$windows
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -217,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hoverFocus = FocusFollowsMouse(model: model, store: store) { [weak self] window in
             guard let self else { return }
             let siblings = self.model.windows.count { $0.pid == window.pid }
+            self.raiseLayoutOnceFocused(window.id)
             guard !self.store.prefs.focusFollowsMouseRaises,
                   WindowFocuser.focusWithoutRaising(window)
             else {
@@ -1625,23 +1635,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             workspaceIndex: model.workspaceNumber(of: window),
                             siblingCount: siblings,
                             warpCursor: warpCursor && store.prefs.warpCursorToWindow)
-        raiseLayout(of: window)
+        raiseLayoutOnceFocused(window.id)
         flashFocus(window)
     }
+
+    /// Counts layout raises asked for, so one still waiting for its focus to land stands down when
+    /// focus has moved on meanwhile.
+    private var layoutRaiseRequest = 0
 
     /// Brings a whole layout forward when one of its windows is focused: the windows were arranged
     /// to be looked at together, and picking one of them should not leave the rest behind another
     /// app. The focused window is raised last, so it stays the one on top.
-    private func raiseLayout(of window: ManagedWindow) {
-        guard let group = model.tiledGroup(of: window.id) else { return }
+    ///
+    /// Waits for the focus to actually land — a jump to another workspace, or an app slow to
+    /// answer, takes a moment, and windows raised before that are raised on a desktop not in view
+    /// or buried again by the focus arriving after them.
+    private func raiseLayoutOnceFocused(_ id: CGWindowID?) {
+        layoutRaiseRequest &+= 1
+        guard let id, model.tiledGroup(of: id) != nil else { return }
+        raiseLayout(of: id, attempt: 0, raises: 0, request: layoutRaiseRequest)
+    }
+
+    private func raiseLayout(of id: CGWindowID, attempt: Int, raises: Int, request: Int) {
+        guard request == layoutRaiseRequest, attempt < 40,
+              let window = model.windows.first(where: { $0.id == id }),
+              let group = model.tiledGroup(of: id)
+        else { return }
+        let retry = { [weak self] (delay: TimeInterval, raises: Int) in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self?.raiseLayout(of: id, attempt: attempt + 1, raises: raises, request: request)
+            }
+        }
+        let spaces = SpacesBridge.shared.allSpaces(forWindow: id)
+        let spaceInView = spaces.isEmpty || spaces.contains { SpacesBridge.shared.isShowing($0) }
+        guard spaceInView, SpaceSwitcher.destination == nil,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+        else { return retry(0.1, raises) }
+
         // Only the ones on the workspace in view: raising a window that lives elsewhere would drag
         // its workspace, or the window itself, into what the user is looking at.
-        let others = model.tiledWindowsInQueueOrder(group).filter {
-            $0.id != window.id && $0.spaceID != nil && $0.spaceID == window.spaceID
+        let members = model.tiledWindowsInQueueOrder(group).filter {
+            !$0.isMinimized && ($0.id == id || ($0.spaceID != nil && $0.spaceID == window.spaceID))
         }
-        guard !others.isEmpty else { return }
-        WindowTiler.raise(others)
-        window.element?.perform(kAXRaiseAction)
+        guard members.count > 1, !WindowTiler.coveredWindowIDs(among: Set(members.map(\.id)),
+                                                                ownPIDs: Set(members.map(\.pid))).isEmpty else { return }
+        // Some apps order a window forward only on a second ask, or a moment after the first one
+        // has been answered: look again shortly, and ask again if the layout is still buried.
+        guard raises < 3 else {
+            Diagnostics.note("layout of \(id) still covered after \(raises) raises")
+            return
+        }
+        Diagnostics.note("raise layout of \(window.appName) id=\(id) (\(members.count) windows)")
+        WindowTiler.raise(members.filter { $0.id != id })
+        (window.element ?? WindowSpaceMover.element(for: window))?.perform(kAXRaiseAction)
+        retry(0.25, raises + 1)
     }
 
     /// Outlines the window focus just landed on, so it is plain which one took it — the same mark
