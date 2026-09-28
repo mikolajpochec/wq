@@ -105,7 +105,10 @@ struct StripLayout {
             case .badge: return StripMetrics.rowHeight(prefs: prefs)
             case .window: return StripMetrics.rowHeight(prefs: prefs)
             case .emptySlot: return StripMetrics.slotLength(prefs: prefs)
-            case .hiddenStack, .group: return StripMetrics.stackLength(prefs: prefs)
+            // A group's tile is a row: its icons are stacked in place, not leaned out along the
+            // strip. The cascade leans out by one step for each card behind the front one.
+            case .group: return StripMetrics.rowHeight(prefs: prefs)
+            case .hiddenStack(let windows): return StripMetrics.stackLength(prefs: prefs, cards: windows.count)
             }
         }
 
@@ -150,6 +153,24 @@ struct StripLayout {
         guard windowElements.indices.contains(index) else { return StripMetrics.padding }
         let element = windowElements[index]
         return tops[element] + heights[element] / 2
+    }
+
+    /// Where the given windows sit along the strip, merged into one stretch for each run of
+    /// neighbouring entries. A group or the collapsed stack counts once, however many of its
+    /// windows are in the list, and a run is as long as the entries it covers are drawn.
+    func spans(ofWindowsAt positions: [Int]) -> [(start: CGFloat, length: CGFloat)] {
+        let entries = Set(positions.compactMap { windowElements.indices.contains($0) ? windowElements[$0] : nil })
+        var runs: [ClosedRange<Int>] = []
+        for entry in entries.sorted() {
+            if let last = runs.last, last.upperBound == entry - 1 {
+                runs[runs.count - 1] = last.lowerBound...entry
+            } else {
+                runs.append(entry...entry)
+            }
+        }
+        return runs.map { run in
+            (tops[run.lowerBound], tops[run.upperBound] + heights[run.upperBound] - tops[run.lowerBound])
+        }
     }
 
     /// The window whose band contains `offset`, measured from the top of the strip content. A point

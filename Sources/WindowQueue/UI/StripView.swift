@@ -371,30 +371,24 @@ struct StripView: View {
         model.aimedWindows.count > 1
     }
 
-    /// Positions of the aimed windows grouped into runs of neighbours, each drawn as one highlight.
-    private var aimedRuns: [ClosedRange<Int>] {
+    /// Where the aimed windows sit, merged into one stretch for each run of neighbouring entries.
+    /// Measured by the strip's entries, not queue positions: a group's windows need not be next to
+    /// each other in the queue, yet share one tile, and tiles are not all a row long.
+    private var aimedSpans: [(start: CGFloat, length: CGFloat)] {
         let aimed = model.aimedIDs
-        var runs: [ClosedRange<Int>] = []
-        for (index, window) in model.visibleWindows.enumerated() where aimed.contains(window.id) {
-            if let last = runs.last, last.upperBound == index - 1 {
-                runs[runs.count - 1] = last.lowerBound...index
-            } else {
-                runs.append(index...index)
-            }
-        }
-        return runs
+        let positions = model.visibleWindows.indices.filter { aimed.contains(model.visibleWindows[$0].id) }
+        return committedLayout.spans(ofWindowsAt: positions)
     }
 
     /// One continuous highlight for each run of aimed windows.
     @ViewBuilder
     private var aimedRunHighlight: some View {
         if isAimingRun {
-            let layout = committedLayout
             let thickness = StripMetrics.rowHeight(prefs: prefs)
             ZStack(alignment: side.isVertical ? .top : .leading) {
-                ForEach(aimedRuns, id: \.lowerBound) { run in
-                    let start = layout.topOffset(ofWindowAt: run.lowerBound)
-                    let length = layout.topOffset(ofWindowAt: run.upperBound) + thickness - start
+                ForEach(aimedSpans, id: \.start) { span in
+                    let start = span.start
+                    let length = span.length
                     RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                         .fill(Color.orange.opacity(0.28))
                         .overlay(
@@ -801,8 +795,8 @@ enum StripMetrics {
     static let stackPeek = 3
 
     /// The hidden stack takes a row plus the lean of the cards behind it.
-    static func stackLength(prefs: Preferences) -> CGFloat {
-        rowHeight(prefs: prefs) + stackStep * CGFloat(stackPeek - 1)
+    static func stackLength(prefs: Preferences, cards: Int = stackPeek) -> CGFloat {
+        rowHeight(prefs: prefs) + stackStep * CGFloat(max(min(cards, stackPeek) - 1, 0))
     }
 
 
