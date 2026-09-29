@@ -86,6 +86,10 @@ struct SettingsView: View {
                     Toggle("Tile on a separate workspace", isOn: $store.prefs.tileOnSeparateWorkspace)
                     caption("When other windows share the workspace, the tiled windows move to one holding nothing else. Off, they are gathered on the first aimed window's workspace.")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Respect window size limits", isOn: $store.prefs.respectWindowSizeLimits)
+                    caption("Windows with a minimum or maximum size, a fixed size or a fixed aspect ratio, like the iOS Simulator, are sized to fit and centred in their place, and the other windows take the room they leave. A window's limits are learnt the first time it refuses a size, which makes it flicker once.")
+                }
             }
 
             Section("Fullscreen windows") {

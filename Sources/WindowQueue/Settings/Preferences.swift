@@ -355,6 +355,9 @@ struct Preferences: Codable, Equatable {
     /// Tiling from aiming mode gives the layout a workspace of its own when others share the
     /// windows'. Off, the layout goes to the first aimed window's workspace, whoever else is there.
     var tileOnSeparateWorkspace: Bool = false
+    /// Tiling and maximizing fit each window to the sizes it accepts — its minimum and maximum, a
+    /// fixed size or aspect ratio (the iOS Simulator) — and share the rest out among the others.
+    var respectWindowSizeLimits: Bool = true
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -442,6 +445,7 @@ struct Preferences: Codable, Equatable {
         tileOuterGap = value(.tileOuterGap, defaults.tileOuterGap)
         tileInnerGap = value(.tileInnerGap, defaults.tileInnerGap)
         tileOnSeparateWorkspace = value(.tileOnSeparateWorkspace, defaults.tileOnSeparateWorkspace)
+        respectWindowSizeLimits = value(.respectWindowSizeLimits, defaults.respectWindowSizeLimits)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)

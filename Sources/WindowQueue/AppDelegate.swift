@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.hotkeys.apply(prefs)
+                WindowTiler.respectsSizeLimits = prefs.respectWindowSizeLimits
                 LoginItem.apply(enabled: prefs.launchAtLogin)
                 // `@Published` fires before the new value lands; read it on the next turn.
                 DispatchQueue.main.async { self.dockReservation.update() }

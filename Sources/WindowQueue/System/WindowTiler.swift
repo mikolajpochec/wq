@@ -94,24 +94,63 @@ enum WindowTiler {
         let area = area.insetBy(dx: inset, dy: inset)
         // Accessibility coordinates start at the top left of the menu bar screen, y downwards.
         let top = primaryHeight - area.maxY
-        var placed: [ManagedWindow] = []
-
-        for (window, unit) in zip(windows, layout.frames) {
-            guard let element = window.element else { continue }
-            let cell = CGRect(x: (area.minX + unit.minX * area.width).rounded(),
-                              y: (top + unit.minY * area.height).rounded(),
-                              width: (unit.width * area.width).rounded(),
-                              height: (unit.height * area.height).rounded())
-            let frame = cell.insetBy(dx: gaps.inner / 2, dy: gaps.inner / 2)
-            if window.isMinimized {
-                element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
-            }
-            setFrame(frame, of: element, window: window)
-            placed.append(window)
+        let bounds = CGRect(x: area.minX, y: top, width: area.width, height: area.height)
+        let members = zip(windows, layout.frames).compactMap { window, unit in
+            window.element.map { (window: window, element: $0, unit: unit) }
         }
+        var limits = members.map {
+            respectsSizeLimits ? WindowSizeLimits.limits(of: $0.window, element: $0.element) : .none
+        }
+
+        func frames() -> [CGRect] {
+            guard limits.allSatisfy(\.isNone) else {
+                return TileSolver.frames(units: members.map(\.unit), limits: limits, in: bounds, inset: gaps.inner / 2)
+            }
+            return members.map { member in
+                let unit = member.unit
+                let cell = CGRect(x: (area.minX + unit.minX * area.width).rounded(),
+                                  y: (top + unit.minY * area.height).rounded(),
+                                  width: (unit.width * area.width).rounded(),
+                                  height: (unit.height * area.height).rounded())
+                return cell.insetBy(dx: gaps.inner / 2, dy: gaps.inner / 2)
+            }
+        }
+
+        var planned = frames()
+        var refused: [Int] = []
+        for (index, member) in members.enumerated() {
+            if member.window.isMinimized {
+                member.element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
+            }
+            let landed = setFrame(planned[index], of: member.element, window: member.window)
+            if respectsSizeLimits, let landed, !landed.size.approximatelyEquals(planned[index].size),
+               WindowSizeLimits.canProbe(member.window) {
+                refused.append(index)
+            }
+        }
+        // A window that would not take its size shows what it takes instead, and the others make
+        // room for that.
+        if !refused.isEmpty {
+            for index in refused {
+                let member = members[index]
+                withoutAnimation(pid: member.window.pid) {
+                    WindowSizeLimits.probe(member.window, element: member.element, area: bounds)
+                }
+                limits[index] = WindowSizeLimits.limits(of: member.window, element: member.element)
+            }
+            planned = frames()
+            for (index, member) in members.enumerated() {
+                setFrame(planned[index], of: member.element, window: member.window)
+            }
+        }
+        let placed = members.map(\.window)
         Diagnostics.note("tiled \(placed.count)/\(windows.count) windows as \(layout.name)")
         return placed
     }
+
+    /// Fit windows to the sizes they accept — minimum, maximum, fixed size, aspect ratio — instead
+    /// of giving each its cell regardless. `Preferences.respectWindowSizeLimits`.
+    static var respectsSizeLimits = true
 
     /// The frame request each window is currently following. A window told to go somewhere else —
     /// maximized and then restored, say — must not have the older request put back underneath it.
@@ -125,20 +164,24 @@ enum WindowTiler {
     /// position, so the whole frame is checked a few times and set again whenever it slipped.
     private static let checkDelays: [TimeInterval] = [0.15, 0.4, 0.8, 1.5]
 
-    private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow) {
+    /// - Returns: where the window landed straight away.
+    @discardableResult
+    private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow) -> CGRect? {
         lastRequest += 1
         currentRequest[window.id] = lastRequest
         placedFrames[window.id] = frame
-        apply(frame, of: element, window: window, request: lastRequest, check: 0)
+        return apply(frame, of: element, window: window, request: lastRequest, check: 0)
     }
 
+    @discardableResult
     private static func apply(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow,
-                              request: Int, check: Int) {
+                              request: Int, check: Int) -> CGRect? {
         var size = frame.size
         var origin = frame.origin
         guard let sizeValue = AXValueCreate(.cgSize, &size),
               let originValue = AXValueCreate(.cgPoint, &origin)
-        else { return }
+        else { return nil }
+        var landed: CGRect?
         withoutAnimation(pid: window.pid) {
             // Move first, then resize: one pass, and the window is never drawn at the new size in
             // the old place, which reads as a flicker.
@@ -146,13 +189,16 @@ enum WindowTiler {
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
             // Apps that clamp a resize against where the window was need the other order, but only
             // those: asking for it every time is what caused the flicker.
-            guard let landed = currentFrame(of: element), !matches(landed, frame) else { return }
+            landed = currentFrame(of: element)
+            guard let first = landed, !matches(first, frame) else { return }
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
             element.setAttribute(kAXPositionAttribute, value: originValue)
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            landed = currentFrame(of: element)
         }
 
         scheduleCheck(frame, of: element, window: window, request: request, check: check, seen: nil)
+        return landed
     }
 
     /// Runs the frame change with the app's `AXEnhancedUserInterface` switched off.
