@@ -77,6 +77,15 @@ final class WindowQueueModelTests: XCTestCase {
         XCTAssertEqual(ids(model), [1, 5, 2, 3])
     }
 
+    func testNewWindowGoesAfterTheSelectedWindowsTiledGroup() {
+        let all = [window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)]
+        let model = makeModel(all)
+        _ = model.setTiled([1, 2, 3], layout: "thirds")
+        model.select(id: 1, announce: false)
+        model.reconcile(with: all + [window(5, space: 10)])
+        XCTAssertEqual(ids(model), [1, 2, 3, 5, 4])
+    }
+
     func testNewWindowGoesAfterWindowSelectedWhenItWasOpened() {
         let all = [window(1, space: 10), window(2, space: 10), window(3, space: 10)]
         let model = makeModel(all)

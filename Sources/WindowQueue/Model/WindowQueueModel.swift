@@ -698,8 +698,11 @@ final class WindowQueueModel: ObservableObject {
                 .flatMap { id in next.contains { $0.id == id } ? id : nil }
                 ?? selectedID
             arrivalAnchor = nil
+            // A window tiled with others stands for its whole layout: the new one goes after the
+            // last of the tiled group, not between its windows.
+            let anchorGroup = anchor.flatMap { tiledGroup(of: $0) }.map { Set($0.ids) } ?? []
             let insertionIndex = anchor
-                .flatMap { id in next.firstIndex { $0.id == id } }
+                .flatMap { id in next.lastIndex { $0.id == id || anchorGroup.contains($0.id) } }
                 .map { $0 + 1 } ?? next.count
             next.insert(contentsOf: fresh, at: insertionIndex)
             if Diagnostics.isEnabled {
