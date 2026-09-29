@@ -1839,7 +1839,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastSpaceRequest = Date()
         // A newer request, even for the desktop already on show, retires the retries of an older one.
         spaceRequest &+= 1
-        let origin = SpacesBridge.shared.currentSpaceID
+        // A workspace already on show — on another monitor, each having its own desktops — needs
+        // no switch, and none of the ways below does anything visible for it. Going there means
+        // moving over to that monitor.
+        if let target, SpacesBridge.shared.isShowing(target) {
+            goToShownSpace(target, index: index)
+            return
+        }
+        // What the target's own monitor shows: with several, the strip's display says nothing
+        // about whether the switch happened.
+        let origin = target.flatMap { SpacesBridge.shared.spaceOnShow(onDisplayOf: $0) }
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
             if focusWindow(onSpaceIndex: index) { break }
@@ -1874,7 +1883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, request == self.spaceRequest else { return }
             self.enumerator?.refreshSpaceState()
             if SpacesBridge.shared.isShowing(target) { return }
-            let current = SpacesBridge.shared.currentSpaceID
+            let current = SpacesBridge.shared.spaceOnShow(onDisplayOf: target)
             guard current == origin else {
                 Diagnostics.note("workspace \(index): went to \(current.map(String.init) ?? "none") instead; leaving it")
                 return
@@ -1904,6 +1913,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The workspace to stay on: emptied by closing its last window, and left only when the user
     /// says so.
     private var holdSpace: (id: UInt64, until: Date)?
+
+    /// Moves focus to a workspace that is already on show, on whichever monitor shows it: to the
+    /// window on top there, or — with none — the pointer to the middle of that screen.
+    private func goToShownSpace(_ space: UInt64, index: Int) {
+        let windows = model.windows.filter { $0.spaceID == space && !$0.isMinimized }
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if let selected = model.selectedWindow, selected.spaceID == space, selected.pid == frontPID {
+            Diagnostics.note("workspace \(index): already there")
+            return
+        }
+        // Front to back, so the window last on top there is the one landed on.
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                              kCGNullWindowID) as? [[String: Any]] ?? []
+        let topmost = list.lazy
+            .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+            .compactMap { id in windows.first { $0.id == id } }
+            .first
+        if let window = topmost ?? windows.first {
+            Diagnostics.note("workspace \(index): on show, focusing \(window.appName) id=\(window.id)")
+            model.select(id: window.id, announce: false)
+            focus(window)
+            return
+        }
+        guard let screen = SpacesBridge.shared.screen(ofSpace: space) else { return }
+        Diagnostics.note("workspace \(index): on show and empty, pointer to \(screen.localizedName)")
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        CGWarpMouseCursorPosition(CGPoint(x: screen.frame.midX, y: primaryHeight - screen.frame.midY))
+    }
 
     /// Activating a window that already lives on a workspace makes macOS animate over to it.
     private func focusWindow(onSpaceIndex index: Int) -> Bool {

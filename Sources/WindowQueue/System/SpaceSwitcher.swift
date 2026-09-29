@@ -54,6 +54,11 @@ enum SpaceSwitcher {
     static func jump(toSpace spaceID: UInt64, then arrived: (() -> Void)? = nil) -> Bool {
         guard let addWindows, let removeWindows, connectionID != 0 else { return false }
         let panel = carrier
+        // On the target's own monitor: a desktop of another display is not where a window sitting
+        // on this one can be brought forward.
+        if let screen = SpacesBridge.shared.screen(ofSpace: spaceID) {
+            panel.setFrameOrigin(NSPoint(x: screen.frame.midX, y: screen.frame.midY))
+        }
         panel.orderFront(nil)
         guard panel.windowNumber > 0 else { return false }
 

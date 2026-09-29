@@ -59,6 +59,18 @@ final class SpacesBridge {
         return display.userSpaces.map(\.id)
     }
 
+    /// The screen a workspace belongs to, or nil when displays do not have separate Spaces.
+    func screen(ofSpace space: UInt64) -> NSScreen? {
+        guard let display = displays().first(where: { $0.userSpaces.contains { $0.id == space } })
+        else { return nil }
+        return NSScreen.screens.first { Self.displayUUID(of: $0) == display.identifier }
+    }
+
+    /// The space on show on the display a workspace lives on.
+    func spaceOnShow(onDisplayOf space: UInt64) -> UInt64? {
+        displays().first { $0.userSpaces.contains { $0.id == space } }?.currentSpaceID
+    }
+
     // MARK: - Topology
 
     private struct DisplaySpaces {
