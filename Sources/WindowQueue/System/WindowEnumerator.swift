@@ -497,9 +497,32 @@ final class WindowEnumerator {
         }
         if notification == kAXFocusedWindowChangedNotification,
            let id = AXPrivate.windowID(of: element) {
-            adoptExternalFocus(id, element: element)
+            adoptFocusIfFrontmost(id, element: element)
         }
         scheduleRefresh()
+    }
+
+    /// Only the frontmost app's focus is the user's. Apps in the background (Android Studio, for
+    /// one) move focus between their own windows while another app is in use, and following that
+    /// pulled the selection off the window just picked — so ⌥M maximized the wrong one. The
+    /// activation notice can trail the app's own focus notice, so a background app gets one more
+    /// look a moment later; activating it also adopts its focused window through `appActivated`.
+    private func adoptFocusIfFrontmost(_ id: CGWindowID, element: AXUIElement) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return }
+        let isFront = { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
+        if isFront() {
+            adoptExternalFocus(id, element: element)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            guard isFront() else {
+                Diagnostics.note("ignored focus of background pid=\(pid) id=\(id)")
+                return
+            }
+            self.adoptExternalFocus(id, element: element)
+        }
     }
 
     /// Follows focus changes the user made themselves, but not the ones an application reports
