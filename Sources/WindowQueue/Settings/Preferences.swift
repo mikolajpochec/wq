@@ -172,6 +172,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case toggleGroup
     case search
     case openLauncher
+    case openRaycastCommand
     case showOverview
     case toggleInvisibleStrip
     case toggleRecording
@@ -201,6 +202,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleGroup: return "Group or ungroup windows"
         case .search: return "Search windows"
         case .openLauncher: return "Open the launcher"
+        case .openRaycastCommand: return "Run a Raycast command"
         case .showOverview: return "Show Mission Control"
         case .toggleInvisibleStrip: return "Hide or show the strip (invisible mode)"
         case .toggleRecording: return "Start or stop recording the screen"
@@ -232,14 +234,14 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
          .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .search,
-         .openLauncher, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
+         .openLauncher, .openRaycastCommand, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
          .goToEmptySpace, .moveToEmptySpace]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
     /// picked out first.
     static var doubleTapActions: [HotkeyAction] {
-        [.openLauncher, .showOverview, .search, .goToEmptySpace, .toggleInvisibleStrip, .toggleRecording,
+        [.openLauncher, .openRaycastCommand, .showOverview, .search, .goToEmptySpace, .toggleInvisibleStrip, .toggleRecording,
          .screenshotWindow, .toggleMaximize,
          .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .sortByWorkspace,
          .moveToStart, .moveToEnd]
@@ -271,6 +273,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleGroup: return KeyCombo(keyCode: kVK_ANSI_G, modifiers: superMask)
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
         case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_R, modifiers: superMask)
+        case .openRaycastCommand: return KeyCombo(keyCode: kVK_ANSI_K, modifiers: superMask)
         case .showOverview: return KeyCombo(keyCode: kVK_ANSI_W, modifiers: superMask)
         case .toggleInvisibleStrip: return KeyCombo(keyCode: kVK_ANSI_I, modifiers: superMask)
         case .toggleRecording: return KeyCombo(keyCode: kVK_ANSI_V, modifiers: superMask)
@@ -376,6 +379,10 @@ struct Preferences: Codable, Equatable {
     /// Which finder the launcher shortcut opens — its key in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
+    /// The Raycast deeplink the "Run a Raycast command" action opens — by default the App Windows
+    /// extension's app list (↵ opens or focuses an app, ⌘↵ always opens a new window of it).
+    var raycastCommand: String = SystemLaunchers.defaultRaycastCommand
+
     /// Outline a window for a moment when focus lands on it, the way aiming outlines what it is on.
     var flashFocusedWindow: Bool = true
     /// How long that outline stays up.
@@ -451,6 +458,7 @@ struct Preferences: Codable, Equatable {
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
         launcher = value(.launcher, defaults.launcher)
+        raycastCommand = value(.raycastCommand, defaults.raycastCommand)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)
         aimBindings = value(.aimBindings, defaults.aimBindings)
         flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)

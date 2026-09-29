@@ -1215,7 +1215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             // Both hand the keyboard to something else, so the mode ends first and takes its grab
             // with it — a launcher that cannot be typed into is no launcher.
-            case .openLauncher, .showOverview:
+            case .openLauncher, .openRaycastCommand, .showOverview:
                 endAiming(commit: false)
             case .maximizeWindow, .minimizeWindow, .closeWindow, .moveToStart, .moveToEnd:
                 if model.aimedWindows.count > 1 {
@@ -1273,6 +1273,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             search?.toggle()
         case .openLauncher:
             SystemLaunchers.open(store.prefs.launcher)
+        case .openRaycastCommand:
+            SystemLaunchers.openRaycastCommand(store.prefs.raycastCommand)
         case .goToEmptySpace:
             goToEmptySpace()
         case .moveToEmptySpace:

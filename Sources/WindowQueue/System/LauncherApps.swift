@@ -51,6 +51,19 @@ enum SystemLaunchers {
         }
     }
 
+    static let defaultRaycastCommand = "raycast://extensions/mikolaj_pochec/app-windows/open-app"
+
+    /// Runs a Raycast command through its deeplink (`raycast://extensions/<author>/<extension>/<command>`).
+    static func openRaycastCommand(_ deeplink: String) {
+        let trimmed = deeplink.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme?.lowercased() == "raycast" else {
+            Diagnostics.note("raycast command \"\(deeplink)\" is not a raycast:// link, opening the launcher")
+            open(.raycast)
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Mission Control is an app, so it opens like one — no key press to synthesize.
     static func showMissionControl() {
         let url = URL(fileURLWithPath: "/System/Applications/Mission Control.app")
