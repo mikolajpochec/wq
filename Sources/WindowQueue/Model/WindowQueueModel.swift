@@ -186,27 +186,51 @@ final class WindowQueueModel: ObservableObject {
         // group's windows. Measuring it along the queue would sweep in whatever happens to sit
         // between two members, which is not on the strip the user is aiming at.
         if let id = aimInsideGroupID, let group = groups.first(where: { $0.id == id }) {
-            return run(over: members(of: group))
+            return run(over: members(of: group).map { [$0] })
         }
-        var picked = run(over: visibleWindows)
-        // A group aimed at from the strip is aimed at whole.
-        var ids = Set(picked.map(\.id))
-        for id in ids {
-            for member in group(of: id)?.ids ?? [] { ids.insert(member) }
-        }
-        picked = visibleWindows.filter { ids.contains($0.id) }
-        return picked
+        // From the strip the run is measured along its entries, a group aimed at whole: its
+        // windows need not sit next to each other in the queue, so a run over queue positions
+        // would sweep in a group only partly between the ends, or miss one it spans.
+        return run(over: stripEntries)
     }
 
-    /// The windows of `candidates` the aim covers: the stretch from the anchor to the aim, plus any
-    /// picked one by one. Anything picked that is not among them is left out — a run only ever
-    /// covers the strip it is drawn on.
-    private func run(over candidates: [ManagedWindow]) -> [ManagedWindow] {
-        guard let aim = candidates.firstIndex(where: { $0.id == aimingID }) else { return [] }
-        var ids = aimPinnedIDs
-        let anchor = candidates.firstIndex(where: { $0.id == aimAnchorID }) ?? aim
-        for window in candidates[min(aim, anchor)...max(aim, anchor)] { ids.insert(window.id) }
-        return candidates.filter { ids.contains($0.id) }
+    /// The visible queue as the strip shows it: one entry per window, except that a group's
+    /// windows share one, where the first of them stands.
+    private var stripEntries: [[ManagedWindow]] {
+        var entries: [[ManagedWindow]] = []
+        var groupEntry: [Int: Int] = [:]
+        for window in visibleWindows {
+            guard let group = group(of: window.id) else {
+                entries.append([window])
+                continue
+            }
+            if let index = groupEntry[group.id] {
+                entries[index].append(window)
+            } else {
+                groupEntry[group.id] = entries.count
+                entries.append([window])
+            }
+        }
+        return entries
+    }
+
+    /// The windows of `entries` the aim covers, in queue order: every entry from the anchor's to
+    /// the aim's, plus any holding a window picked one by one. Anything picked that is not among
+    /// them is left out — a run only ever covers the strip it is drawn on.
+    private func run(over entries: [[ManagedWindow]]) -> [ManagedWindow] {
+        func entry(of id: CGWindowID?) -> Int? {
+            guard let id else { return nil }
+            return entries.firstIndex { $0.contains { $0.id == id } }
+        }
+        guard let aim = entry(of: aimingID) else { return [] }
+        let anchor = entry(of: aimAnchorID) ?? aim
+        var ids = Set<CGWindowID>()
+        for (index, windows) in entries.enumerated()
+        where (min(aim, anchor)...max(aim, anchor)).contains(index)
+            || windows.contains(where: { aimPinnedIDs.contains($0.id) }) {
+            for window in windows { ids.insert(window.id) }
+        }
+        return visibleWindows.filter { ids.contains($0.id) }
     }
 
     var aimedIDs: Set<CGWindowID> { Set(aimedWindows.map(\.id)) }
@@ -246,20 +270,24 @@ final class WindowQueueModel: ObservableObject {
         // Everything aimed so far stays aimed, whether it came from a run or from earlier clicks.
         var picked = Set(aimedWindows.map(\.id))
         aimAnchorID = nil
+        // From the strip a group is one entry, picked or dropped as a whole.
+        let entry = aimInsideGroupID == nil ? Set(group(of: id)?.ids ?? [id]) : [id]
         if picked.contains(id) {
-            guard picked.count > 1 else { return }
-            picked.remove(id)
-            // The aim itself has to stay on something that is still aimed.
-            if aimingID == id {
-                let order = visibleWindows.map(\.id)
-                let origin = order.firstIndex(of: id) ?? 0
-                aimingID = order.enumerated()
+            guard !picked.subtracting(entry).isEmpty else { return }
+            picked.subtract(entry)
+            // The aim itself has to stay on something that is still aimed, and that it can step
+            // on from: a group's stop, not any of its windows.
+            if let aimingID, entry.contains(aimingID) {
+                let order = aimableWindows.map(\.id)
+                let origin = order.firstIndex(of: aimingID) ?? 0
+                self.aimingID = order.enumerated()
                     .filter { picked.contains($0.element) }
                     .min { abs($0.offset - origin) < abs($1.offset - origin) }?.element
+                    ?? picked.first
             }
         } else {
-            picked.insert(id)
-            aimingID = id
+            picked.formUnion(entry)
+            aimingID = aimableWindows.first { entry.contains($0.id) }?.id ?? id
         }
         aimPinnedIDs = picked
     }

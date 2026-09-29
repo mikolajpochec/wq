@@ -451,6 +451,43 @@ extension WindowQueueModelTests {
         return model
     }
 
+    func testAimRunFromTheStripCountsAGroupAsOneEntry() {
+        let model = scatteredGroupModel()
+        model.select(id: 4, announce: false)
+        model.beginAiming()
+        model.extendAim(by: -1)
+        XCTAssertEqual(model.aimingID, 2)
+        XCTAssertEqual(model.aimedIDs, [2, 4],
+                       "the group's tile stands before 2 on the strip; its window 3 must not join the run")
+
+        model.extendAim(by: -1)
+        XCTAssertEqual(model.aimedIDs, [1, 2, 3, 4], "reaching the group's tile aims at the whole group")
+
+        model.extendAim(by: 1)
+        XCTAssertEqual(model.aimedIDs, [2, 4], "stepping back off the tile drops the whole group again")
+    }
+
+    func testShiftClickingAGroupPicksAndDropsItWhole() {
+        let model = scatteredGroupModel()
+        model.select(id: 4, announce: false)
+        model.beginAiming()
+        model.toggleAim(1)
+        XCTAssertEqual(model.aimedIDs, [1, 3, 4])
+        XCTAssertEqual(model.aimingID, 1)
+
+        model.toggleAim(1)
+        XCTAssertEqual(model.aimedIDs, [4], "dropping the group drops all of its windows")
+        XCTAssertEqual(model.aimingID, 4)
+
+        model.toggleAim(1)
+        model.toggleAim(4)
+        XCTAssertEqual(model.aimedIDs, [1, 3])
+        XCTAssertEqual(model.aimingID, 1, "the aim stays on the group's stop on the strip")
+        model.extendAim(by: 1)
+        XCTAssertEqual(model.aimingID, 2)
+        XCTAssertEqual(model.aimedIDs, [1, 2, 3])
+    }
+
     func testAimInsideAGroupNeverReachesAWindowBetweenItsMembers() {
         let model = scatteredGroupModel()
         model.select(id: 1, announce: false)
