@@ -714,6 +714,9 @@ final class WindowQueueModel: ObservableObject {
     /// already selected — coming back to its app is still arriving at it.
     var onFocusFollowed: ((CGWindowID) -> Void)?
 
+    /// Called with the windows new to the queue after each merge (tabs taking another's place aside).
+    var onWindowsArrived: (([ManagedWindow]) -> Void)?
+
     /// Selects a window because it took focus outside the queue.
     func followFocus(to id: CGWindowID) {
         guard let window = windows.first(where: { $0.id == id }) else { return }
@@ -817,6 +820,7 @@ final class WindowQueueModel: ObservableObject {
 
         guard next != windows else { return }
         windows = next
+        if !arriving.isEmpty { onWindowsArrived?(arriving) }
         // A window that has gone leaves its group; one window is not a group.
         if !groups.isEmpty {
             let present = Set(windows.map(\.id))

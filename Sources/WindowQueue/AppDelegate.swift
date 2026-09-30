@@ -109,6 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] id in self?.raiseLayoutOnceFocused(id) }
             .store(in: &cancellables)
         model.onFocusFollowed = { [weak self] id in self?.raiseLayoutOnceFocused(id) }
+        model.onWindowsArrived = { [weak self] windows in
+            DispatchQueue.main.async { self?.placeLaunched(windows) }
+        }
 
         model.$windows
             .receive(on: RunLoop.main)
@@ -1287,8 +1290,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .search:
             search?.toggle()
         case .openLauncher:
+            noteLaunch()
             SystemLaunchers.open(store.prefs.launcher)
         case .openRaycastCommand:
+            noteLaunch()
             SystemLaunchers.openRaycastCommand(store.prefs.raycastCommand)
         case .goToEmptySpace:
             goToEmptySpace()
@@ -1853,13 +1858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         var moved: [ManagedWindow] = []
         for (window, frame, source) in windowsWithFrames where source != target {
-            let sourceArea = tilingArea(on: source)
-            if Self.fills(frame, sourceArea) {
-                framesBeforeMaximize[window.id] = nil
-                WindowTiler.fill(window, in: targetArea, gaps: WindowTiler.Gaps(prefs: store.prefs))
-            } else {
-                WindowTiler.restore(window, to: Self.map(frame, from: sourceArea, to: targetArea))
-            }
+            relocate(window, frame: frame, from: source, toArea: targetArea)
             moved.append(window)
         }
         Diagnostics.note("moved \(moved.count) window(s) to monitor \(targetIndex + 1)")
@@ -1876,6 +1875,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Puts a window at the same place relative to another screen's room; one filling its screen
+    /// fills the other.
+    private func relocate(_ window: ManagedWindow, frame: NSRect, from source: NSScreen, toArea targetArea: NSRect) {
+        let sourceArea = tilingArea(on: source)
+        if Self.fills(frame, sourceArea) {
+            framesBeforeMaximize[window.id] = nil
+            WindowTiler.fill(window, in: targetArea, gaps: WindowTiler.Gaps(prefs: store.prefs))
+        } else {
+            WindowTiler.restore(window, to: Self.map(frame, from: sourceArea, to: targetArea))
+        }
+    }
+
+    /// The monitor worked on: the selected window's, as the key screen lags behind (or never
+    /// follows) focus that is slow to land — or the one the pointer was last sent to empty-handed.
+    private func workedOnDisplay() -> CGDirectDisplayID? {
+        if let pointed = pointerOnlyMonitor, pointed.selectedID == model.selectedID { return pointed.display }
+        return model.selectedWindow.flatMap(model.monitorID(of:)) ?? NSScreen.main.flatMap(Monitors.displayID(of:))
+    }
+
+    // MARK: - Launching onto the monitor worked on
+
+    /// Where a launcher was opened from. macOS puts an app's new window on the screen the app last
+    /// used (or the launcher's), so the next window to open is brought to the monitor worked on.
+    private var launchTarget: (display: CGDirectDisplayID, at: Date)?
+
+    private func noteLaunch() {
+        launchTarget = NSScreen.screens.count > 1 ? workedOnDisplay().map { ($0, Date()) } : nil
+    }
+
+    private func placeLaunched(_ arrived: [ManagedWindow], attempt: Int = 0) {
+        guard let target = launchTarget else { return }
+        guard Date().timeIntervalSince(target.at) < 20 else {
+            launchTarget = nil
+            return
+        }
+        guard var window = arrived.first(where: { !$0.isMinimized }) else { return }
+        launchTarget = nil
+        window.element = window.element ?? WindowSpaceMover.element(for: window)
+        guard window.element != nil,
+              let frame = WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id),
+              let source = Monitors.screen(containing: frame),
+              let screen = NSScreen.screens.first(where: { Monitors.displayID(of: $0) == target.display })
+        else {
+            // A window just made may not answer yet; give it a moment once.
+            if attempt == 0 {
+                launchTarget = target
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.placeLaunched([window], attempt: 1)
+                }
+            }
+            return
+        }
+        guard source != screen else { return }
+        Diagnostics.note("launched \(window.appName) id=\(window.id) opened on \(source.localizedName), "
+                         + "moving to \(screen.localizedName)")
+        relocate(window, frame: frame, from: source, toArea: tilingArea(on: screen))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.enumerator?.refresh()
+        }
+    }
+
     /// Goes to monitor `number` (counted left to right), or with nil to the one after the focused
     /// one: focus lands on the window on top there, so that monitor's strip is the one worked on.
     /// A monitor with nothing on show gets the pointer instead.
@@ -1887,15 +1947,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
             return
         }
-        // The monitor worked on is the selected window's: the key screen lags behind (or never
-        // follows) focus that is slow to land. Landing on an empty monitor only moves the pointer,
-        // so until the selection changes "next" goes on from there, or it would land there again.
+        // Landing on an empty monitor only moves the pointer, so until the selection changes
+        // "next" goes on from there, or it would land there again.
         let selectedID = model.selectedID
-        var currentDisplay = model.selectedWindow.flatMap(model.monitorID(of:))
-            ?? NSScreen.main.flatMap(Monitors.displayID(of:))
-        if let pointed = pointerOnlyMonitor, pointed.selectedID == selectedID {
-            currentDisplay = pointed.display
-        }
+        let currentDisplay = workedOnDisplay()
         pointerOnlyMonitor = nil
         let current = screens.firstIndex { Monitors.displayID(of: $0) == currentDisplay } ?? 0
         let targetIndex = number.map { $0 - 1 } ?? (current + 1) % screens.count
