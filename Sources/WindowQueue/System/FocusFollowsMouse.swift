@@ -48,7 +48,8 @@ final class FocusFollowsMouse {
               NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
         else { return }
 
-        guard let id = Self.windowUnderPointer(),
+        let known = Set(model.windows.map(\.id))
+        guard let id = Self.windowUnderPointer(isKnown: known.contains),
               let window = model.windows.first(where: { $0.id == id }),
               window.pid != ProcessInfo.processInfo.processIdentifier,
               !window.isMinimized
@@ -64,7 +65,13 @@ final class FocusFollowsMouse {
 
     /// The ordinary window directly under the pointer, or nil when anything else is on top there
     /// or a menu is open anywhere.
-    static func windowUnderPointer() -> CGWindowID? {
+    ///
+    /// The WindowServer is asked which window a click there would reach, so windows that let the
+    /// mouse through — the invisible full-screen overlay the Screenshot utility leaves behind, a
+    /// fading outline — do not count as being in the way. A hit on a helper window of an app — the
+    /// tab hover card Chrome floats over its tab strip — is passed on to the first known window of
+    /// the same app beneath it.
+    static func windowUnderPointer(isKnown: (CGWindowID) -> Bool = { _ in true }) -> CGWindowID? {
         guard let primary = NSScreen.screens.first else { return nil }
         let cocoa = NSEvent.mouseLocation
         let point = CGPoint(x: cocoa.x, y: primary.frame.height - cocoa.y)
@@ -77,17 +84,66 @@ final class FocusFollowsMouse {
             return nil
         }
 
+        func number(_ info: [String: Any]) -> CGWindowID? {
+            (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+        }
+        func contains(_ info: [String: Any]) -> Bool {
+            guard let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict)
+            else { return false }
+            return bounds.contains(point)
+        }
+        func isOrdinary(_ info: [String: Any]) -> Bool {
+            (info[kCGWindowLayer as String] as? Int) == 0
+        }
+
+        if let hit = serverWindow(at: point) {
+            // Not in the list: the desktop, or something else that is not a window to focus.
+            guard let index = list.firstIndex(where: { number($0) == hit }),
+                  isOrdinary(list[index])
+            else { return nil }
+            if isKnown(hit) { return hit }
+            let owner = list[index][kCGWindowOwnerPID as String] as? pid_t
+            return list[index...].first { info in
+                isOrdinary(info) && contains(info)
+                    && info[kCGWindowOwnerPID as String] as? pid_t == owner
+                    && number(info).map(isKnown) == true
+            }.flatMap(number)
+        }
+
         // Front to back: the first window containing the point is the one the pointer is over.
         for info in list {
-            guard let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict),
-                  bounds.contains(point)
-            else { continue }
+            guard contains(info) else { continue }
             let alpha = info[kCGWindowAlpha as String] as? Double ?? 1
             if alpha <= 0 { continue }
-            guard (info[kCGWindowLayer as String] as? Int) == 0 else { return nil }
-            return (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            guard isOrdinary(info) else { return nil }
+            return number(info)
         }
         return nil
+    }
+
+    private typealias FindWindowFn = @convention(c) (Int32, Int32, Int32, Int32, UnsafeMutablePointer<CGPoint>,
+                                                     UnsafeMutablePointer<CGPoint>, UnsafeMutablePointer<UInt32>,
+                                                     UnsafeMutablePointer<Int32>) -> Int32
+    private typealias ConnectionFn = @convention(c) () -> Int32
+
+    private static let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    private static let findWindowAndOwner = skyLight.flatMap { dlsym($0, "SLSFindWindowAndOwner") }
+        .map { unsafeBitCast($0, to: FindWindowFn.self) }
+    private static let connection = skyLight.flatMap { dlsym($0, "SLSMainConnectionID") }
+        .map { unsafeBitCast($0, to: ConnectionFn.self)() }
+
+    /// The window the WindowServer would deliver a click at this point to — the hit test yabai
+    /// uses. Nil when the private symbols are missing, and the window list is walked instead.
+    private static func serverWindow(at point: CGPoint) -> CGWindowID? {
+        guard let findWindowAndOwner, let connection else { return nil }
+        var point = point
+        var local = CGPoint.zero
+        var windowID: UInt32 = 0
+        var owner: Int32 = 0
+        guard findWindowAndOwner(connection, 0, 1, 0, &point, &local, &windowID, &owner) == 0,
+              windowID != 0
+        else { return nil }
+        return windowID
     }
 }

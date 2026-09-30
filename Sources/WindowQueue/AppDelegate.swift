@@ -246,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.store.prefs.focusFollowsMouse,
                       WindowFocuser.isFocused(window) == false,
                       // Only if the pointer is still there: the user may have moved on since.
-                      FocusFollowsMouse.windowUnderPointer() == window.id
+                      FocusFollowsMouse.windowUnderPointer(isKnown: { id in self.model.windows.contains { $0.id == id } }) == window.id
                 else { return }
                 Diagnostics.note("hover focus did not land on \(window.id); raising it")
                 WindowFocuser.focus(window, siblingCount: siblings)
