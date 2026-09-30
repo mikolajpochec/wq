@@ -90,6 +90,8 @@ final class StripScreenState: ObservableObject {
     @Published var isActive = true
     /// Desktop number showing on this screen.
     @Published var spaceIndex: Int?
+    /// The display the strip is on, whose queue it shows in multi-monitor mode.
+    @Published var monitorID: CGDirectDisplayID?
     /// Whether the screen behind the workspace number is light, or nil while unknown.
     @Published var backdropIsLight: Bool?
     /// The last sample's verdict, which has to be repeated before the number changes colour.
@@ -248,7 +250,7 @@ final class StripController {
         let panel = strip.panel.frame
         let prefs = store.prefs
         // The badge is drawn inside a row-sized element, inset by the row's own padding.
-        let start = contentStart(inPanelLength: mainLength(of: panel)) + StripMetrics.padding + 4
+        let start = contentStart(inPanelLength: mainLength(of: panel), on: strip) + StripMetrics.padding + 4
         let size = prefs.iconSize
         let thickness = StripMetrics.thickness(prefs: prefs)
         let crossInset = (thickness - size) / 2
@@ -321,6 +323,7 @@ final class StripController {
             let strip = strips[id] ?? build(on: screen)
             strips[id] = strip
             strip.screen = screen
+            if strip.state.monitorID != id { strip.state.monitorID = id }
             // Aiming picks among every window, wherever it is, so no strip is greyed out meanwhile.
             let drawActive = isActive || prefs.stripDisplay == .activeScreenOnly || model.aimingID != nil
             if strip.state.isActive != drawActive { strip.state.isActive = drawActive }
@@ -374,7 +377,7 @@ final class StripController {
         }
         hosting.onScroll = { [weak self] delta, precise in self?.scrolled(by: delta, precise: precise) }
         hosting.onMiddleClick = { [weak self, weak strip] point in
-            guard let self, let strip, let window = self.window(at: point, in: strip.hosting) else { return }
+            guard let self, let strip, let window = self.window(at: point, in: strip) else { return }
             self.onClose(window)
         }
         return strip
@@ -408,21 +411,24 @@ final class StripController {
         strip.panel.setFrame(target, display: true)
     }
 
-    private var contentLayout: StripLayout {
+    /// The layout of one strip's content — in multi-monitor mode each monitor's queue is its own.
+    private func contentLayout(of strip: ScreenStrip?) -> StripLayout {
         var groups: [CGWindowID: Int] = [:]
         for group in model.groups {
             for id in group.ids { groups[id] = group.id }
         }
-        return StripLayout(windows: model.visibleWindows, prefs: store.prefs, slot: model.slotPlacement,
-                           collapsed: collapsedIDs, groups: groups)
+        let monitor = strip?.state.monitorID
+        return StripLayout(windows: model.stripWindows(onMonitor: monitor), prefs: store.prefs,
+                           slot: model.slotPlacement(onMonitor: monitor),
+                           collapsed: collapsedIDs(on: monitor), groups: groups)
     }
 
     /// Windows drawn as one collapsed tile, which has to match what `StripView` draws.
-    private var collapsedIDs: Set<CGWindowID> {
+    private func collapsedIDs(on monitor: CGDirectDisplayID?) -> Set<CGWindowID> {
         let prefs = store.prefs
         guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, let maximized = model.maximizedID
         else { return [] }
-        var ids = Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
+        var ids = Set(model.stripWindows(onMonitor: monitor).filter { model.isCovered($0) }.map(\.id))
         // The maximized window is drawn at the front of that tile, so it is part of it here too.
         guard !ids.isEmpty else { return [] }
         ids.insert(maximized)
@@ -440,12 +446,12 @@ final class StripController {
 
     /// Distance from the start of the panel — its top for a vertical strip, its left for a
     /// horizontal one — to the start of the strip content, which alignment places along the edge.
-    private func contentStart(inPanelLength length: CGFloat) -> CGFloat {
+    private func contentStart(inPanelLength length: CGFloat, on strip: ScreenStrip?) -> CGFloat {
         let alignment = store.prefs.stripAlignment
         // Flush with the end it is aligned to; the margin only keeps the other end off the edge.
         let leading = alignment == .start ? 0 : store.prefs.stripMargin
         let trailing = alignment == .end ? 0 : store.prefs.stripMargin
-        let free = max(0, length - leading - trailing - contentLayout.totalHeight)
+        let free = max(0, length - leading - trailing - contentLayout(of: strip).totalHeight)
         // The pair keeps the alignment as one: centred it shares the middle, at either end it grows
         // inwards, so this strip moves out of the way of the group's strip where that is needed.
         let shift = store.prefs.stripShift(forCompanion: companionLength)
@@ -470,15 +476,15 @@ final class StripController {
 
         // The collapsed tile is not one window, so it gets its own popup rather than the name of
         // whichever window happens to be first inside it.
-        if let point, isHiddenStack(at: point, in: strip.hosting) {
-            let hidden = contentLayout.hiddenWindows
+        if let point, isHiddenStack(at: point, in: strip) {
+            let hidden = contentLayout(of: strip).hiddenWindows
             guard hoveredID != Self.stackHoverID else { return }
             hoveredID = Self.stackHoverID
             onHiddenStackHold?(hidden)
             return
         }
 
-        let hovered = point.flatMap { window(at: $0, in: strip.hosting) }
+        let hovered = point.flatMap { window(at: $0, in: strip) }
         // A group's entry stands for several windows, so it is named as a group rather than with
         // whichever window's title happens to be first inside it.
         if let hovered, let group = model.group(of: hovered.id) {
@@ -515,26 +521,27 @@ final class StripController {
     /// Stands in for the collapsed tile in `hoveredID`, which otherwise holds a window id.
     private static let stackHoverID = CGWindowID.max
 
-    private func isHiddenStack(at point: NSPoint, in view: NSView) -> Bool {
-        contentLayout.isHiddenStack(atOffsetFromTop: offsetAlongContent(of: point, in: view))
+    private func isHiddenStack(at point: NSPoint, in strip: ScreenStrip) -> Bool {
+        contentLayout(of: strip).isHiddenStack(atOffsetFromTop: offsetAlongContent(of: point, in: strip))
     }
 
     /// How far along the strip's content a point lies.
-    private func offsetAlongContent(of point: NSPoint, in view: NSView) -> CGFloat {
+    private func offsetAlongContent(of point: NSPoint, in strip: ScreenStrip) -> CGFloat {
+        let view = strip.hosting
         let along: CGFloat
         if side.isVertical {
             along = view.isFlipped ? point.y : view.bounds.height - point.y
         } else {
             along = point.x
         }
-        return along - contentStart(inPanelLength: mainLength(of: view.bounds))
+        return along - contentStart(inPanelLength: mainLength(of: view.bounds), on: strip)
     }
 
     /// The window under a point in the hosting view, which spans the whole edge while the strip
     /// content sits inside it wherever alignment puts it.
-    private func window(at point: NSPoint, in view: NSView) -> ManagedWindow? {
-        contentLayout.windowIndex(atOffsetFromTop: offsetAlongContent(of: point, in: view))
-            .map { model.visibleWindows[$0] }
+    private func window(at point: NSPoint, in strip: ScreenStrip) -> ManagedWindow? {
+        contentLayout(of: strip).windowIndex(atOffsetFromTop: offsetAlongContent(of: point, in: strip))
+            .map { model.stripWindows(onMonitor: strip.state.monitorID)[$0] }
     }
 
     /// Screen rect of the strip's content — the bar itself, not the panel it floats in — so another
@@ -543,8 +550,8 @@ final class StripController {
         guard let strip = anchorStrip else { return nil }
         let panel = strip.panel.frame
         let prefs = store.prefs
-        let start = contentStart(inPanelLength: mainLength(of: panel))
-        let length = contentLayout.totalHeight
+        let start = contentStart(inPanelLength: mainLength(of: panel), on: strip)
+        let length = contentLayout(of: strip).totalHeight
         let thickness = StripMetrics.thickness(prefs: prefs)
         switch prefs.stripSide {
         case .left:
@@ -574,20 +581,22 @@ final class StripController {
     }
 
     private func rowFrame(for id: CGWindowID, in strip: ScreenStrip) -> NSRect? {
-        guard let index = model.visibleWindows.firstIndex(where: { $0.id == id }) else { return nil }
+        guard let index = model.stripWindows(onMonitor: strip.state.monitorID).firstIndex(where: { $0.id == id })
+        else { return nil }
         let panel = strip.panel.frame
         let prefs = store.prefs
-        let start = contentStart(inPanelLength: mainLength(of: panel))
+        let layout = contentLayout(of: strip)
+        let start = contentStart(inPanelLength: mainLength(of: panel), on: strip)
         // A dragged icon is drawn at the cursor while the queue order still has it in its old slot,
         // so shift the anchor by the drag.
         let drag = dragOffset.flatMap { $0.id == id ? $0.y : nil } ?? 0
-        var along = start + contentLayout.centreOffset(ofWindowAt: index) + drag
+        var along = start + layout.centreOffset(ofWindowAt: index) + drag
         var rowLength = StripMetrics.rowHeight(prefs: prefs)
 
         // While aiming, the strip is drawn scaled about the end it is aligned to; the layout is
         // not, so the anchor follows the same transform or the popup drifts from its icon.
         if model.aimingID != nil, model.aimInsideGroupID == nil {
-            let anchor = start + contentLayout.totalHeight * prefs.stripAlignment.fraction
+            let anchor = start + layout.totalHeight * prefs.stripAlignment.fraction
             along = anchor + (along - anchor) * prefs.aimingScale
             rowLength *= prefs.aimingScale
         }

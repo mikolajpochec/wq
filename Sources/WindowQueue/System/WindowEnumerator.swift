@@ -422,6 +422,10 @@ final class WindowEnumerator {
         if arrived { model.currentSpaceID = current }
         if model.currentSpaceIndex != index { model.currentSpaceIndex = index; changed = true }
         if model.currentSpaceIsFullscreen != fullscreen { model.currentSpaceIsFullscreen = fullscreen; changed = true }
+        let monitors = Monitors.current()
+        if model.monitors != monitors { model.monitors = monitors; changed = true }
+        let monitor = NSScreen.main.flatMap(Monitors.displayID(of:))
+        if model.currentMonitorID != monitor { model.currentMonitorID = monitor; changed = true }
         if arrived { onActiveSpaceChanged?() }
         return changed
     }

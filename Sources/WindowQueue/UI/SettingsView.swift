@@ -56,7 +56,13 @@ struct SettingsView: View {
         Form {
             Section("Queue") {
                 Picker("Queue scope", selection: $store.prefs.scope) {
-                    ForEach(QueueScope.allCases) { Text($0.title).tag($0) }
+                    ForEach(QueueScope.allCases.filter { $0 != .monitor || store.prefs.multiMonitorMode }) {
+                        Text($0.title).tag($0)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
+                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that send a window to monitor N (counted left to right) or on to the next monitor.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
@@ -265,6 +271,9 @@ struct SettingsView: View {
                     section("Queue", actions: HotkeyAction.queueActions)
                     section("Workspaces", actions: HotkeyAction.spaceActions)
                     section("Move to workspace", actions: HotkeyAction.moveToSpaceActions)
+                    if store.prefs.multiMonitorMode {
+                        section("Monitors", actions: HotkeyAction.monitorActions)
+                    }
                     aimBindings
                 }
             }

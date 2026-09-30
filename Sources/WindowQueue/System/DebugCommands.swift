@@ -40,6 +40,7 @@ final class DebugCommands {
         lines.append("aiming \(model.aimingID.map(String.init) ?? "nil") anchor \(model.aimAnchorID.map(String.init) ?? "nil")")
         lines.append("emptySlot \(model.emptySlot.map { "space=\($0.spaceID) before=\($0.beforeID.map(String.init) ?? "end")" } ?? "nil")")
         lines.append("autoSort \(model.autoSortByWorkspace)")
+        lines.append("monitors \(model.monitors.map { String($0.id) }.joined(separator: ",")) current \(model.currentMonitorID.map(String.init) ?? "nil")")
         let front = NSWorkspace.shared.frontmostApplication
         let focused = front.flatMap {
             AXPrivate.application($0.processIdentifier).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
@@ -50,7 +51,7 @@ final class DebugCommands {
         for window in model.windows {
             let workspace = model.workspaceNumber(of: window).map(String.init) ?? "-"
             let actual = serverSpaces[window.id].map(String.init) ?? "nil"
-            lines.append("win \(window.id) ws=\(workspace) space=\(window.spaceID.map(String.init) ?? "nil") server=\(actual) min=\(window.isMinimized) el=\(window.element != nil) pid=\(window.pid) \(window.appName) | \(window.title)")
+            lines.append("win \(window.id) ws=\(workspace) space=\(window.spaceID.map(String.init) ?? "nil") server=\(actual) mon=\(model.monitorID(of: window).map(String.init) ?? "nil") min=\(window.isMinimized) el=\(window.element != nil) pid=\(window.pid) \(window.appName) | \(window.title)")
         }
         let url = Diagnostics.logURL.deletingLastPathComponent().appendingPathComponent("state.txt")
         try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)

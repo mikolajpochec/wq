@@ -66,6 +66,20 @@ final class SpacesBridge {
         return NSScreen.screens.first { Self.displayUUID(of: $0) == display.identifier }
     }
 
+    /// The desktops of one display, by display UUID — empty when displays do not have separate Spaces.
+    func userSpaceIDs(onDisplay uuid: String) -> Set<UInt64> {
+        let all = displays()
+        guard all.count > 1, let display = all.first(where: { $0.identifier == uuid }) else { return [] }
+        return Set(display.userSpaces.map(\.id))
+    }
+
+    /// The desktop on show on the display with this UUID — nil when displays do not have separate Spaces.
+    func shownSpaceID(onDisplay uuid: String) -> UInt64? {
+        let all = displays()
+        guard all.count > 1 else { return nil }
+        return all.first { $0.identifier == uuid }?.currentSpaceID
+    }
+
     /// The space on show on the display a workspace lives on.
     func spaceOnShow(onDisplayOf space: UInt64) -> UInt64? {
         displays().first { $0.userSpaces.contains { $0.id == space } }?.currentSpaceID

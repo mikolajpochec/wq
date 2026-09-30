@@ -62,13 +62,15 @@ final class HotkeyManager {
     /// moment with nothing registered — a key pressed then reaches the app in front as the
     /// character it types, ś for ⌥S. So nothing is touched unless a shortcut actually changed.
     func apply(_ prefs: Preferences) {
-        let wanted = Dictionary(uniqueKeysWithValues: HotkeyAction.allCases.map { ($0, prefs.combo(for: $0)) })
+        // Without multi-monitor mode the monitor shortcuts leave their keys to other apps.
+        let actions = HotkeyAction.allCases.filter { prefs.multiMonitorMode || !$0.isMonitorAction }
+        let wanted = Dictionary(uniqueKeysWithValues: actions.map { ($0, prefs.combo(for: $0)) })
         guard wanted != appliedCombos else { return }
         appliedCombos = wanted
         unregisterAll()
         failures = []
 
-        for action in HotkeyAction.allCases {
+        for action in actions {
             let combo = prefs.combo(for: action)
             let id = nextHotkeyID
             nextHotkeyID += 1
@@ -85,7 +87,7 @@ final class HotkeyManager {
                 Diagnostics.note("hotkey \(action.rawValue) \(combo.displayString) not registered: \(status)")
             }
         }
-        Diagnostics.note("hotkeys registered: \(hotkeyRefs.count) of \(HotkeyAction.allCases.count)")
+        Diagnostics.note("hotkeys registered: \(hotkeyRefs.count) of \(actions.count)")
     }
 
     private var appliedCombos: [HotkeyAction: KeyCombo]?

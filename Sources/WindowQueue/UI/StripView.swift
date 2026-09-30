@@ -223,8 +223,13 @@ struct StripView: View {
 
     // MARK: - Layout
 
+    /// This monitor's queue: its own in multi-monitor mode, the focused monitor's otherwise.
+    private var visibleWindows: [ManagedWindow] {
+        model.stripWindows(onMonitor: screen.monitorID)
+    }
+
     private func layout(of windows: [ManagedWindow]) -> StripLayout {
-        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement,
+        StripLayout(windows: windows, prefs: prefs, slot: model.slotPlacement(onMonitor: screen.monitorID),
                     collapsed: collapsedIDs, groups: groupNumbers)
     }
 
@@ -245,7 +250,7 @@ struct StripView: View {
         guard prefs.focusMaximizedWindow, prefs.collapseCoveredWindows, model.maximizedID != nil,
               draggingID == nil || draggingStack || !dragMoved
         else { return [] }
-        var ids = Set(model.visibleWindows.filter { model.isCovered($0) }.map(\.id))
+        var ids = Set(visibleWindows.filter { model.isCovered($0) }.map(\.id))
         // The maximized window goes in the tile too, at the front: one entry on the strip holds the
         // window on top and the windows under it, rather than two entries tied together by a shape.
         guard !ids.isEmpty, let maximized = model.maximizedID else { return [] }
@@ -255,14 +260,14 @@ struct StripView: View {
 
     /// Geometry of the committed queue. Drag targeting measures against this rather than the preview
     /// so that the answer cannot oscillate as the preview rearranges itself underneath the cursor.
-    private var committedLayout: StripLayout { layout(of: model.visibleWindows) }
+    private var committedLayout: StripLayout { layout(of: visibleWindows) }
 
     private var previewLayout: StripLayout { layout(of: orderedWindows) }
 
     /// The queue as the strip currently shows it: the committed order, with a drag in progress
     /// previewed by moving the dragged window to the slot it would land in.
     private var orderedWindows: [ManagedWindow] {
-        var windows = model.visibleWindows
+        var windows = visibleWindows
         guard let draggingID else { return windows }
 
         if let moving = draggingBlockIDs {
@@ -299,7 +304,7 @@ struct StripView: View {
 
     private var draggedWindow: ManagedWindow? {
         guard let draggingID else { return nil }
-        return model.visibleWindows.first { $0.id == draggingID }
+        return visibleWindows.first { $0.id == draggingID }
     }
 
     // MARK: - Rows
@@ -307,13 +312,13 @@ struct StripView: View {
     @ViewBuilder
     private var floatingRow: some View {
         if draggingStack {
-            hiddenStackTile(for: model.visibleWindows.filter { collapsedIDs.contains($0.id) })
+            hiddenStackTile(for: visibleWindows.filter { collapsedIDs.contains($0.id) })
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
                 .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
                         y: side.isVertical ? dragOriginTop + dragTranslation : 0)
         } else if let id = draggingGroupID, let members = draggingBlockIDs {
-            groupTile(id: id, windows: model.visibleWindows.filter { members.contains($0.id) })
+            groupTile(id: id, windows: visibleWindows.filter { members.contains($0.id) })
                 .scaleEffect(1.12)
                 .shadow(color: .black.opacity(0.3), radius: 6)
                 .offset(x: side.isVertical ? 0 : dragOriginTop + dragTranslation,
@@ -376,7 +381,7 @@ struct StripView: View {
     /// each other in the queue, yet share one tile, and tiles are not all a row long.
     private var aimedSpans: [(start: CGFloat, length: CGFloat)] {
         let aimed = model.aimedIDs
-        let positions = model.visibleWindows.indices.filter { aimed.contains(model.visibleWindows[$0].id) }
+        let positions = visibleWindows.indices.filter { aimed.contains(visibleWindows[$0].id) }
         return committedLayout.spans(ofWindowsAt: positions)
     }
 
@@ -625,17 +630,17 @@ struct StripView: View {
 
         if draggingID == nil {
             guard let origin = layout.windowIndex(atOffsetFromTop: start),
-                  model.visibleWindows.indices.contains(origin)
+                  visibleWindows.indices.contains(origin)
             else { return }
             // Taking hold of the collapsed tile takes hold of every window inside it.
             // So does taking hold of a group's tile.
             draggingStack = layout.isHiddenStack(atOffsetFromTop: start)
             draggingGroupID = draggingStack ? nil : layout.group(atOffsetFromTop: start)
-            draggingID = model.visibleWindows[origin].id
+            draggingID = visibleWindows[origin].id
             dragOriginIndex = origin
             dragTargetIndex = origin
             dragOriginTop = layout.topOffset(ofWindowAt: origin)
-            if draggingBlockIDs == nil { onHold(model.visibleWindows[origin], 0) }
+            if draggingBlockIDs == nil { onHold(visibleWindows[origin], 0) }
         }
         dragTranslation = offset
         if abs(offset) >= Self.dragThreshold { dragMoved = true }
@@ -664,9 +669,11 @@ struct StripView: View {
                 endDrag()
                 return
             }
-            let visible = model.visibleWindows
+            let visible = visibleWindows
             let ids = visible.filter { moving.contains($0.id) }.map(\.id)
-            model.move(ids: ids, toVisiblePosition: blockDestination(of: moving, in: visible))
+            model.onMonitor(screen.monitorID) {
+                model.move(ids: ids, toVisiblePosition: blockDestination(of: moving, in: visible))
+            }
             endDrag()
             return
         }
@@ -688,13 +695,13 @@ struct StripView: View {
         // Dropped on a group, the window goes beside the group — past all of it when carried down
         // the strip — never between its windows.
         var target = dragTargetIndex
-        let visible = model.visibleWindows
+        let visible = visibleWindows
         if visible.indices.contains(target),
            model.group(of: window.id)?.id != model.group(of: visible[target].id)?.id,
-           let span = model.groupSpan(of: visible[target].id) {
+           let span = model.onMonitor(screen.monitorID, { model.groupSpan(of: visible[target].id) }) {
             target = target > dragOriginIndex ? span.upperBound : span.lowerBound
         }
-        model.move(id: window.id, toVisiblePosition: target)
+        model.onMonitor(screen.monitorID) { model.move(id: window.id, toVisiblePosition: target) }
 
         // Let the floating icon travel from the cursor to the slot it was dropped on, then hand
         // over to the row underneath, which has been holding that place all along. The destination

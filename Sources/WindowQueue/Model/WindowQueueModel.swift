@@ -46,6 +46,27 @@ final class WindowQueueModel: ObservableObject {
     @Published var currentSpaceIndex: Int?
     /// The display the strip is on is showing a fullscreen window.
     @Published var currentSpaceIsFullscreen = false
+
+    /// One connected display, for the monitor scope.
+    struct Monitor: Equatable {
+        let id: CGDirectDisplayID
+        /// In WindowServer coordinates (origin top-left of the primary display), like window frames.
+        let frame: CGRect
+        /// Its own desktops, when displays have separate Spaces; empty otherwise.
+        let spaceIDs: Set<UInt64>
+        /// The desktop it has on show, when displays have separate Spaces.
+        var shownSpaceID: UInt64? = nil
+    }
+
+    /// Connected displays, numbered left to right.
+    @Published var monitors: [Monitor] = []
+    /// The display being worked on: the one with the keyboard focus.
+    @Published var currentMonitorID: CGDirectDisplayID?
+    /// Multi-monitor mode: every monitor's strip shows its own queue — the scope applied to that
+    /// monitor — while keyboard cycling works on the one being worked on.
+    @Published var queuePerMonitor = false
+    /// The monitor whose queue `visibleWindows` is, while a strip on another one is being handled.
+    private var monitorOverride: CGDirectDisplayID?
     /// Desktop ids in Mission Control order, so a window can be labelled with its workspace number.
     @Published var spaceOrder: [UInt64] = [] {
         didSet {
@@ -86,9 +107,57 @@ final class WindowQueueModel: ObservableObject {
         visibleIndices.map { windows[$0] }
     }
 
+    /// The display a window is on: the one owning its desktop, else the one holding most of it.
+    func monitorID(of window: ManagedWindow) -> CGDirectDisplayID? {
+        if let space = window.spaceID, let owner = monitors.first(where: { $0.spaceIDs.contains(space) }) {
+            return owner.id
+        }
+        guard let frame = window.frame else { return nil }
+        let best = monitors.max { lhs, rhs in
+            Self.area(lhs.frame.intersection(frame)) < Self.area(rhs.frame.intersection(frame))
+        }
+        return best.flatMap { Self.area($0.frame.intersection(frame)) > 0 ? $0.id : nil }
+    }
+
+    private static func area(_ rect: CGRect) -> CGFloat {
+        rect.isNull ? 0 : rect.width * rect.height
+    }
+
+    /// Runs `body` with the queue as the strip on `monitor` shows it: in multi-monitor mode each
+    /// monitor has its own, and a drag on a strip reorders that one.
+    func onMonitor<T>(_ monitor: CGDirectDisplayID?, _ body: () -> T) -> T {
+        guard queuePerMonitor, let monitor, monitor != currentMonitorID else { return body() }
+        let previous = monitorOverride
+        monitorOverride = monitor
+        defer { monitorOverride = previous }
+        return body()
+    }
+
+    /// The windows the strip on a monitor shows.
+    func stripWindows(onMonitor monitor: CGDirectDisplayID?) -> [ManagedWindow] {
+        onMonitor(monitor) { visibleWindows }
+    }
+
+    /// The empty workspace's marker belongs on the strip of the monitor being worked on.
+    func slotPlacement(onMonitor monitor: CGDirectDisplayID?) -> StripLayout.SlotPlacement? {
+        guard !queuePerMonitor || monitor == nil || monitor == currentMonitorID else { return nil }
+        return slotPlacement
+    }
+
     /// Indices into `windows` of the entries the current scope exposes.
     private var visibleIndices: [Int] {
-        guard scope == .currentSpace, let current = currentSpaceID else {
+        let viewed = monitorOverride ?? currentMonitorID
+        let isCurrent = monitorOverride == nil
+        if scope == .monitor {
+            guard monitors.count > 1, let viewed else { return Array(windows.indices) }
+            // A window whose display cannot be told (minimized, nothing read yet) stays in the
+            // queue of the monitor being worked on.
+            return windows.indices.filter { monitorID(of: windows[$0]).map { $0 == viewed } ?? isCurrent }
+        }
+        // Another monitor's strip shows the desktop that monitor has on show.
+        let shown = isCurrent ? currentSpaceID
+            : monitors.first { $0.id == viewed }?.shownSpaceID ?? currentSpaceID
+        guard scope == .currentSpace, let current = shown else {
             return Array(windows.indices)
         }
         let filtered = windows.indices.filter { windows[$0].spaceID == current }

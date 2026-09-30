@@ -48,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.note("launch: trusted=\(AXIsProcessTrusted()) windowIDs=\(AXPrivate.supportsWindowNumbers) spaces=\(SpacesBridge.shared.isAvailable)")
         setUpStatusItem()
 
-        model.scope = store.prefs.scope
+        model.scope = store.prefs.effectiveScope
+        model.queuePerMonitor = store.prefs.multiMonitorMode
         model.autoSortByWorkspace = store.prefs.autoSortByWorkspace
         model.onManualReorder = { [weak self] in
             self?.store.prefs.autoSortByWorkspace = false
@@ -67,7 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                self.model.scope = prefs.scope
+                self.model.scope = prefs.effectiveScope
+                self.model.queuePerMonitor = prefs.multiMonitorMode
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.hotkeys.apply(prefs)
@@ -1181,6 +1183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .moveToEmptySpace:
                 moveToEmptySpace()
                 return
+            case _ where action.isMonitorAction:
+                moveWindows(toMonitor: action.moveMonitorIndex)
+                return
             // Fullscreen hides every other window of its workspace, so several windows cannot each
             // be the one on top: the aim stays as it is and nothing happens.
             case .toggleMaximize where model.aimedWindows.count > 1:
@@ -1239,6 +1244,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let space = action.spaceIndex {
             switchToSpace(space)
+            return
+        }
+
+        if action.isMonitorAction {
+            moveWindows(toMonitor: action.moveMonitorIndex)
             return
         }
 
@@ -1794,6 +1804,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let carriedIDs = Set(carried.map(\.id))
             done(result.arrived + carried, result.leftBehind.filter { !carriedIDs.contains($0.id) })
         }
+    }
+
+    /// Sends the selected window — or every aimed window — to monitor `number` (counted left to
+    /// right), or with nil to the monitor after the one it is on, which with two is a toggle. Each
+    /// keeps its place and size relative to the room the screen has, so a half stays a half and a
+    /// maximized window fills the other screen; focus follows it there.
+    private func moveWindows(toMonitor number: Int?) {
+        let windows = model.aimingID != nil ? model.aimedWindows : model.selectedWindow.map { [$0] } ?? []
+        if model.aimingID != nil { endAiming(commit: false) }
+        guard store.prefs.multiMonitorMode, !windows.isEmpty, !WindowDragMover.isCarrying else { return }
+        let screens = Monitors.orderedScreens
+        guard screens.count > 1 else {
+            toast?.showCentred(title: "Only one monitor", subtitle: "There is nowhere else to move the window")
+            return
+        }
+        if let number, !screens.indices.contains(number - 1) {
+            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
+            return
+        }
+
+        var windowsWithFrames: [(window: ManagedWindow, frame: NSRect, source: NSScreen)] = []
+        for var window in windows {
+            window.element = window.element ?? WindowSpaceMover.element(for: window)
+            guard window.element != nil,
+                  let frame = WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id),
+                  let source = Monitors.screen(containing: frame)
+            else { continue }
+            windowsWithFrames.append((window, frame, source))
+        }
+        guard let lead = windowsWithFrames.first else { return }
+        let targetIndex: Int
+        if let number {
+            targetIndex = number - 1
+        } else {
+            let from = screens.firstIndex(of: lead.source) ?? 0
+            targetIndex = (from + 1) % screens.count
+        }
+        let target = screens[targetIndex]
+        let targetArea = tilingArea(on: target)
+
+        var moved: [ManagedWindow] = []
+        for (window, frame, source) in windowsWithFrames where source != target {
+            let sourceArea = tilingArea(on: source)
+            if Self.fills(frame, sourceArea) {
+                framesBeforeMaximize[window.id] = nil
+                WindowTiler.fill(window, in: targetArea, gaps: WindowTiler.Gaps(prefs: store.prefs))
+            } else {
+                WindowTiler.restore(window, to: Self.map(frame, from: sourceArea, to: targetArea))
+            }
+            moved.append(window)
+        }
+        Diagnostics.note("moved \(moved.count) window(s) to monitor \(targetIndex + 1)")
+        guard let first = moved.first else {
+            toast?.showCentred(title: "Already on monitor \(targetIndex + 1)", subtitle: lead.window.displayTitle)
+            return
+        }
+        model.select(id: first.id, announce: false)
+        focus(first)
+        toast?.show(title: moved.count == 1 ? first.displayTitle : "\(moved.count) windows",
+                    subtitle: "Moved to monitor \(targetIndex + 1)", beside: first.id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.enumerator?.refresh()
+        }
+    }
+
+    /// A frame at the same place relative to another area, scaled to it and kept inside it.
+    static func map(_ frame: NSRect, from source: NSRect, to target: NSRect) -> NSRect {
+        let scaleX = source.width > 0 ? target.width / source.width : 1
+        let scaleY = source.height > 0 ? target.height / source.height : 1
+        var result = NSRect(x: target.minX + (frame.minX - source.minX) * scaleX,
+                            y: target.minY + (frame.minY - source.minY) * scaleY,
+                            width: min(frame.width * scaleX, target.width),
+                            height: min(frame.height * scaleY, target.height))
+        result.origin.x = min(max(result.minX, target.minX), target.maxX - result.width)
+        result.origin.y = min(max(result.minY, target.minY), target.maxY - result.height)
+        return result
     }
 
     /// Goes to the empty workspace nearest the one in view on this monitor, the way `⌥N` goes to

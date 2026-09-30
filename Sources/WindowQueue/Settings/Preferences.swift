@@ -5,12 +5,14 @@ import SwiftUI
 
 enum QueueScope: String, Codable, CaseIterable, Identifiable {
     case global
+    case monitor
     case currentSpace
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .global: return "All windows (global)"
+        case .monitor: return "Per monitor (each monitor its own queue)"
         case .currentSpace: return "Current workspace only"
         }
     }
@@ -182,6 +184,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
+    case moveToNextMonitor
+    case moveToMonitor1, moveToMonitor2, moveToMonitor3, moveToMonitor4
 
     var id: String { rawValue }
 
@@ -209,7 +213,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .screenshotWindow: return "Take a picture of the window"
         case .goToEmptySpace: return "Go to the nearest empty workspace"
         case .moveToEmptySpace: return "Move window to the nearest empty workspace"
+        case .moveToNextMonitor: return "Move window to the next monitor (toggle between two)"
         default:
+            if let index = moveMonitorIndex { return "Move window to monitor \(index)" }
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
         }
@@ -229,6 +235,19 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 
     static var moveToSpaceActions: [HotkeyAction] {
         allCases.filter { $0.moveSpaceIndex != nil }
+    }
+
+    /// 1-based monitor number, counted left to right, for the `moveToMonitorN` cases.
+    var moveMonitorIndex: Int? {
+        guard rawValue.hasPrefix("moveToMonitor") else { return nil }
+        return Int(rawValue.dropFirst("moveToMonitor".count))
+    }
+
+    /// Only in multi-monitor mode.
+    var isMonitorAction: Bool { self == .moveToNextMonitor || moveMonitorIndex != nil }
+
+    static var monitorActions: [HotkeyAction] {
+        allCases.filter(\.isMonitorAction)
     }
 
     static var queueActions: [HotkeyAction] {
@@ -281,11 +300,17 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         // Next to the numbered workspaces: the one with nothing on it.
         case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
         case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
+        // Monitors take Control on top of the workspace keys: super-Control-N sends the window to
+        // monitor N, and super-Control-Tab over to the next one.
+        case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey))
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
             if let move = moveSpaceIndex {
                 return KeyCombo(keyCode: digits[move - 1], modifiers: superMask | shift)
+            }
+            if let monitor = moveMonitorIndex {
+                return KeyCombo(keyCode: digits[monitor - 1], modifiers: superMask | UInt32(controlKey))
             }
             let index = (spaceIndex ?? 1) - 1
             return KeyCombo(keyCode: digits[index], modifiers: superMask)
@@ -294,7 +319,12 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 }
 
 struct Preferences: Codable, Equatable {
-    var scope: QueueScope = .global
+    var scope: QueueScope = .monitor
+    /// Every monitor's strip shows its own queue — its windows with the per-monitor scope, the
+    /// desktop it has on show with the per-workspace one — and the shortcuts that send a window to
+    /// another monitor are taken. Off, all strips show the focused monitor's queue, the per-monitor
+    /// scope reads as global and those shortcuts are left free.
+    var multiMonitorMode: Bool = true
     var superModifier: SuperModifier = .option
     var spaceSwitchMethod: SpaceSwitchMethod = .privateAPI
     /// Ask Rectangle to keep its tiled windows clear of the strip.
@@ -417,6 +447,7 @@ struct Preferences: Codable, Equatable {
         }
         let defaults = Preferences()
         scope = value(.scope, defaults.scope)
+        multiMonitorMode = value(.multiMonitorMode, defaults.multiMonitorMode)
         superModifier = value(.superModifier, defaults.superModifier)
         spaceSwitchMethod = value(.spaceSwitchMethod, defaults.spaceSwitchMethod)
         reserveScreenSpace = value(.reserveScreenSpace, defaults.reserveScreenSpace)
@@ -540,6 +571,11 @@ struct Preferences: Codable, Equatable {
     /// An AppKit fade's length for this part of the interface: none when it is switched off.
     func duration(_ kind: AnimationKind, _ duration: TimeInterval) -> TimeInterval {
         animates(kind) ? duration : 0
+    }
+
+    /// The scope the queue actually uses: the monitor one needs multi-monitor mode.
+    var effectiveScope: QueueScope {
+        scope == .monitor && !multiMonitorMode ? .global : scope
     }
 
     func combo(for action: HotkeyAction) -> KeyCombo {
