@@ -62,7 +62,7 @@ struct SettingsView: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
-                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that send a window to monitor N (counted left to right) or on to the next monitor.")
+                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and — with Shift — take the window there with you.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)

@@ -1183,7 +1183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .moveToEmptySpace:
                 moveToEmptySpace()
                 return
-            case _ where action.isMonitorAction:
+            case _ where action.isMoveToMonitor:
                 moveWindows(toMonitor: action.moveMonitorIndex)
                 return
             // Fullscreen hides every other window of its workspace, so several windows cannot each
@@ -1247,8 +1247,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if action.isMonitorAction {
+        if action.isMoveToMonitor {
             moveWindows(toMonitor: action.moveMonitorIndex)
+            return
+        }
+
+        if action.isMonitorAction {
+            focusMonitor(action.focusMonitorIndex)
             return
         }
 
@@ -1867,6 +1872,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.enumerator?.refresh()
         }
+    }
+
+    /// Goes to monitor `number` (counted left to right), or with nil to the one after the focused
+    /// one: focus lands on the window on top there, so that monitor's strip is the one worked on.
+    /// A monitor with nothing on show gets the pointer instead.
+    private func focusMonitor(_ number: Int?) {
+        guard store.prefs.multiMonitorMode else { return }
+        let screens = Monitors.orderedScreens
+        guard screens.count > 1 else { return }
+        if let number, !screens.indices.contains(number - 1) {
+            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
+            return
+        }
+        let current = NSScreen.main.flatMap { screens.firstIndex(of: $0) } ?? 0
+        let targetIndex = number.map { $0 - 1 } ?? (current + 1) % screens.count
+        let target = screens[targetIndex]
+        guard let display = Monitors.displayID(of: target) else { return }
+
+        let onShow = WindowTiler.onScreenWindowIDs()
+        let windows = model.windows.filter {
+            !$0.isMinimized && onShow.contains($0.id) && model.monitorID(of: $0) == display
+        }
+        // Front to back, so the window last on top there is the one landed on.
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                              kCGNullWindowID) as? [[String: Any]] ?? []
+        let topmost = list.lazy
+            .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+            .compactMap { id in windows.first { $0.id == id } }
+            .first
+        if let window = topmost ?? windows.first {
+            Diagnostics.note("monitor \(targetIndex + 1): focusing \(window.appName) id=\(window.id)")
+            model.select(id: window.id, announce: true)
+            focus(window)
+            return
+        }
+        Diagnostics.note("monitor \(targetIndex + 1): nothing on show, pointer to \(target.localizedName)")
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        CGWarpMouseCursorPosition(CGPoint(x: target.frame.midX, y: primaryHeight - target.frame.midY))
     }
 
     /// A frame at the same place relative to another area, scaled to it and kept inside it.

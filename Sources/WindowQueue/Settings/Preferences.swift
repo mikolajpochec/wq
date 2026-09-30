@@ -184,6 +184,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
+    case focusNextMonitor
+    case focusMonitor1, focusMonitor2, focusMonitor3, focusMonitor4
     case moveToNextMonitor
     case moveToMonitor1, moveToMonitor2, moveToMonitor3, moveToMonitor4
 
@@ -213,8 +215,10 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .screenshotWindow: return "Take a picture of the window"
         case .goToEmptySpace: return "Go to the nearest empty workspace"
         case .moveToEmptySpace: return "Move window to the nearest empty workspace"
+        case .focusNextMonitor: return "Focus the next monitor (toggle between two)"
         case .moveToNextMonitor: return "Move window to the next monitor (toggle between two)"
         default:
+            if let index = focusMonitorIndex { return "Focus monitor \(index)" }
             if let index = moveMonitorIndex { return "Move window to monitor \(index)" }
             if let index = moveSpaceIndex { return "Move window to workspace \(index)" }
             return "Switch to workspace \(spaceIndex ?? 0)"
@@ -243,8 +247,17 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         return Int(rawValue.dropFirst("moveToMonitor".count))
     }
 
+    /// 1-based monitor number for the `focusMonitorN` cases.
+    var focusMonitorIndex: Int? {
+        guard rawValue.hasPrefix("focusMonitor") else { return nil }
+        return Int(rawValue.dropFirst("focusMonitor".count))
+    }
+
+    /// Sends windows to another monitor rather than just going there.
+    var isMoveToMonitor: Bool { self == .moveToNextMonitor || moveMonitorIndex != nil }
+
     /// Only in multi-monitor mode.
-    var isMonitorAction: Bool { self == .moveToNextMonitor || moveMonitorIndex != nil }
+    var isMonitorAction: Bool { isMoveToMonitor || self == .focusNextMonitor || focusMonitorIndex != nil }
 
     static var monitorActions: [HotkeyAction] {
         allCases.filter(\.isMonitorAction)
@@ -300,17 +313,21 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         // Next to the numbered workspaces: the one with nothing on it.
         case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
         case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
-        // Monitors take Control on top of the workspace keys: super-Control-N sends the window to
-        // monitor N, and super-Control-Tab over to the next one.
-        case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey))
+        // Monitors take Control on top of the workspace keys: super-Control-N goes to monitor N and
+        // super-Control-Tab on to the next one; with Shift they take the window along.
+        case .focusNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey))
+        case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey) | shift)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
             if let move = moveSpaceIndex {
                 return KeyCombo(keyCode: digits[move - 1], modifiers: superMask | shift)
             }
-            if let monitor = moveMonitorIndex {
+            if let monitor = focusMonitorIndex {
                 return KeyCombo(keyCode: digits[monitor - 1], modifiers: superMask | UInt32(controlKey))
+            }
+            if let monitor = moveMonitorIndex {
+                return KeyCombo(keyCode: digits[monitor - 1], modifiers: superMask | UInt32(controlKey) | shift)
             }
             let index = (spaceIndex ?? 1) - 1
             return KeyCombo(keyCode: digits[index], modifiers: superMask)

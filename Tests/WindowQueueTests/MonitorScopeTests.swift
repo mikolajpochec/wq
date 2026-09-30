@@ -110,7 +110,10 @@ final class MonitorScopeTests: XCTestCase {
     func testMonitorActions() {
         XCTAssertEqual(HotkeyAction.moveToMonitor2.moveMonitorIndex, 2)
         XCTAssertNil(HotkeyAction.moveToNextMonitor.moveMonitorIndex)
-        XCTAssertEqual(HotkeyAction.monitorActions.count, 5)
+        XCTAssertEqual(HotkeyAction.monitorActions.count, 10)
+        XCTAssertEqual(HotkeyAction.focusMonitor3.focusMonitorIndex, 3)
+        XCTAssertFalse(HotkeyAction.focusNextMonitor.isMoveToMonitor)
+        XCTAssertTrue(HotkeyAction.moveToNextMonitor.isMoveToMonitor)
         XCTAssertNil(HotkeyAction.moveToMonitor1.spaceIndex)
         let defaults = Set(HotkeyAction.allCases.map { $0.defaultCombo(superMask: UInt32(optionKey)) })
         XCTAssertEqual(defaults.count, HotkeyAction.allCases.count, "no two actions share a default key")
