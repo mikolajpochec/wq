@@ -215,8 +215,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .screenshotWindow: return "Take a picture of the window"
         case .goToEmptySpace: return "Go to the nearest empty workspace"
         case .moveToEmptySpace: return "Move window to the nearest empty workspace"
-        case .focusNextMonitor: return "Focus the next monitor (toggle between two)"
-        case .moveToNextMonitor: return "Move window to the next monitor (toggle between two)"
+        case .focusNextMonitor: return "Toggle monitor"
+        case .moveToNextMonitor: return "Move window to the next monitor"
         default:
             if let index = focusMonitorIndex { return "Focus monitor \(index)" }
             if let index = moveMonitorIndex { return "Move window to monitor \(index)" }

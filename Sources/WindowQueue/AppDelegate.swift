@@ -1331,6 +1331,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Frames windows had before they were maximized, so the same shortcut puts them back.
     private var framesBeforeMaximize: [CGWindowID: NSRect] = [:]
+    /// The monitor `focusMonitor` last sent only the pointer to, and the selection then.
+    private var pointerOnlyMonitor: (display: CGDirectDisplayID, selectedID: CGWindowID?)?
 
     /// Groups the aimed windows, or breaks up the group the selection is in.
     private func toggleGroup() {
@@ -1812,7 +1814,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Sends the selected window — or every aimed window — to monitor `number` (counted left to
-    /// right), or with nil to the monitor after the one it is on, which with two is a toggle. Each
+    /// right), or with nil to the monitor after the one it is on, going round all of them. Each
     /// keeps its place and size relative to the room the screen has, so a half stays a half and a
     /// maximized window fills the other screen; focus follows it there.
     private func moveWindows(toMonitor number: Int?) {
@@ -1885,7 +1887,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
             return
         }
-        let current = NSScreen.main.flatMap { screens.firstIndex(of: $0) } ?? 0
+        // The monitor worked on is the selected window's: the key screen lags behind (or never
+        // follows) focus that is slow to land. Landing on an empty monitor only moves the pointer,
+        // so until the selection changes "next" goes on from there, or it would land there again.
+        let selectedID = model.selectedID
+        var currentDisplay = model.selectedWindow.flatMap(model.monitorID(of:))
+            ?? NSScreen.main.flatMap(Monitors.displayID(of:))
+        if let pointed = pointerOnlyMonitor, pointed.selectedID == selectedID {
+            currentDisplay = pointed.display
+        }
+        pointerOnlyMonitor = nil
+        let current = screens.firstIndex { Monitors.displayID(of: $0) == currentDisplay } ?? 0
         let targetIndex = number.map { $0 - 1 } ?? (current + 1) % screens.count
         let target = screens[targetIndex]
         guard let display = Monitors.displayID(of: target) else { return }
@@ -1910,6 +1922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.note("monitor \(targetIndex + 1): nothing on show, pointer to \(target.localizedName)")
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         CGWarpMouseCursorPosition(CGPoint(x: target.frame.midX, y: primaryHeight - target.frame.midY))
+        pointerOnlyMonitor = (display, selectedID)
     }
 
     /// A frame at the same place relative to another area, scaled to it and kept inside it.
