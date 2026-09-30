@@ -22,6 +22,8 @@ final class GroupPanelState: ObservableObject {
     /// strip does, and whether the numbers are worth showing at all.
     @Published var tiledNumbers: [CGWindowID: Int] = [:]
     @Published var showsTiledNumbers = false
+    /// Cycling is locked to this group; the strip wears a padlock.
+    @Published var isLocked = false
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -94,6 +96,7 @@ struct GroupPanelView: View {
                 .strokeBorder(state.isPeek ? Color.primary.opacity(0.12) : Color.accentColor.opacity(0.55),
                               lineWidth: state.isPeek ? 1 : 1.5)
         )
+        .overlay(alignment: .topTrailing) { if state.isLocked { lockMark } }
         // Grown from the screen edge, the way the main strip grows while aiming.
         .scaleEffect(state.scale, anchor: scaleAnchor)
         .animation(prefs.instantAiming && state.scale > 1
@@ -166,6 +169,17 @@ struct GroupPanelView: View {
         .gesture(DragGesture(minimumDistance: 0).onEnded { _ in
             if let front = ordered.first { pick(front) }
         })
+    }
+
+    /// Tells that the cycle shortcuts go round this group only.
+    private var lockMark: some View {
+        Image(systemName: "lock.fill")
+            .font(.system(size: max(7, prefs.iconSize * 0.28), weight: .bold))
+            .foregroundStyle(.white)
+            .padding(3)
+            .background(Circle().fill(Color.accentColor.opacity(0.95)))
+            .padding(2)
+            .help("Cycling is locked to this group")
     }
 
     /// Marks a window still held in a layout, exactly as the main strip marks one.
@@ -365,7 +379,7 @@ final class GroupPanelController {
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
               coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
               tiledNumbers: [CGWindowID: Int] = [:], showsTiledNumbers: Bool = false,
-              aiming: Bool = false, placement: Placement = .beside) {
+              locked: Bool = false, aiming: Bool = false, placement: Placement = .beside) {
         guard windows.count > 1 else {
             hide()
             return
@@ -380,6 +394,7 @@ final class GroupPanelController {
         state.maximizedID = maximizedID
         state.tiledNumbers = tiledNumbers
         state.showsTiledNumbers = showsTiledNumbers
+        state.isLocked = locked
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
         let moved = panel?.isVisible == true && self.placement != placement
         self.placement = placement

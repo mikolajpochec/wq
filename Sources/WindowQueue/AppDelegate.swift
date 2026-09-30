@@ -1212,6 +1212,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleGroup:
                 toggleGroup()
                 return
+            case .toggleGroupLock:
+                toggleGroupLock()
+                return
             // Showing or hiding the strip is about the strip, not about the aimed window: the mode
             // stays open, with the strip appearing or folding away under the aim.
             case .toggleInvisibleStrip:
@@ -1297,6 +1300,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             declutter(nil)
         case .toggleGroup:
             toggleGroup()
+        case .toggleGroupLock:
+            toggleGroupLock()
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -1376,6 +1381,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         announceGroup("Ungrouped \(count) windows")
     }
 
+    /// Locks cycling to the selected window's group — while aiming, the group the aim is on or in —
+    /// or lifts the lock.
+    private func toggleGroupLock() {
+        if model.lockedGroupID == nil, model.aimingID != nil {
+            let group = model.aimedGroup ?? model.aimInsideGroupID.flatMap { id in model.groups.first { $0.id == id } }
+                ?? model.aimingID.flatMap { model.group(of: $0) }
+            guard let group, let first = model.members(of: group).first else {
+                toast?.showCentred(title: "Nothing to lock", subtitle: "Aim at a group to lock cycling to it")
+                return
+            }
+            endAiming(commit: false)
+            model.select(id: first.id, announce: false)
+        }
+        let wasLocked = model.lockedGroupID
+        if let group = model.toggleGroupLock() {
+            announceGroup("Cycling locked to group \(group.id)")
+        } else if let wasLocked {
+            announceGroup("Unlocked group \(wasLocked)")
+        } else {
+            toast?.showCentred(title: "Nothing to lock",
+                               subtitle: "Select a window in a group to lock cycling to it")
+        }
+    }
+
     /// While a tiled window's icon is dragged along the strip, shows the cell it would take if it
     /// were dropped there: the group is laid out in queue order, so the drop decides the place.
     private func previewTilePlacement(of window: ManagedWindow?, at target: Int) {
@@ -1451,6 +1480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         maximizedID: model.maximizedID,
                         tiledNumbers: tiledNumbers(for: windows),
                         showsTiledNumbers: model.tiledGroups.count > 1,
+                        locked: model.lockedGroupID == group.id,
                         aiming: aiming, placement: placement)
     }
 

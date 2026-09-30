@@ -172,6 +172,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case minimizeWindow
     case declutter
     case toggleGroup
+    case toggleGroupLock
     case search
     case openLauncher
     case openRaycastCommand
@@ -206,6 +207,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .minimizeWindow: return "Minimize window"
         case .declutter: return "Declutter windows (show every one, resizing as little as possible)"
         case .toggleGroup: return "Group or ungroup windows"
+        case .toggleGroupLock: return "Lock or unlock cycling to the selected group"
         case .search: return "Search windows"
         case .openLauncher: return "Open the launcher"
         case .openRaycastCommand: return "Run a Raycast command"
@@ -265,7 +267,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
 
     static var queueActions: [HotkeyAction] {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
-         .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .search,
+         .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .toggleGroupLock, .closeWindow, .search,
          .openLauncher, .openRaycastCommand, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
          .goToEmptySpace, .moveToEmptySpace]
     }
@@ -287,6 +289,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     ///
     /// No default takes a letter that Option turns into a Polish one on the Polish Pro layout —
     /// A, C, E, L, N, O, S, X, Z — so with Option as the super key, ą ć ę ł ń ó ś ź ż still type.
+    /// (With Control held too, Option types nothing, so those letters are free again.)
     func defaultCombo(superMask: UInt32) -> KeyCombo {
         let shift = UInt32(shiftKey)
         switch self {
@@ -303,6 +306,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .minimizeWindow: return KeyCombo(keyCode: kVK_ANSI_H, modifiers: superMask)
         case .declutter: return KeyCombo(keyCode: kVK_ANSI_D, modifiers: superMask)
         case .toggleGroup: return KeyCombo(keyCode: kVK_ANSI_G, modifiers: superMask)
+        // Control keeps ⌥L from typing ł with Option as the super key.
+        case .toggleGroupLock: return KeyCombo(keyCode: kVK_ANSI_L, modifiers: superMask | UInt32(controlKey))
         case .search: return KeyCombo(keyCode: kVK_Space, modifiers: superMask)
         case .openLauncher: return KeyCombo(keyCode: kVK_ANSI_R, modifiers: superMask)
         case .openRaycastCommand: return KeyCombo(keyCode: kVK_ANSI_K, modifiers: superMask)

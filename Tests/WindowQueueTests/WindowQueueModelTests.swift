@@ -279,6 +279,35 @@ extension WindowQueueModelTests {
         XCTAssertEqual(Set(model.groups.first?.ids ?? []), [1, 2, 4])
     }
 
+    func testALockedGroupKeepsCyclingInsideIt() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10), window(4, space: 10)])
+        model.makeGroup([2, 4])
+        model.select(id: 2, announce: false)
+        XCTAssertEqual(model.toggleGroupLock()?.id, 1)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 4)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 2)
+        XCTAssertEqual(model.cycle(by: -1)?.id, 4)
+        // Selected elsewhere (a click on the strip), the next cycle comes back into the group.
+        model.select(id: 3, announce: false)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 2)
+        XCTAssertNil(model.toggleGroupLock())
+        XCTAssertNil(model.lockedGroupID)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 4)
+        XCTAssertEqual(model.cycle(by: 1)?.id, 3)
+    }
+
+    func testALockGoesWithItsGroup() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.makeGroup([1, 2])
+        model.select(id: 1, announce: false)
+        model.toggleGroupLock()
+        model.ungroup(containing: 1)
+        XCTAssertNil(model.lockedGroupID)
+        model.select(id: 3, announce: false)
+        XCTAssertNil(model.toggleGroupLock())
+        XCTAssertNil(model.lockedGroupID)
+    }
+
     func testAWindowOpenedOutsideAGroupStaysOutOfIt() {
         let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
         model.makeGroup([1, 2])
@@ -632,6 +661,8 @@ final class PreferencesMigrationTests: XCTestCase {
                                 kVK_ANSI_O, kVK_ANSI_S, kVK_ANSI_X, kVK_ANSI_Z]
         for action in HotkeyAction.allCases {
             let combo = action.defaultCombo(superMask: SuperModifier.option.carbonMask)
+            // With Control held, Option no longer types a Polish letter.
+            if combo.modifiers & UInt32(controlKey) != 0 { continue }
             XCTAssertFalse(polish.contains(Int(combo.keyCode)), "\(action) takes a Polish letter")
         }
     }

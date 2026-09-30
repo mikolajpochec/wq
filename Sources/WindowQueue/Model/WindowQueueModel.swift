@@ -430,6 +430,30 @@ final class WindowQueueModel: ObservableObject {
     @Published private(set) var groups: [WindowGroup] = []
     /// The group whose windows are on show beside the strip, because the selection is inside it.
     @Published private(set) var openGroupID: Int?
+    /// The group cycling is locked to: while set, the cycle shortcuts and the scroll wheel walk only
+    /// its windows. Goes when the group does.
+    @Published private(set) var lockedGroupID: Int?
+
+    var lockedGroup: WindowGroup? {
+        lockedGroupID.flatMap { id in groups.first { $0.id == id } }
+    }
+
+    /// Locks cycling to the selected window's group, or lifts the lock. Returns the group now
+    /// locked, nil when unlocked or there is no group to lock.
+    @discardableResult
+    func toggleGroupLock() -> WindowGroup? {
+        if lockedGroupID != nil {
+            lockedGroupID = nil
+            return nil
+        }
+        guard let group = openGroup ?? selectedID.flatMap({ self.group(of: $0) }) else { return nil }
+        lockedGroupID = group.id
+        return group
+    }
+
+    private func dropStaleGroupLock() {
+        if let locked = lockedGroupID, !groups.contains(where: { $0.id == locked }) { lockedGroupID = nil }
+    }
 
     func group(of id: CGWindowID) -> WindowGroup? {
         groups.first { $0.ids.contains(id) }
@@ -455,6 +479,7 @@ final class WindowQueueModel: ObservableObject {
         // go to the new one below, which is neither.
         if let open = openGroupID, !groups.contains(where: { $0.id == open }) { openGroupID = nil }
         if let inside = aimInsideGroupID, !groups.contains(where: { $0.id == inside }) { aimInsideGroupID = nil }
+        dropStaleGroupLock()
         guard ids.count > 1 else { return nil }
         var number = 1
         while groups.contains(where: { $0.id == number }) { number += 1 }
@@ -468,6 +493,7 @@ final class WindowQueueModel: ObservableObject {
         guard let group = group(of: id) else { return }
         groups.removeAll { $0.id == group.id }
         if openGroupID == group.id { openGroupID = nil }
+        dropStaleGroupLock()
     }
 
     /// The first window of each group is the one the queue stops at; the rest are reached by
@@ -617,6 +643,13 @@ final class WindowQueueModel: ObservableObject {
 
     private func cyclableWindows(backwards: Bool) -> [ManagedWindow] {
         let reachable = visibleWindows.filter { !isCovered($0) }
+        // Locked to a group, the walk goes round its windows only — unless none of them is here to
+        // reach (another monitor's or workspace's queue), when the lock would leave nowhere to go.
+        if let locked = lockedGroup {
+            let ids = Set(locked.ids)
+            let members = reachable.filter { ids.contains($0.id) }
+            if !members.isEmpty { return members }
+        }
         var stops = reachable.filter { !isSkippedInsideGroup($0, backwards: backwards, among: reachable) }
         // A group's windows need not sit next to each other in the queue, but inside the group they
         // are walked one after another, from where the group stands, before the walk leaves it —
@@ -827,6 +860,7 @@ final class WindowQueueModel: ObservableObject {
             for index in groups.indices { groups[index].ids.removeAll { !present.contains($0) } }
             groups.removeAll { $0.ids.count < 2 }
             if let openGroupID, !groups.contains(where: { $0.id == openGroupID }) { self.openGroupID = nil }
+            dropStaleGroupLock()
         }
         // A tiled window that has gone leaves its group; below two there is no layout left.
         if !tiledGroups.isEmpty {
