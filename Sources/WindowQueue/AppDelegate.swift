@@ -1036,42 +1036,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Starts recording the screen, or ends the recording running, and says which.
-    private func toggleRecording() {
-        let result = ScreenCapture.shared.toggleRecording()
+    /// Starts recording this one window, or ends the recording running, and says which.
+    private func toggleRecording(_ window: ManagedWindow?) {
+        let capture = ScreenCapture.shared
+        if !capture.isRecording {
+            guard window != nil else { return }
+            guard ScreenRecordingAccess.isGranted else {
+                toast?.showCentred(title: "Screen Recording access needed",
+                                   subtitle: "System Settings › Privacy & Security › Screen Recording")
+                return
+            }
+        }
         let combo = store.prefs.combo(for: .toggleRecording).displayString
-        if result.started {
-            toast?.showCentred(title: "Recording the screen",
-                               subtitle: "\(combo) stops it and saves the file")
-        } else {
-            toast?.showCentred(title: "Recording saved",
-                               subtitle: result.url?.deletingPathExtension().lastPathComponent
-                                   ?? "The recording has been written")
+        capture.toggleRecording(window) { [weak self] started, url in
+            guard let self else { return }
+            if started {
+                self.toast?.showCentred(title: "Recording \(window?.appName ?? "the window")",
+                                        subtitle: "\(combo) stops it and saves the file")
+            } else if let url {
+                self.toast?.showCentred(title: "Recording saved",
+                                        subtitle: url.deletingPathExtension().lastPathComponent)
+            } else {
+                self.toast?.showCentred(title: "Recording didn't start",
+                                        subtitle: "The window could not be recorded")
+            }
         }
     }
 
-    /// Takes a picture of each of these windows, and says how many were written.
-    private func screenshot(_ windows: [ManagedWindow]) {
-        guard !windows.isEmpty else { return }
+    /// The one window aiming mode points at: the one under the aim cursor, else the first aimed.
+    private var aimedWindow: ManagedWindow? {
+        let aimed = model.aimedWindows
+        return aimed.first { $0.id == model.aimingID } ?? aimed.first
+    }
+
+    /// Takes a picture of this one window alone, and says whether it was written.
+    private func screenshot(_ window: ManagedWindow?) {
+        guard let window else { return }
         guard ScreenRecordingAccess.isGranted else {
             toast?.showCentred(title: "Screen Recording access needed",
                                subtitle: "System Settings › Privacy & Security › Screen Recording")
             return
         }
-        // Behind another window, a window photographs as whatever is on top of it, so each one is
-        // brought forward first — the aimed windows, in the order they sit in the queue.
-        for window in windows { window.element?.perform(kAXRaiseAction) }
+        // Brought forward first, so the picture shows it as it looks in front.
+        window.element?.perform(kAXRaiseAction)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            let written = ScreenCapture.shared.screenshot(windows)
+            let written = ScreenCapture.shared.screenshot(window)
             guard let self else { return }
-            guard let first = written.first else {
+            guard let written else {
                 self.toast?.showCentred(title: "Nothing captured",
                                         subtitle: "The window could not be photographed")
                 return
             }
-            self.toast?.showCentred(
-                title: written.count == 1 ? "Screenshot saved" : "\(written.count) screenshots saved",
-                subtitle: first.deletingLastPathComponent().lastPathComponent)
+            self.toast?.showCentred(title: "Screenshot saved",
+                                    subtitle: written.deletingLastPathComponent().lastPathComponent)
         }
     }
 
@@ -1220,15 +1237,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleInvisibleStrip:
                 toggleInvisibleStrip()
                 return
-            // Recording is about the screen, not about a window: the mode stays open so the same
-            // key can stop it again.
+            // Recording and pictures are of the one window aimed at, never the whole screen.
             case .toggleRecording:
-                toggleRecording()
+                let window = aimedWindow
+                endAiming(commit: false)
+                toggleRecording(window)
                 return
             case .screenshotWindow:
-                let windows = model.aimedWindows
+                let window = aimedWindow
                 endAiming(commit: false)
-                screenshot(windows)
+                screenshot(window)
                 return
             // A run of aimed windows is decluttered among themselves; a single aim means the lot.
             case .declutter:
@@ -1321,9 +1339,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .toggleInvisibleStrip:
             toggleInvisibleStrip()
         case .toggleRecording:
-            toggleRecording()
+            toggleRecording(model.selectedWindow)
         case .screenshotWindow:
-            screenshot(model.selectedWindow.map { [$0] } ?? [])
+            screenshot(model.selectedWindow)
         default:
             break
         }

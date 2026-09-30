@@ -334,7 +334,7 @@ struct StripView: View {
 
     @ViewBuilder
     private var spaceBadge: some View {
-        // While the screen is being recorded the badge says so instead: it is the one thing more
+        // While a window is being recorded the badge says so instead: it is the one thing more
         // worth knowing at a glance than which workspace this is.
         if capture.isRecording {
             Image(systemName: "record.circle.fill")
@@ -347,7 +347,7 @@ struct StripView: View {
                         .fill(Color.red.opacity(0.16))
                 )
                 .padding(4)
-                .help("Recording the screen")
+                .help("Recording a window")
         } else {
             workspaceBadge
         }

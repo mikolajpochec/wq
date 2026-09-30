@@ -1,96 +1,149 @@
 import AppKit
 import Combine
+import ScreenCaptureKit
 
-/// Recording the screen and taking pictures of windows, both through `screencapture`.
+/// Recording a window and taking a picture of one.
 ///
-/// The command-line tool is what macOS itself uses for ⌘⇧5, so the files land where the user's own
-/// screenshots land, with their format and their naming — nothing here has to be configurable.
-/// Doing it in-process would mean a capture stream and a video encoder for no gain.
-final class ScreenCapture: ObservableObject {
+/// Pictures go through `screencapture -l`, which is what macOS itself uses for ⌘⇧4 Space, so the
+/// files land where the user's own screenshots land. Recordings have no such tool — `screencapture
+/// -v` only does whole displays or rectangles — so they run a ScreenCaptureKit stream filtered to
+/// the one window, which keeps other windows, the desktop and the strip out of the video.
+final class ScreenCapture: NSObject, ObservableObject, SCStreamDelegate {
     static let shared = ScreenCapture()
 
     /// A recording is running, which the strip shows in place of the workspace number.
     @Published private(set) var isRecording = false
 
-    private var recorder: Process?
+    private var stream: SCStream?
+    private var output: AnyObject?
     private var recordingURL: URL?
 
-    private init() {}
+    private override init() {}
 
     // MARK: - Recording
 
-    /// Starts recording the screen, or stops the recording already running.
-    /// - Returns: what happened, for the popup to say.
-    @discardableResult
-    func toggleRecording() -> (started: Bool, url: URL?) {
+    /// Starts recording this one window, or stops the recording already running.
+    /// - Parameter completion: on the main queue, what happened, for the popup to say; `url` is nil
+    ///   when a recording could not be started.
+    func toggleRecording(_ window: ManagedWindow?, completion: @escaping (_ started: Bool, _ url: URL?) -> Void) {
         if isRecording {
             let url = recordingURL
-            stopRecording()
-            return (false, url)
-        }
-        let url = destination(name: "Recording", extension: "mov")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        // -v records video, -k keeps the shutter sound out of the way, and the tool records until
-        // it is interrupted.
-        process.arguments = ["-v", url.path]
-        process.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.recorder = nil
-                self?.isRecording = false
-            }
-        }
-        do {
-            try process.run()
-        } catch {
-            Diagnostics.note("recording failed to start: \(error.localizedDescription)")
-            return (false, nil)
-        }
-        recorder = process
-        recordingURL = url
-        isRecording = true
-        Diagnostics.note("recording started at \(url.path)")
-        return (true, url)
-    }
-
-    /// Interrupts the recorder, which is how `screencapture` is asked to finish the file properly.
-    func stopRecording() {
-        guard let recorder, recorder.isRunning else {
-            isRecording = false
+            stopRecording { completion(false, url) }
             return
         }
-        kill(recorder.processIdentifier, SIGINT)
+        guard let window else { return completion(false, nil) }
+        guard #available(macOS 15.0, *) else {
+            Diagnostics.note("recording a window needs macOS 15")
+            return completion(false, nil)
+        }
+        let url = destination(name: name(for: window), extension: "mov")
+        // Not only on-screen windows: the window may sit on another workspace, and a
+        // desktop-independent filter records it all the same.
+        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: false) { [weak self] content, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard let target = content?.windows.first(where: { $0.windowID == window.id }) else {
+                    Diagnostics.note("recording: window \(window.id) not shareable \(error?.localizedDescription ?? "")")
+                    return completion(false, nil)
+                }
+                self.startRecording(target, to: url, completion: completion)
+            }
+        }
+    }
+
+    @available(macOS 15.0, *)
+    private func startRecording(_ window: SCWindow, to url: URL,
+                                completion: @escaping (_ started: Bool, _ url: URL?) -> Void) {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let configuration = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        configuration.width = max(2, Int(filter.contentRect.width * scale))
+        configuration.height = max(2, Int(filter.contentRect.height * scale))
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        configuration.showsCursor = true
+        configuration.ignoreShadowsSingleWindow = true
+
+        let recordingConfiguration = SCRecordingOutputConfiguration()
+        recordingConfiguration.outputURL = url
+        recordingConfiguration.outputFileType = .mov
+        let recording = SCRecordingOutput(configuration: recordingConfiguration, delegate: RecordingDelegate.shared)
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        do {
+            try stream.addRecordingOutput(recording)
+        } catch {
+            Diagnostics.note("recording failed to start: \(error.localizedDescription)")
+            return completion(false, nil)
+        }
+        self.stream = stream
+        output = recording
+        recordingURL = url
+        isRecording = true
+        stream.startCapture { [weak self] error in
+            DispatchQueue.main.async {
+                if let error {
+                    Diagnostics.note("recording failed to start: \(error.localizedDescription)")
+                    self?.reset()
+                    return completion(false, nil)
+                }
+                Diagnostics.note("recording window \(window.windowID) to \(url.path)")
+                completion(true, url)
+            }
+        }
+    }
+
+    /// Ends the capture, which finishes the file.
+    func stopRecording(_ completion: @escaping () -> Void = {}) {
+        guard let stream else {
+            reset()
+            return completion()
+        }
+        stream.stopCapture { [weak self] error in
+            DispatchQueue.main.async {
+                if let error { Diagnostics.note("recording stop: \(error.localizedDescription)") }
+                self?.reset()
+                Diagnostics.note("recording stopped")
+                completion()
+            }
+        }
+    }
+
+    private func reset() {
+        stream = nil
+        output = nil
         isRecording = false
-        Diagnostics.note("recording stopped")
+    }
+
+    /// The stream ends by itself when the window goes away.
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.stream === stream else { return }
+            Diagnostics.note("recording ended: \(error.localizedDescription)")
+            self.reset()
+        }
     }
 
     // MARK: - Screenshots
 
-    /// Takes a picture of each window, one file each.
-    /// - Returns: the files written, in the order the windows were given.
-    @discardableResult
-    func screenshot(_ windows: [ManagedWindow]) -> [URL] {
-        var written: [URL] = []
-        for window in windows {
-            let url = destination(name: name(for: window), extension: "png")
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            // -l picks the window by id, -o leaves the drop shadow out, -x keeps it silent.
-            process.arguments = ["-l\(window.id)", "-o", "-x", url.path]
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                Diagnostics.note("screenshot failed: \(error.localizedDescription)")
-                continue
-            }
-            guard process.terminationStatus == 0, FileManager.default.fileExists(atPath: url.path) else {
-                Diagnostics.note("screenshot of \(window.id) produced nothing")
-                continue
-            }
-            written.append(url)
+    /// Takes a picture of the window on its own — nothing around or over it.
+    /// - Returns: the file written.
+    func screenshot(_ window: ManagedWindow) -> URL? {
+        let url = destination(name: name(for: window), extension: "png")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        // -l picks the window by id, -o leaves the drop shadow out, -x keeps it silent.
+        process.arguments = ["-l\(window.id)", "-o", "-x", url.path]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            Diagnostics.note("screenshot failed: \(error.localizedDescription)")
+            return nil
         }
-        return written
+        guard process.terminationStatus == 0, FileManager.default.fileExists(atPath: url.path) else {
+            Diagnostics.note("screenshot of \(window.id) produced nothing")
+            return nil
+        }
+        return url
     }
 
     // MARK: - Files
@@ -130,4 +183,21 @@ final class ScreenCapture: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         return formatter
     }()
+}
+
+@available(macOS 15.0, *)
+private final class RecordingDelegate: NSObject, SCRecordingOutputDelegate {
+    static let shared = RecordingDelegate()
+
+    func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
+        Diagnostics.note("recording output started")
+    }
+
+    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        Diagnostics.note("recording output finished")
+    }
+
+    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
+        Diagnostics.note("recording output failed: \(error.localizedDescription)")
+    }
 }
