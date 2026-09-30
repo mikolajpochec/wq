@@ -90,6 +90,8 @@ final class StripScreenState: ObservableObject {
     @Published var isActive = true
     /// Desktop number showing on this screen.
     @Published var spaceIndex: Int?
+    /// 1-based monitor number (left to right, as the monitor shortcuts count), nil with one screen.
+    @Published var monitorIndex: Int?
     /// The display the strip is on, whose queue it shows in multi-monitor mode.
     @Published var monitorID: CGDirectDisplayID?
     /// Whether the screen behind the workspace number is light, or nil while unknown.
@@ -329,6 +331,8 @@ final class StripController {
             if strip.state.isActive != drawActive { strip.state.isActive = drawActive }
             let index = space?.index ?? (isActive ? model.currentSpaceIndex : nil)
             if strip.state.spaceIndex != index { strip.state.spaceIndex = index }
+            let monitor = screens.count > 1 ? Monitors.orderedScreens.firstIndex(of: screen).map { $0 + 1 } : nil
+            if strip.state.monitorIndex != monitor { strip.state.monitorIndex = monitor }
             layout(strip)
             if !strip.panel.isVisible {
                 // In invisible mode the strip starts folded flat and opens on the next turn of the

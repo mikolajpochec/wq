@@ -364,11 +364,22 @@ struct StripView: View {
                 RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
                     .fill(badgeFill)
             )
+            // With several monitors a small corner number says which one this is; the workspace
+            // number stays the main thing.
+            .overlay(alignment: .bottomTrailing) {
+                if let monitor = screen.monitorIndex {
+                    Text(String(monitor))
+                        .font(.system(size: prefs.iconSize * 0.24, weight: .bold, design: .rounded))
+                        .foregroundStyle(badgeForeground.opacity(0.65))
+                        .padding(.trailing, prefs.iconSize * 0.1)
+                        .padding(.bottom, prefs.iconSize * 0.04)
+                }
+            }
             .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.25)), value: screen.backdropIsLight)
             // The same inset every row has, so the badge sits the same distance from the end of the
             // strip as the icons do from its sides.
             .padding(4)
-            .help("Current workspace")
+            .help(screen.monitorIndex.map { "Current workspace (monitor \($0))" } ?? "Current workspace")
     }
 
     /// Several windows are aimed at, which the strip shows as runs rather than a single cursor.
