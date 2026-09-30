@@ -980,7 +980,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                       let layout = TileLayout.options(for: windows.count).first(where: { $0.name == group.layout })
                         ?? TileLayout.options(for: windows.count).first
                 else { continue }
-                let placed = WindowTiler.tile(windows, layout: layout, in: self.tilingArea(),
+                let placed = WindowTiler.tile(windows, layout: layout, in: self.tilingArea(of: windows),
                                               gaps: WindowTiler.Gaps(prefs: self.store.prefs))
                 guard !placed.isEmpty else { continue }
                 self.tilingSettledAt = Date().addingTimeInterval(2)
@@ -1029,7 +1029,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let layout = TileLayout.options(for: windows.count).first(where: { $0.name == group.layout })
                 ?? TileLayout.options(for: windows.count).first
             else { continue }
-            let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(),
+            let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(of: windows),
                                           gaps: WindowTiler.Gaps(prefs: store.prefs))
             guard !placed.isEmpty else { continue }
             noteTiled(placed, layout: layout)
@@ -1097,7 +1097,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Lays out again everything WindowQueue placed — the tiled groups and a fullscreen window — so
     /// they match the room now on offer.
     private func refitPlacedWindows() {
-        let area = tilingArea()
         let gaps = WindowTiler.Gaps(prefs: store.prefs)
         for group in model.tiledGroups {
             let windows = model.tiledWindowsInQueueOrder(group)
@@ -1107,12 +1106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { continue }
             // A window held fullscreen fills the screen on its own; it is refitted below.
             if let maximized = model.maximizedID, group.ids.contains(maximized) { continue }
-            let placed = WindowTiler.tile(windows, layout: layout, in: area, gaps: gaps)
+            let placed = WindowTiler.tile(windows, layout: layout, in: tilingArea(of: windows), gaps: gaps)
             guard !placed.isEmpty else { continue }
             noteTiled(placed, layout: layout)
         }
         if let id = model.maximizedID, let window = model.windows.first(where: { $0.id == id }) {
-            WindowTiler.fill(window, in: area, gaps: gaps)
+            WindowTiler.fill(window, in: tilingArea(of: [window]), gaps: gaps)
         }
 
         // Windows that were maximized and have not been touched since are still where WindowQueue
@@ -1129,13 +1128,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let inAX = CGRect(x: current.minX, y: primaryHeight - current.maxY,
                               width: current.width, height: current.height)
             guard WindowTiler.placed(window.id, at: inAX) else { continue }
-            WindowTiler.fill(window, in: area, gaps: gaps)
+            WindowTiler.fill(window, in: tilingArea(of: [window]), gaps: gaps)
         }
     }
 
     /// The screen being worked on, less the room the strip keeps for itself.
     private func tilingArea() -> NSRect {
         tilingArea(on: NSScreen.main ?? NSScreen.screens.first)
+    }
+
+    /// The room on the screen these windows are on (the first one's, for a group spread over
+    /// several). Laying out windows already placed must keep them on their own monitor: the
+    /// focused screen would pull a group or a maximized window on another one over to it.
+    private func tilingArea(of windows: [ManagedWindow]) -> NSRect {
+        for window in windows {
+            guard let frame = WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id),
+                  let screen = Monitors.screen(containing: frame)
+            else { continue }
+            return tilingArea(on: screen)
+        }
+        return tilingArea()
     }
 
     /// That screen less the room the strip keeps for itself.
@@ -1388,7 +1400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let unit = layout.frames[place]
-        let area = tilingArea().insetBy(dx: CGFloat(store.prefs.tileOuterGap), dy: CGFloat(store.prefs.tileOuterGap))
+        let area = tilingArea(of: members).insetBy(dx: CGFloat(store.prefs.tileOuterGap), dy: CGFloat(store.prefs.tileOuterGap))
         let gap = CGFloat(store.prefs.tileInnerGap) / 2
         // Layout rects run from the top down; screen coordinates run from the bottom up.
         let cell = NSRect(x: area.minX + unit.minX * area.width,
@@ -1565,7 +1577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if framesBeforeMaximize[window.id] == nil {
             framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
         }
-        WindowTiler.fill(window, in: tilingArea(), gaps: WindowTiler.Gaps(prefs: store.prefs))
+        WindowTiler.fill(window, in: tilingArea(of: [window]), gaps: WindowTiler.Gaps(prefs: store.prefs))
         if bringUp { self.bringUp(window) }
     }
 
@@ -1584,7 +1596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard var window = model.selectedWindow else { return }
         dropFocusFlash()
         window.element = window.element ?? WindowSpaceMover.element(for: window)
-        let area = tilingArea()
+        let area = tilingArea(of: [window])
 
         // Fullscreen is a toggle, not a new arrangement: a window in a layout keeps its place in
         // it, goes fullscreen over the top, and comes back to it. Neither step frees the group.
