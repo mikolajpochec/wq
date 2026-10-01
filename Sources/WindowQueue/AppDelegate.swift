@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let aimingKeys = AimingKeyCapture()
     private lazy var actionPanel = ActionPanelController(store: store)
     private let aimHighlight = AimHighlightOverlay()
+    private let monitorFrame = MonitorFrameOverlay()
     /// When aiming mode last opened, for telling a double tap of the super key from two separate ones.
     private var aimingOpenedAt = Date.distantPast
     /// Aiming was opened with the mouse, so it offers its actions as tiles to click.
@@ -1926,6 +1927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toast?.showCentred(title: "Already on monitor \(targetIndex + 1)", subtitle: lead.window.displayTitle)
             return
         }
+        if Monitors.displayID(of: target) != Monitors.displayID(of: lead.source) { markMonitor(target) }
         model.select(id: first.id, announce: false)
         focus(first)
         toast?.show(title: moved.count == 1 ? first.displayTitle : "\(moved.count) windows",
@@ -2016,6 +2018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let targetIndex = number.map { $0 - 1 } ?? (current + 1) % screens.count
         let target = screens[targetIndex]
         guard let display = Monitors.displayID(of: target) else { return }
+        if display != currentDisplay { markMonitor(target) }
 
         let onShow = WindowTiler.onScreenWindowIDs()
         let windows = model.windows.filter {
@@ -2038,6 +2041,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         CGWarpMouseCursorPosition(CGPoint(x: target.frame.midX, y: primaryHeight - target.frame.midY))
         pointerOnlyMonitor = (display, selectedID)
+    }
+
+    /// Lights up the edges of the monitor the work just moved over to.
+    private func markMonitor(_ screen: NSScreen) {
+        guard store.prefs.flashMonitorOnSwitch, NSScreen.screens.count > 1 else { return }
+        Diagnostics.note("monitor frame on \(screen.localizedName)")
+        monitorFrame.flash(screen, for: 0.35, fading: store.prefs.animates(.windowOutlines))
     }
 
     /// A frame at the same place relative to another area, scaled to it and kept inside it.
@@ -2182,6 +2192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let selected = model.selectedWindow, selected.spaceID == space, selected.pid == frontPID {
             Diagnostics.note("workspace \(index): already there")
             return
+        }
+        if let screen = SpacesBridge.shared.screen(ofSpace: space),
+           Monitors.displayID(of: screen) != workedOnDisplay() {
+            markMonitor(screen)
         }
         // Front to back, so the window last on top there is the one landed on.
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],

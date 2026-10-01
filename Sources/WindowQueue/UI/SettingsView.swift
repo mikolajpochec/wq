@@ -190,6 +190,10 @@ struct SettingsView: View {
                 sliderRow("Outline holds for", value: $store.prefs.flashFocusedWindowDuration,
                           in: 0.05...1, step: 0.05, format: Self.seconds)
                     .disabled(!store.prefs.flashFocusedWindow)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Frame the monitor switched to", isOn: $store.prefs.flashMonitorOnSwitch)
+                    caption("When a monitor shortcut, or a workspace shortcut for a desktop on show on another display, takes you to another monitor, its edges light up for a moment in the selection colour.")
+                }
             }
 
             Section("Launcher") {

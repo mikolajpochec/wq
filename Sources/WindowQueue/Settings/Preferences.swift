@@ -439,6 +439,9 @@ struct Preferences: Codable, Equatable {
     var flashFocusedWindow: Bool = true
     /// How long that outline stays up.
     var flashFocusedWindowDuration: Double = 0.15
+    /// Frame the whole monitor for a moment when a monitor shortcut (or ⌥N to a workspace on show
+    /// on another display) takes the work over to it.
+    var flashMonitorOnSwitch: Bool = true
 
     /// Aiming mode appears at once: no dimming fading in, no strip growing or unfolding, and no
     /// wait to see whether a second tap of the super key is coming.
@@ -516,6 +519,7 @@ struct Preferences: Codable, Equatable {
         aimBindings = value(.aimBindings, defaults.aimBindings)
         flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)
         flashFocusedWindowDuration = value(.flashFocusedWindowDuration, defaults.flashFocusedWindowDuration)
+        flashMonitorOnSwitch = value(.flashMonitorOnSwitch, defaults.flashMonitorOnSwitch)
         instantAiming = value(.instantAiming, defaults.instantAiming)
         animationsEnabled = value(.animationsEnabled, defaults.animationsEnabled)
         disabledAnimations = value(.disabledAnimations, defaults.disabledAnimations)
