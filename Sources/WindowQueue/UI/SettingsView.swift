@@ -207,8 +207,8 @@ struct SettingsView: View {
                     caption("What the launcher shortcut opens, in aiming mode as well as outside it. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField("Raycast command", text: $store.prefs.raycastCommand, prompt: Text(SystemLaunchers.defaultRaycastCommand))
-                    caption("The deeplink \"Run a Raycast command\" opens — bind it to a shortcut or the double tap of the super key. Copy one from Raycast with Copy Deeplink (⌘⇧C on a command). The default is App Windows' Open App: ↵ opens or focuses the app, ⌘↵ always opens a new window of it.")
+                    TextField("Launcher command", text: $store.prefs.raycastCommand, prompt: Text("Opens the launcher above"))
+                    caption("The URL \"Run a launcher command\" opens — bind it to a shortcut or the double tap of the super key. Any link an installed app handles works: a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…), a Shortcut (shortcuts://run-shortcut?name=…). Left empty, or on a Mac without the app it needs, it opens the launcher chosen above.")
                 }
             }
 

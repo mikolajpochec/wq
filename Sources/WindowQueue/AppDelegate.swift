@@ -1330,7 +1330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SystemLaunchers.open(store.prefs.launcher)
         case .openRaycastCommand:
             noteLaunch()
-            SystemLaunchers.openRaycastCommand(store.prefs.raycastCommand)
+            SystemLaunchers.openCommand(store.prefs.raycastCommand, fallback: store.prefs.launcher)
         case .goToEmptySpace:
             goToEmptySpace()
         case .moveToEmptySpace:

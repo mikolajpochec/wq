@@ -51,14 +51,21 @@ enum SystemLaunchers {
         }
     }
 
-    static let defaultRaycastCommand = "raycast://extensions/mikolaj_pochec/app-windows/open-app"
-
-    /// Runs a Raycast command through its deeplink (`raycast://extensions/<author>/<extension>/<command>`).
-    static func openRaycastCommand(_ deeplink: String) {
-        let trimmed = deeplink.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), url.scheme?.lowercased() == "raycast" else {
-            Diagnostics.note("raycast command \"\(deeplink)\" is not a raycast:// link, opening the launcher")
-            open(.raycast)
+    /// Runs the user's launcher command: any URL an installed app handles — a Raycast deeplink
+    /// (`raycast://extensions/<author>/<extension>/<command>`), an Alfred trigger
+    /// (`alfred://runtrigger/…`), a Shortcut (`shortcuts://run-shortcut?name=…`). Nothing set, or
+    /// nothing on this Mac to open it, opens the chosen launcher instead, so the shortcut keeps
+    /// working on a machine without the app or extension the command was copied from.
+    static func openCommand(_ command: String, fallback launcher: LauncherApp) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            open(launcher)
+            return
+        }
+        guard let url = URL(string: trimmed), url.scheme != nil,
+              NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+            Diagnostics.note("launcher command \"\(trimmed)\" has no app to open it, opening \(launcher.rawValue)")
+            open(launcher)
             return
         }
         NSWorkspace.shared.open(url)

@@ -210,7 +210,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .toggleGroupLock: return "Lock or unlock cycling to the selected group"
         case .search: return "Search windows"
         case .openLauncher: return "Open the launcher"
-        case .openRaycastCommand: return "Run a Raycast command"
+        case .openRaycastCommand: return "Run a launcher command"
         case .showOverview: return "Show Mission Control"
         case .toggleInvisibleStrip: return "Hide or show the strip (invisible mode)"
         case .toggleRecording: return "Start or stop recording the window"
@@ -431,9 +431,9 @@ struct Preferences: Codable, Equatable {
     /// Which finder the launcher shortcut opens — its key in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
-    /// The Raycast deeplink the "Run a Raycast command" action opens — by default the App Windows
-    /// extension's app list (↵ opens or focuses an app, ⌘↵ always opens a new window of it).
-    var raycastCommand: String = SystemLaunchers.defaultRaycastCommand
+    /// The URL "Run a launcher command" opens (a Raycast deeplink, Alfred trigger, Shortcut…);
+    /// empty opens `launcher`. Stored under its old Raycast-only name so saved values carry over.
+    var raycastCommand: String = ""
 
     /// Outline a window for a moment when focus lands on it, the way aiming outlines what it is on.
     var flashFocusedWindow: Bool = true
