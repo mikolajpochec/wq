@@ -37,12 +37,27 @@ enum TourEvent: Hashable {
     case aimed, aimedSeveral, aimedThree, confirmed, cancelled
     case tiled, reorderedTiles, secondLayout
     case grouped, enteredGroup, locked, cycledLocked
+    case switchedSpace, movedToSpace, wentToEmptySpace
+    case switchedMonitor, movedToMonitor
+    case searched, launched, maximized, decluttered, pictured, recorded, hidStrip, dragged
+}
+
+/// Where the pretend desktop starts: which windows, and on which workspace and monitor each is.
+struct SimSetup {
+    var windows: [SimWindow]
+    var selected: Int?
+    /// Workspace per window id (1-based); unlisted windows are on workspace 1.
+    var spaces: [Int: Int] = [:]
+    /// Monitor per window id (0-based); unlisted windows are on the first.
+    var monitors: [Int: Int] = [:]
+    var spaceCount = 1
+    var monitorCount = 1
 }
 
 /// The tour's pretend desktop: a queue of pictogram windows that answers the same keys WindowQueue
-/// does — cycling, aiming, tiling, groups — without touching a real window. Kept to what the tour
-/// shows; tiling goes through the real `TileSolver`, so the iOS Simulator keeps its proportions the
-/// way it does for real.
+/// does — cycling, aiming, tiling, groups, workspaces, monitors and the rest — without touching a
+/// real window. Kept to what the tour shows; tiling goes through the real `TileSolver`, so the iOS
+/// Simulator keeps its proportions the way it does for real.
 final class TourSim: ObservableObject {
     struct Group: Equatable {
         let id: Int
@@ -60,6 +75,12 @@ final class TourSim: ObservableObject {
         let text: String
     }
 
+    /// Something marked on one window or monitor for a moment: the picture's shutter, a monitor frame.
+    struct Mark: Equatable {
+        let id: Int
+        let target: Int
+    }
+
     @Published private(set) var windows: [SimWindow] = []
     @Published private(set) var queue: [Int] = []
     @Published private(set) var selected: Int?
@@ -73,9 +94,36 @@ final class TourSim: ObservableObject {
     @Published private(set) var menuIndex = 0
     @Published private(set) var tiled: [Int] = []
     @Published private(set) var tiledLayout: String?
-    @Published private(set) var maximized: Int?
+    /// Maximized windows stay so until sent fullscreen and back; the fullscreen one is `fullscreen`.
+    @Published private(set) var maximized: Set<Int> = []
+    @Published private(set) var fullscreen: Int?
     @Published private(set) var groups: [Group] = []
     @Published private(set) var lockedGroup: Int?
+
+    @Published private(set) var spaceOf: [Int: Int] = [:]
+    @Published private(set) var monitorOf: [Int: Int] = [:]
+    @Published private(set) var spaceCount = 1
+    @Published private(set) var monitorCount = 1
+    /// The workspace each monitor has on show.
+    @Published private(set) var shownSpace: [Int] = [1]
+    /// Which way the last workspace switch went, for the slide.
+    @Published private(set) var spaceDirection = 1
+    /// The monitor worked on when no window there is selected.
+    @Published private(set) var activeMonitor = 0
+
+    @Published private(set) var searchOpen = false
+    @Published private(set) var query = ""
+    @Published private(set) var launcher: Flash?
+    @Published private(set) var shutter: Mark?
+    @Published private(set) var monitorFrame: Mark?
+    @Published private(set) var recording: Int?
+    @Published private(set) var stripHidden = false
+    @Published private(set) var decluttered = false
+    @Published private(set) var closed: Set<Int> = []
+    /// The icon being dragged along the strip, and the icon the pretend pointer rests on.
+    @Published private(set) var lifted: Int?
+    @Published private(set) var pointer: Int?
+
     /// The keys just pressed, shown as keycaps over the desktop.
     @Published private(set) var keys: Flash?
     /// A word from the app, the way it shows a toast.
@@ -85,25 +133,52 @@ final class TourSim: ObservableObject {
     private var layoutsUsed: Set<String> = []
     private var nextGroupID = 1
     private var flashCount = 0
+    private var aimingOpenedAt = Date.distantPast
+    private var dragStart = 0
+    private var launcherName = "Spotlight"
     var animated = true
+
+    static let doubleTapInterval: TimeInterval = 0.4
 
     // MARK: - Setting up
 
     func reset(_ windows: [SimWindow], selected: Int? = nil) {
+        reset(SimSetup(windows: windows, selected: selected))
+    }
+
+    func reset(_ setup: SimSetup) {
         change {
-            self.windows = windows
+            windows = setup.windows
             queue = windows.map(\.id)
             zOrder = queue.reversed()
-            self.selected = selected ?? queue.first
-            if let s = self.selected { raise(s) }
+            spaceOf = Dictionary(uniqueKeysWithValues: queue.map { ($0, setup.spaces[$0] ?? 1) })
+            monitorOf = Dictionary(uniqueKeysWithValues: queue.map { ($0, setup.monitors[$0] ?? 0) })
+            spaceCount = setup.spaceCount
+            monitorCount = setup.monitorCount
+            shownSpace = Array(repeating: 1, count: setup.monitorCount)
+            activeMonitor = 0
+            selected = setup.selected ?? queue.first
+            if let s = selected { raise(s) }
             aiming = false
             insideGroup = nil
             menuFocused = false
             tiled = []
             tiledLayout = nil
-            maximized = nil
+            maximized = []
+            fullscreen = nil
             groups = []
             lockedGroup = nil
+            searchOpen = false
+            query = ""
+            launcher = nil
+            shutter = nil
+            monitorFrame = nil
+            recording = nil
+            stripHidden = false
+            decluttered = false
+            closed = []
+            lifted = nil
+            pointer = nil
             keys = nil
             note = nil
             layoutsUsed = []
@@ -115,12 +190,34 @@ final class TourSim: ObservableObject {
 
     func window(_ id: Int) -> SimWindow? { windows.first { $0.id == id } }
 
+    // MARK: - Workspaces and monitors
+
+    /// The monitor being worked on: the selected window's, else the one last gone to.
+    var focusedMonitor: Int { selected.flatMap { monitorOf[$0] } ?? activeMonitor }
+
+    func monitor(of id: Int) -> Int { monitorOf[id] ?? 0 }
+
+    func space(of id: Int) -> Int { spaceOf[id] ?? 1 }
+
+    /// On the workspace its monitor has on show, and not closed.
+    func isOnShow(_ id: Int) -> Bool {
+        !closed.contains(id) && space(of: id) == shownSpace[safe: monitor(of: id)]
+    }
+
+    /// The queue of one monitor's strip: its windows on every workspace, in queue order.
+    func queue(onMonitor monitor: Int) -> [Int] {
+        queue.filter { self.monitor(of: $0) == monitor && !closed.contains($0) }
+    }
+
     // MARK: - Strip
 
-    var entries: [Entry] {
+    /// The focused monitor's strip, which aiming and cycling work on.
+    var entries: [Entry] { entries(onMonitor: focusedMonitor) }
+
+    func entries(onMonitor monitor: Int) -> [Entry] {
         var out: [Entry] = []
         var seen = Set<Int>()
-        for id in queue {
+        for id in queue(onMonitor: monitor) {
             if let group = group(of: id) {
                 if seen.insert(group.id).inserted { out.append(.group(group.id)) }
             } else {
@@ -178,18 +275,39 @@ final class TourSim: ObservableObject {
         return selected.flatMap { group(of: $0)?.id }
     }
 
+    /// The strip is out of sight in invisible mode, except while aiming.
+    var stripShown: Bool { !stripHidden || aiming }
+
+    var searchMatches: [Int] {
+        let needle = query.lowercased()
+        return queue.filter { id in
+            !closed.contains(id) && (needle.isEmpty || window(id)?.name.lowercased().contains(needle) == true)
+        }
+    }
+
     // MARK: - Frames
 
-    /// Each window's frame inside `area`, origin top left.
-    func frames(in area: CGRect) -> [Int: CGRect] {
+    /// The frame of each window on show on `monitor`, inside that monitor's `area`, origin top left.
+    func frames(in area: CGRect, monitor: Int = 0) -> [Int: CGRect] {
+        let here = queue.filter { self.monitor(of: $0) == monitor && isOnShow($0) }
         var out: [Int: CGRect] = [:]
-        for window in windows {
+        for id in here {
+            guard let window = window(id) else { continue }
             let home = CGRect(x: area.minX + window.home.minX * area.width,
                               y: area.minY + window.home.minY * area.height,
                               width: window.home.width * area.width, height: window.home.height * area.height)
-            out[window.id] = fit(window, in: home)
+            out[id] = fit(window, in: home)
         }
-        let order = queue.filter(tiled.contains)
+        if decluttered, here.count >= 2 {
+            // Every window in view at once, none on top of another.
+            let options = TileLayout.options(for: here.count)
+            if let layout = options.first(where: { $0.kind == "Grid" }) ?? options.first(where: { $0.kind == "Columns" }) {
+                let limits = here.map { id in window(id)?.aspect.map { SizeLimits(aspect: $0) } ?? .none }
+                let frames = TileSolver.frames(units: layout.frames, limits: limits, in: area, inset: 6)
+                for (id, frame) in zip(here, frames) { out[id] = frame }
+            }
+        }
+        let order = here.filter(tiled.contains)
         if order.count >= 2 {
             let options = TileLayout.options(for: order.count)
             let layout = options.first { $0.name == tiledLayout }
@@ -200,8 +318,8 @@ final class TourSim: ObservableObject {
                 for (id, frame) in zip(order, frames) { out[id] = frame }
             }
         }
-        if let maximized, let window = window(maximized) {
-            out[maximized] = fit(window, in: area.insetBy(dx: 3, dy: 3))
+        for id in here where maximized.contains(id) || fullscreen == id {
+            if let window = window(id) { out[id] = fit(window, in: area.insetBy(dx: 3, dy: 3)) }
         }
         return out
     }
@@ -216,9 +334,14 @@ final class TourSim: ObservableObject {
 
     /// Takes a key press the way WindowQueue would. Returns whether it meant something here.
     @discardableResult
-    func press(keyCode: Int, flags rawFlags: NSEvent.ModifierFlags, prefs: Preferences) -> Bool {
+    func press(keyCode: Int, flags rawFlags: NSEvent.ModifierFlags, prefs: Preferences, characters: String? = nil) -> Bool {
+        launcherName = prefs.launcher.title
         let flags = rawFlags.intersection([.command, .option, .control, .shift])
         let cgFlags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        if searchOpen {
+            searchKey(keyCode, flags: flags, characters: characters)
+            return true
+        }
         if aiming {
             if menuFocused {
                 guard let key = Self.aimKey(keyCode) else { return true }
@@ -250,18 +373,36 @@ final class TourSim: ObservableObject {
         return true
     }
 
-    /// A tap of the super key on its own: opens aiming mode, or focuses what it is aimed at.
-    func superTap(symbol: String) {
+    /// A tap of the super key on its own: opens aiming mode, or focuses what it is aimed at. A
+    /// second tap straight after the first runs `doubleTap`, as the real one does.
+    func superTap(symbol: String, doubleTap: HotkeyAction? = nil) {
         flash(.keys, symbol)
-        if aiming { confirm() } else { beginAiming() }
+        guard aiming else {
+            if searchOpen { change { searchOpen = false } }
+            beginAiming()
+            return
+        }
+        if let doubleTap, Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
+            change { endAiming() }
+            perform(doubleTap)
+            return
+        }
+        confirm()
     }
 
     func click(_ id: Int) {
         change {
             if aiming { endAiming() }
+            searchOpen = false
             select(id)
             done.insert(.clicked)
         }
+    }
+
+    /// Types into the search panel, as the demo does.
+    func type(_ text: String) {
+        guard searchOpen else { return }
+        change { query += text }
     }
 
     enum AimKey { case up, down, left, right, back, forward, enter, space, all, cancel }
@@ -279,6 +420,30 @@ final class TourSim: ObservableObject {
         case kVK_ANSI_A: return .all
         case kVK_Escape: return .cancel
         default: return nil
+        }
+    }
+
+    private func searchKey(_ keyCode: Int, flags: NSEvent.ModifierFlags, characters: String?) {
+        change {
+            switch keyCode {
+            case kVK_Escape:
+                showKeys(flags, keyCode)
+                searchOpen = false
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                showKeys(flags, keyCode)
+                searchOpen = false
+                if let first = searchMatches.first {
+                    select(first)
+                    done.insert(.searched)
+                }
+            case kVK_Delete:
+                if !query.isEmpty { query.removeLast() }
+            default:
+                guard flags.isDisjoint(with: [.command, .control, .option]),
+                      let typed = characters?.filter({ $0.isLetter || $0.isNumber || $0 == " " }), !typed.isEmpty
+                else { return }
+                query += typed
+            }
         }
     }
 
@@ -378,17 +543,40 @@ final class TourSim: ObservableObject {
             case .moveLeft: aiming ? moveAimed(by: -1) : moveSelected(by: -1)
             case .toggleGroup: toggleGroup()
             case .toggleGroupLock: toggleLock()
-            case .maximizeWindow, .toggleMaximize: maximize()
+            case .maximizeWindow: maximize()
+            case .toggleMaximize: toggleFullscreen()
+            case .goToEmptySpace: goToEmptySpace(carrying: false)
+            case .moveToEmptySpace: goToEmptySpace(carrying: true)
+            case .focusNextMonitor: focusMonitor((focusedMonitor + 1) % max(monitorCount, 1))
+            case .moveToNextMonitor: moveTarget(toMonitor: (focusedMonitor + 1) % max(monitorCount, 1))
+            case .search: openSearch()
+            case .openLauncher, .openRaycastCommand: openLauncher()
+            case .declutter: declutter()
+            case .screenshotWindow: takePicture()
+            case .toggleRecording: toggleRecording()
+            case .toggleInvisibleStrip: toggleStrip()
+            case .closeWindow: closeTarget()
             default:
-                flash(.note, "\(action.title) — try it on your real windows after the tour")
+                if let index = action.spaceIndex {
+                    goToSpace(index)
+                } else if let index = action.moveSpaceIndex {
+                    moveTarget(toSpace: index)
+                } else if let index = action.focusMonitorIndex {
+                    focusMonitor(index - 1)
+                } else if let index = action.moveMonitorIndex {
+                    moveTarget(toMonitor: index - 1)
+                } else {
+                    flash(.note, "\(action.title) — try it on your real windows after the tour")
+                }
             }
         }
     }
 
     func beginAiming() {
         change {
-            maximized = nil
+            fullscreen = nil
             aiming = true
+            aimingOpenedAt = Date()
             insideGroup = nil
             menuFocused = false
             let index = selected.flatMap { id in entries.firstIndex { ids(of: $0).contains(id) } } ?? 0
@@ -457,25 +645,22 @@ final class TourSim: ObservableObject {
         }
     }
 
-    /// Puts the queue in the order of these entries, which cover either the whole strip or one
-    /// group's members.
+    /// Puts the queue in the order of these entries, which cover either one monitor's strip or one
+    /// group's members. Everything else keeps its place.
     private func reorder(as list: [Entry]) {
         let ordered = list.flatMap(ids(of:))
-        if insideGroup != nil {
-            // Only the members trade places, in the slots they already hold.
-            var slots = queue.indices.filter { ordered.contains(queue[$0]) }.makeIterator()
-            for id in ordered { if let slot = slots.next() { queue[slot] = id } }
-        } else {
-            queue = ordered
-        }
+        var slots = queue.indices.filter { ordered.contains(queue[$0]) }.makeIterator()
+        for id in ordered { if let slot = slots.next() { queue[slot] = id } }
     }
 
     private func moveSelected(by step: Int) {
-        guard let selected, let index = queue.firstIndex(of: selected) else { return }
-        let target = index + step
-        guard queue.indices.contains(target) else { return }
+        guard let selected else { return }
+        let mine = queue(onMonitor: monitor(of: selected))
+        guard let index = mine.firstIndex(of: selected), mine.indices.contains(index + step),
+              let from = queue.firstIndex(of: selected), let to = queue.firstIndex(of: mine[index + step])
+        else { return }
         let before = queue.filter(tiled.contains)
-        queue.swapAt(index, target)
+        queue.swapAt(from, to)
         noteMove(tiledBefore: before)
     }
 
@@ -489,7 +674,7 @@ final class TourSim: ObservableObject {
     }
 
     private func cycle(by step: Int) {
-        let pool = lockedGroup.map(members) ?? queue
+        let pool = lockedGroup.map(members) ?? queue(onMonitor: focusedMonitor)
         guard !pool.isEmpty else { return }
         let index = selected.flatMap(pool.firstIndex(of:)) ?? (step > 0 ? -1 : pool.count)
         let next = pool[(index + step + pool.count) % pool.count]
@@ -498,9 +683,16 @@ final class TourSim: ObservableObject {
         if lockedGroup != nil { done.insert(.cycledLocked) }
     }
 
+    /// Focuses a window, going over to its workspace first if another one is on show.
     private func select(_ id: Int) {
+        let monitor = monitor(of: id)
+        if shownSpace.indices.contains(monitor), shownSpace[monitor] != space(of: id) {
+            spaceDirection = space(of: id) > shownSpace[monitor] ? 1 : -1
+            shownSpace[monitor] = space(of: id)
+        }
         selected = id
-        if maximized != id { maximized = nil }
+        activeMonitor = monitor
+        if fullscreen != id { fullscreen = nil }
         if tiled.contains(id) { raiseTiled() }
         raise(id)
     }
@@ -523,7 +715,9 @@ final class TourSim: ObservableObject {
         endAiming()
         tiled = ids
         tiledLayout = layout.name
-        maximized = nil
+        decluttered = false
+        maximized.subtract(ids)
+        fullscreen = nil
         raiseTiled()
         select(ids[0])
         done.insert(.tiled)
@@ -582,19 +776,236 @@ final class TourSim: ObservableObject {
         if let lockedGroup, !groups.contains(where: { $0.id == lockedGroup }) { self.lockedGroup = nil }
     }
 
-    private func maximize() {
+    /// The window an action is about: the aimed one while aiming (which ends the mode), else the
+    /// selected one.
+    private func takeTarget() -> Int? {
         let target = aiming ? aimedIDs.first : selected
         if aiming { endAiming() }
-        guard let target else { return }
-        if maximized == target {
-            maximized = nil
+        return target
+    }
+
+    private func maximize() {
+        guard let target = takeTarget() else { return }
+        select(target)
+        maximized.insert(target)
+        decluttered = false
+        done.insert(.maximized)
+    }
+
+    /// Fullscreen, and fullscreen again to put the window back as it was — maximized or not.
+    private func toggleFullscreen() {
+        guard let target = takeTarget() else { return }
+        if fullscreen == target || maximized.contains(target) {
+            fullscreen = nil
+            maximized.remove(target)
         } else {
             select(target)
-            maximized = target
+            fullscreen = target
+        }
+        done.insert(.maximized)
+    }
+
+    private func goToSpace(_ index: Int) {
+        if aiming { endAiming() }
+        guard index <= spaceCount else {
+            flash(.note, spaceCount == 1 ? "No workspace \(index) — there is only one" : "No workspace \(index) — there are \(spaceCount)")
+            return
+        }
+        let monitor = focusedMonitor
+        guard shownSpace[monitor] != index else { return }
+        spaceDirection = index > shownSpace[monitor] ? 1 : -1
+        shownSpace[monitor] = index
+        activeMonitor = monitor
+        // Focus lands on the window on top there, if there is one.
+        selected = zOrder.last { self.monitor(of: $0) == monitor && isOnShow($0) }
+        done.insert(.switchedSpace)
+    }
+
+    private func moveTarget(toSpace index: Int) {
+        guard let target = takeTarget() else { return }
+        guard index <= spaceCount else {
+            flash(.note, "No workspace \(index)")
+            return
+        }
+        guard space(of: target) != index else { return }
+        spaceOf[target] = index
+        maximized.remove(target)
+        tiled.removeAll { $0 == target }
+        select(target)
+        done.insert(.movedToSpace)
+        flash(.note, "\(window(target)?.name ?? "Window") moved to workspace \(index)")
+    }
+
+    private func goToEmptySpace(carrying: Bool) {
+        let monitor = focusedMonitor
+        let empty = (1...max(spaceCount, 1)).first { space in
+            space != shownSpace[monitor] && !queue(onMonitor: monitor).contains { self.space(of: $0) == space }
+        }
+        guard let empty else {
+            flash(.note, "No empty workspace")
+            return
+        }
+        if carrying { moveTarget(toSpace: empty) } else { goToSpace(empty) }
+        done.insert(.wentToEmptySpace)
+    }
+
+    private func focusMonitor(_ index: Int) {
+        if aiming { endAiming() }
+        guard monitorCount > 1 else {
+            flash(.note, "Only one monitor — there is no other to go to")
+            return
+        }
+        guard index < monitorCount else {
+            flash(.note, "No monitor \(index + 1)")
+            return
+        }
+        activeMonitor = index
+        if let top = zOrder.last(where: { monitor(of: $0) == index && isOnShow($0) }) {
+            select(top)
+        } else {
+            selected = nil
+        }
+        flashMonitor(index)
+        done.insert(.switchedMonitor)
+    }
+
+    private func moveTarget(toMonitor index: Int) {
+        guard monitorCount > 1 else {
+            flash(.note, "Only one monitor — there is nowhere else to move the window")
+            return
+        }
+        guard let target = takeTarget(), index < monitorCount, monitor(of: target) != index else { return }
+        monitorOf[target] = index
+        spaceOf[target] = shownSpace[index]
+        tiled.removeAll { $0 == target }
+        select(target)
+        flashMonitor(index)
+        done.insert(.movedToMonitor)
+    }
+
+    private func openSearch() {
+        if aiming { endAiming() }
+        searchOpen.toggle()
+        query = ""
+    }
+
+    private func openLauncher() {
+        if aiming { endAiming() }
+        flashCount += 1
+        let id = flashCount
+        launcher = Flash(id: id, text: launcherName)
+        done.insert(.launched)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.launcher?.id == id else { return }
+            self.change { self.launcher = nil }
         }
     }
 
+    private func declutter() {
+        if aiming { endAiming() }
+        decluttered = true
+        tiled = []
+        maximized = []
+        fullscreen = nil
+        done.insert(.decluttered)
+        flash(.note, "Every window in view, none on top of another")
+    }
+
+    private func takePicture() {
+        guard let target = takeTarget() else { return }
+        flashCount += 1
+        let id = flashCount
+        shutter = Mark(id: id, target: target)
+        done.insert(.pictured)
+        flash(.note, "Picture of the \(window(target)?.name ?? "") window saved")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.shutter?.id == id else { return }
+            self.change { self.shutter = nil }
+        }
+    }
+
+    private func toggleRecording() {
+        if let recording {
+            self.recording = nil
+            if aiming { endAiming() }
+            flash(.note, "Video of the \(window(recording)?.name ?? "") window saved")
+            return
+        }
+        guard let target = takeTarget() else { return }
+        recording = target
+        done.insert(.recorded)
+        flash(.note, "Recording the \(window(target)?.name ?? "") window")
+    }
+
+    private func toggleStrip() {
+        stripHidden.toggle()
+        done.insert(.hidStrip)
+        flash(.note, stripHidden ? "Strip hidden — it comes back while aiming" : "Strip shown")
+    }
+
+    private func closeTarget() {
+        guard let target = takeTarget() else { return }
+        closed.insert(target)
+        tiled.removeAll { $0 == target }
+        if selected == target {
+            selected = zOrder.last { $0 != target && monitor(of: $0) == monitor(of: target) && isOnShow($0) }
+        }
+        flash(.note, "\(window(target)?.name ?? "Window") closed")
+    }
+
+    // MARK: - Dragging icons
+
+    /// The pretend pointer, resting on an icon of the strip (nil hides it).
+    func point(at id: Int?) {
+        change { pointer = id }
+    }
+
+    func beginDrag(_ id: Int) {
+        let list = entries(onMonitor: monitor(of: id))
+        change {
+            lifted = id
+            dragStart = list.firstIndex { ids(of: $0).contains(id) } ?? 0
+        }
+    }
+
+    /// Puts the lifted icon `offset` entries from where the drag began.
+    func drag(to offset: Int) {
+        guard let lifted else { return }
+        var list = entries(onMonitor: monitor(of: lifted))
+        guard let from = list.firstIndex(where: { ids(of: $0).contains(lifted) }) else { return }
+        let to = min(max(dragStart + offset, 0), list.count - 1)
+        guard to != from else { return }
+        change {
+            let entry = list.remove(at: from)
+            list.insert(entry, at: to)
+            reorder(as: list)
+            done.insert(.dragged)
+        }
+    }
+
+    /// Moves the lifted icon one more entry along, as the demo does.
+    func drag(by step: Int) {
+        guard let lifted else { return }
+        let list = entries(onMonitor: monitor(of: lifted))
+        guard let index = list.firstIndex(where: { ids(of: $0).contains(lifted) }) else { return }
+        drag(to: index + step - dragStart)
+    }
+
+    func endDrag() {
+        change { lifted = nil }
+    }
+
     // MARK: - Flashes
+
+    private func flashMonitor(_ index: Int) {
+        flashCount += 1
+        let id = flashCount
+        monitorFrame = Mark(id: id, target: index)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self, self.monitorFrame?.id == id else { return }
+            self.change { self.monitorFrame = nil }
+        }
+    }
 
     private func showKeys(_ flags: NSEvent.ModifierFlags, _ keyCode: Int) {
         let modifiers = KeyCombo(keyCode: UInt32(keyCode), modifiers: KeyCombo.carbonModifiers(from: flags))
@@ -642,4 +1053,8 @@ extension TileLayout {
         guard let name else { return nil }
         return TileLayout(name: name, frames: []).kind
     }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

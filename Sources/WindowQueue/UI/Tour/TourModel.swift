@@ -20,12 +20,7 @@ enum TourPage: Int, CaseIterable, Identifiable {
     }
 
     /// The pretend desktop answers the keys on these pages.
-    var isInteractive: Bool {
-        switch self {
-        case .welcome, .basics, .aiming, .tiling, .groups: return true
-        case .setup, .tips: return false
-        }
-    }
+    var isInteractive: Bool { self != .setup }
 
     var windows: [SimWindow] {
         switch self {
@@ -36,8 +31,9 @@ enum TourPage: Int, CaseIterable, Identifiable {
     }
 
     /// The Welcome page's demo, the keys shown as it presses them. It loops until the user does
-    /// anything; the later pages have none — they are the user's to try from the start, and a
-    /// desktop moving on its own there read as canned rather than responsive.
+    /// anything; the lesson pages have none — they are the user's to try from the start, and a
+    /// desktop moving on its own there read as canned rather than responsive. (The tips preview
+    /// each tip in turn instead; see `TourTip`.)
     var demo: [TourModel.DemoStep] {
         guard self == .welcome else { return [] }
         return [.wait(1), .action(.cycleNext), .wait(1), .action(.cycleNext), .wait(1.2), .superTap,
@@ -47,7 +43,21 @@ enum TourPage: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Drives the tour: which page is up, the demo playing on it, and the keys the user tries.
+/// One of the tips on the last page: what it does, its keys, and a preview on the pretend desktop
+/// that plays before the next tip comes up — or that the user can take over and try.
+struct TourTip: Identifiable {
+    let id: String
+    let symbol: String
+    let title: String
+    let keys: [String]
+    let text: String
+    /// What to try, for the "Your turn" card.
+    let hint: String
+    let setup: SimSetup
+    let preview: [TourModel.DemoStep]
+}
+
+/// Drives the tour: which page is up, the demo or preview playing on it, and the keys the user tries.
 final class TourModel: ObservableObject {
     enum DemoKey { case next, previous, into, enter, cancel, all }
 
@@ -59,6 +69,13 @@ final class TourModel: ObservableObject {
         case key(DemoKey, extend: Bool = false, carry: Bool = false)
         case superTap
         case click(Int)
+        /// Typed into the search panel.
+        case type(String)
+        /// The pretend pointer goes to an icon of the strip (nil hides it).
+        case pointer(Int?)
+        case lift(Int)
+        case dragStep(Int)
+        case drop
         case wait(TimeInterval)
     }
 
@@ -67,9 +84,12 @@ final class TourModel: ObservableObject {
     /// When the demo started and how long it runs, for its progress bar.
     @Published private(set) var demoStarted = Date.distantPast
     @Published private(set) var demoLength: TimeInterval = 1
-    /// The demo has handed over and the user hasn't done anything yet: the desktop says it's
-    /// their turn, so it is not mistaken for more of the demo.
+    /// The desktop is the user's and they haven't done anything yet: it says it's their turn, so it
+    /// is not mistaken for something predefined.
     @Published private(set) var awaitingUser = false
+    /// The tip on show, and whether the tips go on to the next by themselves.
+    @Published private(set) var tipIndex = 0
+    @Published private(set) var tipsPlaying = true
     let sim = TourSim()
     let store: PreferencesStore
     private var demoWork: [DispatchWorkItem] = []
@@ -87,8 +107,13 @@ final class TourModel: ObservableObject {
         stopDemo()
         awaitingUser = false
         self.page = page
-        sim.reset(page.windows)
         sim.clearDone()
+        if page == .tips {
+            tipsPlaying = true
+            showTip(0, scheduled: scheduled)
+            return
+        }
+        resetDesktop()
         if page.demo.isEmpty {
             awaitingUser = page.isInteractive
         } else {
@@ -109,17 +134,123 @@ final class TourModel: ObservableObject {
     /// What the user has done on this page; the demo's own doings don't count.
     var done: Set<TourEvent> { demoPlaying ? [] : sim.done }
 
+    // MARK: - Tips
+
+    var currentTip: TourTip? { page == .tips ? tips[safe: tipIndex] : nil }
+
+    /// Previews a tip; with the tips playing, the next one follows when it ends.
+    func showTip(_ index: Int, scheduled: Bool = true) {
+        guard tips.indices.contains(index) else { return }
+        tipIndex = index
+        playDemo(scheduled: scheduled)
+    }
+
+    /// The user picked a tip from the list: its preview plays, and the tips go on from there.
+    func pickTip(_ index: Int) {
+        tipsPlaying = true
+        showTip(index)
+    }
+
+    func resumeTips() {
+        tipsPlaying = true
+        showTip(tipIndex)
+    }
+
+    var tips: [TourTip] {
+        let superKey = superSymbol
+        let launcher = prefs.launcher.title
+        var tips = [
+            TourTip(id: "workspaces", symbol: "square.grid.3x3", title: "Workspaces",
+                    keys: ["\(combo(.space1))…9", "\(combo(.moveToSpace1))…9", combo(.goToEmptySpace)],
+                    text: "\(combo(.space1))…9 go to workspace N; \(combo(.moveToSpace1))…9 take the window along. \(combo(.goToEmptySpace)) finds an empty one.",
+                    hint: "\(combo(.space2)), then \(combo(.space1))",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], spaces: [3: 2, 4: 2], spaceCount: 3),
+                    preview: [.wait(0.8), .action(.space2), .wait(1.3), .action(.space1), .wait(1.1), .action(.cycleNext),
+                              .wait(0.9), .action(.moveToSpace2), .wait(1.5), .action(.goToEmptySpace), .wait(1.4),
+                              .action(.space1), .wait(1.2)]),
+            TourTip(id: "search", symbol: "magnifyingglass", title: "Search",
+                    keys: [combo(.search)],
+                    text: "Find any window by typing part of its name; ↩ goes there.",
+                    hint: "\(combo(.search)), type part of a name, ↩",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail, .music]),
+                    preview: [.wait(0.8), .action(.search), .wait(0.8), .type("t"), .wait(0.35), .type("e"), .wait(0.35),
+                              .type("r"), .wait(1.1), .key(.enter), .wait(1.6)]),
+            TourTip(id: "launcher", symbol: "sparkle.magnifyingglass", title: "Launcher",
+                    keys: [combo(.openLauncher), "\(superKey) \(superKey)"],
+                    text: "\(combo(.openLauncher)) opens \(launcher). Two quick taps of \(superKey): \(prefs.superDoubleTapAction?.title.lowercased() ?? "focus the aimed window").",
+                    hint: "\(combo(.openLauncher)), or tap \(superKey) twice",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal]),
+                    preview: [.wait(0.8), .action(.openLauncher), .wait(2.3), .superTap, .wait(0.15), .superTap, .wait(2.3)]),
+            TourTip(id: "maximize", symbol: "arrow.up.left.and.arrow.down.right", title: "Maximize and fullscreen",
+                    keys: [combo(.maximizeWindow), combo(.toggleMaximize)],
+                    text: "\(combo(.maximizeWindow)) fills the screen beside the strip. \(combo(.toggleMaximize)) goes fullscreen; again, and the window is back.",
+                    hint: "\(combo(.maximizeWindow)), then \(combo(.toggleMaximize)) twice",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
+                    preview: [.wait(0.8), .action(.maximizeWindow), .wait(1.4), .action(.cycleNext), .wait(1), .action(.toggleMaximize),
+                              .wait(1.4), .action(.toggleMaximize), .wait(1.3)]),
+            TourTip(id: "declutter", symbol: "rectangle.3.group", title: "Declutter",
+                    keys: [combo(.declutter)],
+                    text: "Every window in view at once, none on top of another, resized as little as possible.",
+                    hint: combo(.declutter),
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
+                    preview: [.wait(1), .action(.declutter), .wait(2.6)]),
+            TourTip(id: "capture", symbol: "camera.viewfinder", title: "Picture or video",
+                    keys: [combo(.screenshotWindow), combo(.toggleRecording)],
+                    text: "\(combo(.screenshotWindow)) takes a picture, \(combo(.toggleRecording)) starts and stops a video — of the one window, not the screen.",
+                    hint: "\(combo(.screenshotWindow)), or \(combo(.toggleRecording)) twice",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal]),
+                    preview: [.wait(0.8), .action(.screenshotWindow), .wait(1.5), .action(.toggleRecording), .wait(2.4),
+                              .action(.toggleRecording), .wait(1.5)]),
+            TourTip(id: "invisible", symbol: "eye.slash", title: "Invisible strip",
+                    keys: [combo(.toggleInvisibleStrip)],
+                    text: "Hide the strip and get its room back; it shows up again whenever aiming mode opens.",
+                    hint: "\(combo(.toggleInvisibleStrip)), then tap \(superKey)",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal]),
+                    preview: [.wait(0.8), .action(.toggleInvisibleStrip), .wait(1.4), .superTap, .wait(1.3), .key(.cancel),
+                              .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)]),
+            TourTip(id: "drag", symbol: "hand.draw", title: "Drag and drop",
+                    keys: [],
+                    text: "Drag an icon along the strip to reorder the queue.",
+                    hint: "Drag an icon along the strip",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
+                    preview: [.wait(0.6), .pointer(SimWindow.mail.id), .wait(0.8), .lift(SimWindow.mail.id), .wait(0.4),
+                              .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.6), .drop,
+                              .wait(0.8), .pointer(nil), .wait(1)]),
+        ]
+        if prefs.multiMonitorMode {
+            tips.insert(TourTip(id: "monitors", symbol: "display.2", title: "Monitors",
+                                keys: [combo(.focusNextMonitor), combo(.moveToNextMonitor)],
+                                text: "Each monitor has its own strip. \(combo(.focusNextMonitor)) goes to the next monitor, \(combo(.moveToNextMonitor)) takes the window along; \(combo(.focusMonitor1))…4 go to monitor N.",
+                                hint: "\(combo(.focusNextMonitor)), then \(combo(.moveToNextMonitor))",
+                                setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], monitors: [3: 1, 4: 1], monitorCount: 2),
+                                preview: [.wait(0.9), .action(.focusNextMonitor), .wait(1.4), .action(.focusNextMonitor), .wait(1.3),
+                                          .action(.moveToNextMonitor), .wait(1.6), .action(.focusNextMonitor), .wait(1.3)]),
+                        at: 1)
+        }
+        return tips
+    }
+
     // MARK: - Demo
 
-    /// Plays the page's demo, over and over until the user takes over.
+    private var demoSteps: [DemoStep] { currentTip?.preview ?? page.demo }
+
+    private func resetDesktop() {
+        if let tip = currentTip {
+            sim.reset(tip.setup)
+        } else {
+            sim.reset(page.windows)
+        }
+    }
+
+    /// Plays the demo (or the tip's preview) from the start.
     func playDemo(scheduled: Bool = true) {
         stopDemo()
-        sim.reset(page.windows)
+        resetDesktop()
         awaitingUser = false
         demoPlaying = true
         guard scheduled else { return }
         var at: TimeInterval = 0
-        for step in page.demo {
+        for step in demoSteps {
             if case .wait(let seconds) = step {
                 at += seconds
                 continue
@@ -130,15 +261,30 @@ final class TourModel: ObservableObject {
         }
         demoStarted = Date()
         demoLength = at + 0.6
-        let again = DispatchWorkItem { [weak self] in self?.playDemo() }
-        demoWork.append(again)
-        DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: again)
+        let end = DispatchWorkItem { [weak self] in self?.demoEnded() }
+        demoWork.append(end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: end)
+    }
+
+    /// The Welcome demo loops; a tip's preview hands on to the next tip, or to the user once the
+    /// tips are paused.
+    private func demoEnded() {
+        guard page == .tips else {
+            playDemo()
+            return
+        }
+        if tipsPlaying {
+            showTip((tipIndex + 1) % max(tips.count, 1))
+        } else {
+            finishDemo()
+        }
     }
 
     /// Ends the demo and gives the desktop, back as it started, to the user.
     func finishDemo() {
         stopDemo()
-        sim.reset(page.windows)
+        if page == .tips { tipsPlaying = false }
+        resetDesktop()
         sim.clearDone()
         awaitingUser = page.isInteractive
     }
@@ -149,12 +295,14 @@ final class TourModel: ObservableObject {
         demoPlaying = false
     }
 
-    /// The user pressed a key or clicked: the demo makes way, and the desktop starts afresh.
-    private func takeOver() {
+    /// The user pressed a key, clicked or dragged: the demo makes way at once, the desktop starts
+    /// afresh, and the tips stay on this one.
+    func takeOver() {
         awaitingUser = false
         guard demoPlaying else { return }
         stopDemo()
-        sim.reset(page.windows)
+        if page == .tips { tipsPlaying = false }
+        resetDesktop()
         sim.clearDone()
     }
 
@@ -172,9 +320,19 @@ final class TourModel: ObservableObject {
             if carry { flags.formUnion(prefs.superModifier.eventFlags) }
             sim.press(keyCode: keyCode(key), flags: flags, prefs: prefs)
         case .superTap:
-            sim.superTap(symbol: prefs.superModifier.symbol)
+            sim.superTap(symbol: prefs.superModifier.symbol, doubleTap: prefs.superDoubleTapAction)
         case .click(let id):
             sim.click(id)
+        case .type(let text):
+            sim.type(text)
+        case .pointer(let id):
+            sim.point(at: id)
+        case .lift(let id):
+            sim.beginDrag(id)
+        case .dragStep(let step):
+            sim.drag(by: step)
+        case .drop:
+            sim.endDrag()
         case .wait:
             break
         }
@@ -209,17 +367,17 @@ final class TourModel: ObservableObject {
 
     // MARK: - The user's turn
 
-    func handleKey(keyCode: Int, flags: NSEvent.ModifierFlags) -> Bool {
+    func handleKey(keyCode: Int, flags: NSEvent.ModifierFlags, characters: String? = nil) -> Bool {
         guard page.isInteractive else { return false }
         // The user is trying it: whatever the key, the demo stops at once.
         takeOver()
-        return sim.press(keyCode: keyCode, flags: flags, prefs: prefs)
+        return sim.press(keyCode: keyCode, flags: flags, prefs: prefs, characters: characters)
     }
 
     func superTap() {
         guard page.isInteractive else { return }
         takeOver()
-        sim.superTap(symbol: prefs.superModifier.symbol)
+        sim.superTap(symbol: prefs.superModifier.symbol, doubleTap: prefs.superDoubleTapAction)
     }
 
     func click(_ id: Int) {

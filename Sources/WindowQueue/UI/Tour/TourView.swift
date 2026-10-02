@@ -155,10 +155,11 @@ struct TourView: View {
 
     private var desktop: some View {
         VStack(spacing: 8) {
-            SimDesktopView(sim: sim, prefs: store.prefs, onClick: model.page.isInteractive ? { model.click($0) } : nil)
+            SimDesktopView(sim: sim, prefs: store.prefs, onClick: model.page.isInteractive ? { model.click($0) } : nil,
+                           onDragStart: model.page.isInteractive ? { model.takeOver() } : nil)
                 .overlay(alignment: .topLeading) {
                     if model.demoPlaying {
-                        Label("DEMO", systemImage: "play.fill")
+                        Label(model.page == .tips ? "PREVIEW" : "DEMO", systemImage: "play.fill")
                             .font(.system(size: 10, weight: .bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -193,12 +194,21 @@ struct TourView: View {
                 .animation(.easeOut(duration: 0.25), value: model.awaitingUser)
             HStack(spacing: 8) {
                 Circle().fill(model.demoPlaying ? Color.red : Color.green).frame(width: 7, height: 7)
-                Text(model.demoPlaying ? "Demo — press any shortcut or click to try it yourself"
-                                       : "Your turn — the desktop is pretend, your real windows stay put")
+                Text(model.demoPlaying
+                     ? (model.page == .tips ? "Preview — press its keys to try it yourself" : "Demo — press any shortcut or click to try it yourself")
+                     : "Your turn — the desktop is pretend, your real windows stay put")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
-                if model.demoPlaying {
+                if model.page == .tips {
+                    if model.demoPlaying {
+                        Button("Pause Previews") { model.finishDemo() }
+                            .controlSize(.small)
+                    } else {
+                        Button("Play Previews") { model.resumeTips() }
+                            .controlSize(.small)
+                    }
+                } else if model.demoPlaying {
                     Button("Stop Demo") { model.finishDemo() }
                         .controlSize(.small)
                 } else if !model.page.demo.isEmpty {
@@ -349,14 +359,14 @@ struct TourView: View {
 
     /// What the desktop shows once the demo hands over: it's the user's turn now, and where to start.
     private var turnPrompt: some View {
-        let next = taskList.first { !model.done.contains($0.0) }
+        let next = model.currentTip?.hint ?? taskList.first { !model.done.contains($0.0) }?.1
         return VStack(spacing: 6) {
             Label("Your turn", systemImage: "hand.point.up.left.fill")
                 .font(.system(size: 15, weight: .bold))
             Text("This desktop is yours to try — it follows your keys and clicks.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             if let next {
-                Text(.init("Try: **\(next.1)**")).font(.system(size: 12)).padding(.top, 2)
+                Text(.init("Try: **\(next)**")).font(.system(size: 12)).padding(.top, 2)
             }
         }
         .multilineTextAlignment(.center)
@@ -491,73 +501,77 @@ struct TourView: View {
 
     // MARK: - Tips
 
+    /// The tips in a list that moves on by itself, each previewed on the desktop beside it; pressing
+    /// a tip's keys stops the previews and lets the user try it there.
     private var tips: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            pageTitle("A few more things")
-            paragraph("Not needed on day one, but worth knowing. You can reopen this tour from Settings › General or the menu bar icon.")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                ForEach(Array(tipList.enumerated()), id: \.offset) { _, tip in
-                    tipCard(tip)
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 10) {
+                pageTitle("A few more things")
+                paragraph("Each one previews on the desktop in turn. Press its keys to try it yourself, or pick one from the list.")
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(Array(model.tips.enumerated()), id: \.element.id) { index, tip in
+                                tipRow(tip, index: index).id(index)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .onChange(of: model.tipIndex) { _, index in
+                        withAnimation(.easeInOut(duration: 0.45)) { proxy.scrollTo(index, anchor: .center) }
+                    }
                 }
+                Text("Reopen this tour any time from Settings › General or the menu bar icon.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
+            .frame(width: 300)
+            desktop
         }
         .padding(24)
     }
 
-    private struct Tip {
-        let symbol: String
-        let title: String
-        let keys: [String]
-        let text: String
-    }
-
-    private var tipList: [Tip] {
-        let prefs = store.prefs
-        let superKey = model.superSymbol
-        var tips = [
-            Tip(symbol: "square.grid.3x3", title: "Workspaces", keys: ["\(model.combo(.space1))…9"],
-                text: "Go to workspace N; \(model.combo(.moveToSpace1))…9 takes the window along. \(model.combo(.goToEmptySpace)) finds an empty one."),
-            Tip(symbol: "magnifyingglass", title: "Search", keys: [model.combo(.search)],
-                text: "Find any window by typing part of its name."),
-            Tip(symbol: "arrow.up.left.and.arrow.down.right", title: "Maximize and fullscreen",
-                keys: [model.combo(.maximizeWindow), model.combo(.toggleMaximize)],
-                text: "\(model.combo(.maximizeWindow)) fills the screen beside the strip. \(model.combo(.toggleMaximize)) goes fullscreen; again, and the window is back."),
-            Tip(symbol: "rectangle.3.group", title: "Declutter", keys: [model.combo(.declutter)],
-                text: "Show every window at once, resizing them as little as possible."),
-            Tip(symbol: "camera.viewfinder", title: "Picture or video", keys: [model.combo(.screenshotWindow), model.combo(.toggleRecording)],
-                text: "\(model.combo(.screenshotWindow)) takes a picture, \(model.combo(.toggleRecording)) starts and stops a video — of the one window, not the screen."),
-            Tip(symbol: "eye.slash", title: "Invisible strip", keys: [model.combo(.toggleInvisibleStrip)],
-                text: "Hide the strip; it comes back whenever aiming mode opens."),
-            Tip(symbol: "hand.draw", title: "Drag and drop", keys: [],
-                text: "Drag an icon along the strip to reorder the queue; scroll over the strip to run through it."),
-            Tip(symbol: "command", title: "Double tap", keys: [superKey, superKey],
-                text: "Two quick taps: \(prefs.superDoubleTapAction?.title.lowercased() ?? "focus the aimed window"). Change it in Settings › Focus."),
-        ]
-        if NSScreen.screens.count > 1 || prefs.multiMonitorMode {
-            tips.insert(Tip(symbol: "display.2", title: "Monitors", keys: [model.combo(.focusNextMonitor), model.combo(.moveToNextMonitor)],
-                            text: "\(model.combo(.focusNextMonitor)) goes to the next monitor, \(model.combo(.moveToNextMonitor)) takes the window along. \(model.combo(.focusMonitor1))…4 go to monitor N."),
-                        at: 1)
-        }
-        return tips
-    }
-
-    private func tipCard(_ tip: Tip) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: tip.symbol).font(.system(size: 15)).foregroundStyle(Color.accentColor)
-                Text(tip.title).font(.system(size: 13, weight: .semibold))
-                Spacer()
+    private func tipRow(_ tip: TourTip, index: Int) -> some View {
+        let current = index == model.tipIndex
+        return Button { model.pickTip(index) } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Image(systemName: tip.symbol)
+                        .font(.system(size: 13))
+                        .frame(width: 20)
+                        .foregroundStyle(current ? Color.accentColor : .secondary)
+                    Text(tip.title).font(.system(size: 13, weight: current ? .semibold : .regular))
+                    Spacer(minLength: 4)
+                    if !current, let first = tip.keys.first { KeyCaps(text: first, small: true) }
+                }
+                if current {
+                    if !tip.keys.isEmpty {
+                        HStack(spacing: 5) {
+                            ForEach(Array(tip.keys.enumerated()), id: \.offset) { KeyCaps(text: $0.element, small: true) }
+                        }
+                    }
+                    Text(tip.text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.demoPlaying {
+                        TimelineView(.animation) { context in
+                            let progress = min(1, context.date.timeIntervalSince(model.demoStarted) / model.demoLength)
+                            GeometryReader { geometry in
+                                Capsule().fill(Color.accentColor.opacity(0.25))
+                                Capsule().fill(Color.accentColor).frame(width: geometry.size.width * progress)
+                            }
+                            .frame(height: 3)
+                        }
+                    }
+                }
             }
-            if !tip.keys.isEmpty {
-                HStack(spacing: 6) { ForEach(Array(tip.keys.enumerated()), id: \.offset) { KeyCaps(text: $0.element, small: true) } }
-            }
-            Text(tip.text).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(current ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(current ? Color.accentColor.opacity(0.5) : .clear))
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.3), value: current)
     }
 }
 
@@ -605,7 +619,8 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
             guard let self, event.window === self.window else { return event }
             // Holding the super key for a shortcut is not a tap of it.
             self.taps.cancel()
-            return self.model.handleKey(keyCode: Int(event.keyCode), flags: event.modifierFlags) ? nil : event
+            return self.model.handleKey(keyCode: Int(event.keyCode), flags: event.modifierFlags,
+                                        characters: event.charactersIgnoringModifiers) ? nil : event
         }
         onKeyboardChange?(true)
     }
@@ -656,6 +671,19 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
             }
             model.finishDemo()
             snap("\(page.rawValue)-\(page.title)-turn")
+        }
+        // Every tip's preview, step by step.
+        model.show(.tips, scheduled: false)
+        for (index, tip) in model.tips.enumerated() {
+            model.showTip(index, scheduled: false)
+            snap("tip\(index)-\(tip.id)-0")
+            var shot = 1
+            for step in tip.preview {
+                if case .wait = step { continue }
+                model.run(step)
+                snap("tip\(index)-\(tip.id)-\(shot)")
+                shot += 1
+            }
         }
         window.close()
     }

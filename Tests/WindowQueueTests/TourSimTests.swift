@@ -95,6 +95,59 @@ final class TourSimTests: XCTestCase {
         XCTAssertNil(sim.lockedGroup)
     }
 
+    func testWorkspacesSwitchAndTakeTheWindowAlong() {
+        let sim = TourSim()
+        sim.animated = false
+        sim.reset(SimSetup(windows: [.safari, .notes, .terminal], spaces: [3: 2], spaceCount: 3))
+        let area = CGRect(x: 0, y: 0, width: 600, height: 400)
+        XCTAssertEqual(Set(sim.frames(in: area).keys), [1, 2])
+        press(sim, kVK_ANSI_2, .option)
+        XCTAssertEqual(Set(sim.frames(in: area).keys), [3])
+        XCTAssertEqual(sim.selected, SimWindow.terminal.id)
+        // Cycling to a window on another workspace goes there.
+        press(sim, kVK_ANSI_RightBracket, .option)
+        XCTAssertEqual(sim.shownSpace, [1])
+        press(sim, kVK_ANSI_2, [.option, .shift])
+        XCTAssertEqual(sim.space(of: sim.selected ?? 0), 2)
+        XCTAssertEqual(sim.shownSpace, [2])
+        press(sim, kVK_ANSI_0, .option)
+        XCTAssertEqual(sim.shownSpace, [3])
+        XCTAssertTrue(sim.done.isSuperset(of: [.switchedSpace, .movedToSpace, .wentToEmptySpace]))
+    }
+
+    func testEachMonitorHasItsOwnQueue() {
+        let sim = TourSim()
+        sim.animated = false
+        sim.reset(SimSetup(windows: [.safari, .notes, .terminal, .mail], monitors: [3: 1, 4: 1], monitorCount: 2))
+        XCTAssertEqual(sim.queue(onMonitor: 0), [1, 2])
+        press(sim, kVK_Space, [.option, .control])
+        XCTAssertEqual(sim.focusedMonitor, 1)
+        press(sim, kVK_Space, [.option, .control, .shift])
+        XCTAssertEqual(sim.queue(onMonitor: 0).count, 3)
+        XCTAssertTrue(sim.done.isSuperset(of: [.switchedMonitor, .movedToMonitor]))
+    }
+
+    func testSearchDeclutterAndDragging() throws {
+        let sim = sim([.safari, .notes, .terminal, .mail])
+        press(sim, kVK_Space, .option)
+        XCTAssertTrue(sim.searchOpen)
+        sim.press(keyCode: kVK_ANSI_M, flags: [], prefs: prefs, characters: "m")
+        sim.press(keyCode: kVK_ANSI_A, flags: [], prefs: prefs, characters: "a")
+        XCTAssertEqual(sim.searchMatches, [SimWindow.mail.id])
+        press(sim, kVK_Return)
+        XCTAssertEqual(sim.selected, SimWindow.mail.id)
+
+        press(sim, kVK_ANSI_D, .option)
+        let frames = Array(sim.frames(in: CGRect(x: 0, y: 0, width: 600, height: 400)).values)
+        for (i, a) in frames.enumerated() { for b in frames[(i + 1)...] { XCTAssertFalse(a.insetBy(dx: 1, dy: 1).intersects(b)) } }
+
+        sim.beginDrag(SimWindow.mail.id)
+        sim.drag(to: -3)
+        sim.endDrag()
+        XCTAssertEqual(sim.queue.first, SimWindow.mail.id)
+        XCTAssertTrue(sim.done.isSuperset(of: [.searched, .decluttered, .dragged]))
+    }
+
     func testTheTourIsForNewUsersOnly() throws {
         XCTAssertFalse(Preferences().onboardingCompleted)
         let older = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
@@ -110,6 +163,7 @@ final class TourSimTests: XCTestCase {
 final class TourModelTests: XCTestCase {
     func testOnlyTheWelcomePageHasADemoAndAnyActionStopsIt() {
         XCTAssertTrue(TourPage.allCases.filter { !$0.demo.isEmpty } == [.welcome])
+        XCTAssertTrue(TourModel(store: PreferencesStore()).tips.allSatisfy { !$0.preview.isEmpty }, "every tip has a preview")
         let model = TourModel(store: PreferencesStore())
         model.show(.welcome, scheduled: false)
         XCTAssertTrue(model.demoPlaying)

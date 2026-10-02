@@ -1,25 +1,121 @@
 import SwiftUI
 
-/// The tour's pretend desktop: pictogram windows, a miniature strip on the edge the user chose,
-/// and the keys just pressed shown as keycaps.
+/// The tour's pretend desktop: one screen, or two side by side for the monitor tip, with the keys
+/// just pressed shown as keycaps and the app's notes over the top.
 struct SimDesktopView: View {
     @ObservedObject var sim: TourSim
     let prefs: Preferences
     /// A click on a window or an icon; nil on a desktop that is only a preview.
     var onClick: ((Int) -> Void)?
+    /// The user started dragging an icon, which takes the desktop over from a preview.
+    var onDragStart: (() -> Void)?
 
     static let size = CGSize(width: 600, height: 400)
+    private static let pairScale: CGFloat = 0.465
+
+    var body: some View {
+        ZStack {
+            if sim.monitorCount > 1 {
+                monitors
+            } else {
+                screen(0)
+            }
+            flashes
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.15)))
+    }
+
+    private func screen(_ monitor: Int) -> some View {
+        SimScreenView(sim: sim, prefs: prefs, monitor: monitor, onClick: onClick, onDragStart: onDragStart)
+    }
+
+    /// Two monitors on a desk, each its own screen at a smaller scale.
+    private var monitors: some View {
+        let scale = Self.pairScale
+        return ZStack {
+            LinearGradient(colors: [Color(white: 0.2), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
+            HStack(alignment: .bottom, spacing: 14) {
+                ForEach(0..<sim.monitorCount, id: \.self) { monitor in
+                    VStack(spacing: 0) {
+                        screen(monitor)
+                            .scaleEffect(scale, anchor: .topLeading)
+                            .frame(width: Self.size.width * scale, height: Self.size.height * scale, alignment: .topLeading)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .padding(4)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.black))
+                        // The stand.
+                        Rectangle().fill(Color(white: 0.45)).frame(width: 22, height: 26)
+                        Capsule().fill(Color(white: 0.5)).frame(width: 90, height: 6)
+                        Text("\(monitor + 1)")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
+                    }
+                }
+            }
+        }
+    }
+
+    private var flashes: some View {
+        VStack {
+            if let note = sim.note {
+                Text(note.text)
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 24)
+                    .id(note.id)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            Spacer()
+            if let keys = sim.keys {
+                KeyCaps(text: keys.text)
+                    .padding(.bottom, 14)
+                    .id(keys.id)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Where each strip icon is, so the pretend pointer can rest on one.
+private struct IconAnchors: PreferenceKey {
+    static var defaultValue: [Int: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [Int: Anchor<CGRect>], nextValue: () -> [Int: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+/// One monitor of the pretend desktop: wallpaper, menu bar, its windows on the workspace on show,
+/// and its own strip.
+struct SimScreenView: View {
+    @ObservedObject var sim: TourSim
+    let prefs: Preferences
+    let monitor: Int
+    var onClick: ((Int) -> Void)?
+    var onDragStart: (() -> Void)?
+
+    private static let size = SimDesktopView.size
     private static let menuBar: CGFloat = 14
     private static let icon: CGFloat = 26
     private static let stripThickness: CGFloat = 40
+    /// How far apart neighbouring icons are along the strip, for dragging.
+    private static let iconStep: CGFloat = icon + 6 + 4
 
     private var side: StripSide { prefs.stripSide }
-    private var stripShown: Bool { !prefs.invisibleStrip || sim.aiming }
+    private var isFocused: Bool { sim.focusedMonitor == monitor }
+    private var stripHidden: Bool { prefs.invisibleStrip || sim.stripHidden }
+    private var stripShown: Bool { !stripHidden || (sim.aiming && isFocused) }
 
     /// What windows may cover: the screen less the menu bar and the strip's band.
     private var area: CGRect {
         var rect = CGRect(x: 0, y: Self.menuBar, width: Self.size.width, height: Self.size.height - Self.menuBar)
-        if !prefs.invisibleStrip {
+        if !stripHidden {
             switch side {
             case .left: rect.origin.x += Self.stripThickness; rect.size.width -= Self.stripThickness
             case .right: rect.size.width -= Self.stripThickness
@@ -31,22 +127,27 @@ struct SimDesktopView: View {
     }
 
     var body: some View {
-        let frames = sim.frames(in: area)
-        let aimed = Set(sim.aiming ? sim.aimedIDs : [])
-        let cursorIDs = sim.aiming && sim.aimEntries.indices.contains(sim.aimCursor)
+        let frames = sim.frames(in: area, monitor: monitor)
+        let aiming = sim.aiming && isFocused
+        let aimed = Set(aiming ? sim.aimedIDs : [])
+        let cursorIDs = aiming && sim.aimEntries.indices.contains(sim.aimCursor)
             ? Set(sim.ids(of: sim.aimEntries[sim.aimCursor])) : []
+        let slide = CGFloat(sim.spaceDirection) * Self.size.width
         ZStack(alignment: .topLeading) {
             wallpaper
             menuBar
-            ForEach(sim.zOrder, id: \.self) { id in
+            ForEach(sim.zOrder.filter { frames[$0] != nil }, id: \.self) { id in
                 if let window = sim.window(id), let frame = frames[id] {
                     SimWindowView(window: window, isFocused: !sim.aiming && sim.selected == id)
+                        .overlay { windowMarks(id, frame: frame) }
                         .frame(width: frame.width, height: frame.height)
                         .position(x: frame.midX, y: frame.midY)
                         .onTapGesture { onClick?(id) }
+                        // Switching workspace slides the old windows out and the new ones in.
+                        .transition(.asymmetric(insertion: .offset(x: slide), removal: .offset(x: -slide)))
                 }
             }
-            if sim.aiming {
+            if aiming {
                 Color.black.opacity(prefs.aimingDimOpacity * 0.8)
                     .allowsHitTesting(false)
                     .transition(.opacity)
@@ -61,12 +162,59 @@ struct SimDesktopView: View {
                     }
                 }
             }
-            if stripShown { strips.transition(.opacity) }
-            flashes
+            if stripShown {
+                strips
+                    .opacity(sim.monitorCount > 1 && !isFocused ? prefs.inactiveStripOpacity : 1)
+                    .transition(.opacity)
+            }
+            if isFocused { panels }
+            if sim.monitorFrame?.target == monitor {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.accentColor, lineWidth: 10)
+                    .frame(width: Self.size.width, height: Self.size.height)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.15)))
+        .clipped()
+        .coordinateSpace(name: "screen")
+        .overlayPreferenceValue(IconAnchors.self) { anchors in
+            GeometryReader { proxy in
+                if let id = sim.pointer, let anchor = anchors[id] {
+                    let rect = proxy[anchor]
+                    Image(systemName: sim.lifted == id ? "hand.point.up.left.fill" : "cursorarrow")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 1.5)
+                        .position(x: rect.midX + 8, y: rect.midY + 10)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+        }
+    }
+
+    /// The camera's flash over a window just pictured, and the red frame of one being recorded.
+    @ViewBuilder
+    private func windowMarks(_ id: Int, frame: CGRect) -> some View {
+        ZStack {
+            if sim.shutter?.target == id {
+                RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.85)).transition(.opacity)
+            }
+            if sim.recording == id {
+                RoundedRectangle(cornerRadius: 7).stroke(Color.red, lineWidth: 3)
+                Label("REC", systemImage: "record.circle")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.red))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(18)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     private var wallpaper: some View {
@@ -86,6 +234,58 @@ struct SimDesktopView: View {
         .padding(.horizontal, 8)
         .frame(width: Self.size.width, height: Self.menuBar)
         .background(.black.opacity(0.25))
+    }
+
+    // MARK: - Search and the launcher
+
+    @ViewBuilder
+    private var panels: some View {
+        if sim.searchOpen {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Text(sim.query.isEmpty ? "Search windows" : sim.query)
+                        .foregroundStyle(sim.query.isEmpty ? .secondary : .primary)
+                    Rectangle().fill(Color.accentColor).frame(width: 1.5, height: 14)
+                    Spacer()
+                }
+                .font(.system(size: 13))
+                .padding(8)
+                Divider()
+                ForEach(Array(sim.searchMatches.prefix(4).enumerated()), id: \.element) { index, id in
+                    if let window = sim.window(id) {
+                        HStack(spacing: 8) {
+                            SimIcon(window: window, size: 16)
+                            Text(window.name).font(.system(size: 12))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(index == 0 ? Color.accentColor.opacity(0.35) : .clear))
+                    }
+                }
+            }
+            .padding(6)
+            .frame(width: 280)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .shadow(radius: 10)
+            .position(x: Self.size.width / 2, y: 120)
+            .transition(.scale(scale: 0.92).combined(with: .opacity))
+        }
+        if let launcher = sim.launcher {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle.magnifyingglass").foregroundStyle(.secondary)
+                Text("\(launcher.text) — search apps and commands").foregroundStyle(.secondary)
+                Spacer()
+            }
+            .font(.system(size: 13))
+            .padding(12)
+            .frame(width: 330)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .shadow(radius: 10)
+            .position(x: Self.size.width / 2, y: 110)
+            .transition(.scale(scale: 0.92).combined(with: .opacity))
+        }
     }
 
     // MARK: - Strip
@@ -122,10 +322,10 @@ struct SimDesktopView: View {
         return beside {
             if menuFirst { layoutMenu }
             stack {
-                if let group = sim.shownGroup { groupStrip(group) }
+                if isFocused, let group = sim.shownGroup { groupStrip(group) }
                 mainStrip
             }
-            .scaleEffect(sim.aiming ? 1.12 : 1, anchor: scaleAnchor)
+            .scaleEffect(sim.aiming && isFocused ? 1.12 : 1, anchor: scaleAnchor)
             if !menuFirst { layoutMenu }
         }
         .padding(4)
@@ -135,13 +335,14 @@ struct SimDesktopView: View {
 
     private var mainStrip: some View {
         let stack = side.isVertical ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 4))
-        let aimed = sim.aiming && sim.insideGroup == nil ? Set(sim.aimedEntries) : []
+        let aimed = sim.aiming && isFocused && sim.insideGroup == nil ? Set(sim.aimedEntries) : []
         return stack {
-            Text("1")
+            Text("\(sim.shownSpace[safe: monitor] ?? 1)")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .frame(width: Self.icon, height: Self.icon * 0.8)
-            ForEach(sim.entries, id: \.self) { entry in
+                .contentTransition(.numericText())
+            ForEach(sim.entries(onMonitor: monitor), id: \.self) { entry in
                 entryView(entry, aimed: aimed.contains(entry))
             }
         }
@@ -155,10 +356,28 @@ struct SimDesktopView: View {
         switch entry {
         case .window(let id):
             if let window = sim.window(id) {
+                let elsewhere = !sim.isOnShow(id)
                 SimIcon(window: window, size: Self.icon)
+                    .opacity(elsewhere ? 0.45 : 1)
+                    .overlay(alignment: .bottomTrailing) {
+                        // A window on another workspace carries that workspace's number.
+                        if elsewhere {
+                            Text("\(sim.space(of: id))")
+                                .font(.system(size: 8, weight: .bold))
+                                .padding(.horizontal, 3)
+                                .background(Capsule().fill(Color.secondary))
+                                .foregroundStyle(.white)
+                                .offset(x: 3, y: 3)
+                        }
+                    }
                     .padding(3)
                     .background(selection(isSelected: sim.selected == id && !sim.aiming, isAimed: aimed))
+                    .scaleEffect(sim.lifted == id ? 1.18 : 1)
+                    .shadow(color: .black.opacity(sim.lifted == id ? 0.45 : 0), radius: 6, y: 3)
+                    .zIndex(sim.lifted == id ? 1 : 0)
+                    .anchorPreference(key: IconAnchors.self, value: .bounds) { [id: $0] }
                     .onTapGesture { onClick?(id) }
+                    .gesture(dragGesture(id))
             }
         case .group(let groupID):
             let members = sim.members(groupID).compactMap(sim.window)
@@ -180,6 +399,24 @@ struct SimDesktopView: View {
             .background(selection(isSelected: !sim.aiming && sim.selected.map { members.map(\.id).contains($0) } == true,
                                   isAimed: aimed))
         }
+    }
+
+    /// Dragging an icon along the strip reorders the queue, a step for every icon passed.
+    private func dragGesture(_ id: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named("screen"))
+            .onChanged { value in
+                guard onClick != nil else { return }
+                if sim.lifted != id {
+                    onDragStart?()
+                    sim.beginDrag(id)
+                }
+                let along = side.isVertical ? value.translation.height : value.translation.width
+                sim.drag(to: Int((along / Self.iconStep).rounded()))
+            }
+            .onEnded { _ in
+                guard onClick != nil else { return }
+                sim.endDrag()
+            }
     }
 
     private func selection(isSelected: Bool, isAimed: Bool) -> some View {
@@ -219,41 +456,12 @@ struct SimDesktopView: View {
         .transition(.scale(scale: 0.6).combined(with: .opacity))
     }
 
-    // MARK: - Layout menu, keys and notes
-
     @ViewBuilder
     private var layoutMenu: some View {
-        if sim.aiming, sim.canTile {
+        if sim.aiming, isFocused, sim.canTile {
             TourLayoutMenu(options: sim.layoutOptions, highlighted: sim.menuIndex, focused: sim.menuFocused)
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
-    }
-
-    private var flashes: some View {
-        ZStack {
-            VStack {
-                if let note = sim.note {
-                    Text(note.text)
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(.top, 24)
-                        .id(note.id)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                Spacer()
-                if let keys = sim.keys {
-                    KeyCaps(text: keys.text)
-                        .padding(.bottom, 14)
-                        .id(keys.id)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
-            }
-            .frame(width: Self.size.width, height: Self.size.height)
-        }
-        .frame(width: Self.size.width, height: Self.size.height)
-        .allowsHitTesting(false)
     }
 }
 
