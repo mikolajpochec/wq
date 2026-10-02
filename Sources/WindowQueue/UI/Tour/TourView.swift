@@ -594,10 +594,8 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
 
     func present() {
         if window?.isVisible != true { model.show(.welcome) }
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        if let window { OwnWindows.present(window) }
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

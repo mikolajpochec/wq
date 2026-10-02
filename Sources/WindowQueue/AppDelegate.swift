@@ -269,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nor while a jump to another desktop is under way: whatever slides under the pointer
             // on the way is not where the user is going, and focusing it would turn the jump back.
             return self.model.aimingID != nil || self.search?.isOpen == true || self.tourHasKeyboard
+                || OwnWindows.justPresented
                 || SpaceSwitcher.destination != nil || WindowDragMover.isCarrying
         }
         hoverFocus.start()

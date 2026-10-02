@@ -543,9 +543,7 @@ final class SettingsWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
     func present() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        if let window { OwnWindows.present(window) }
     }
 }
