@@ -180,4 +180,21 @@ final class TourModelTests: XCTestCase {
         XCTAssertFalse(model.awaitingUser)
         XCTAssertTrue(model.done.contains(.cycled))
     }
+
+    func testDoingATipMovesOnToTheNext() throws {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.tips, scheduled: false)
+        let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "declutter" })
+        model.showTip(index, scheduled: false)
+        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
+        XCTAssertEqual(model.tipIndex, index, "it stays a beat, to see what happened")
+        let moved = expectation(description: "next tip")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            XCTAssertEqual(model.tipIndex, index + 1)
+            XCTAssertTrue(model.demoPlaying)
+            model.stop()
+            moved.fulfill()
+        }
+        wait(for: [moved], timeout: 3)
+    }
 }

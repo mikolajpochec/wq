@@ -39,7 +39,8 @@ enum TourEvent: Hashable {
     case grouped, enteredGroup, locked, cycledLocked
     case switchedSpace, movedToSpace, wentToEmptySpace
     case switchedMonitor, movedToMonitor
-    case searched, launched, maximized, decluttered, pictured, recorded, hidStrip, dragged
+    case searched, launched, maximized, restored, decluttered, pictured, recorded, videoSaved
+    case hidStrip, stripBack, dragged, dropped
 }
 
 /// Where the pretend desktop starts: which windows, and on which workspace and monitor each is.
@@ -792,12 +793,13 @@ final class TourSim: ObservableObject {
         done.insert(.maximized)
     }
 
-    /// Fullscreen, and fullscreen again to put the window back as it was — maximized or not.
+    /// Fullscreen, and fullscreen again to put the window back as it was before either.
     private func toggleFullscreen() {
         guard let target = takeTarget() else { return }
-        if fullscreen == target || maximized.contains(target) {
+        if fullscreen == target {
             fullscreen = nil
             maximized.remove(target)
+            done.insert(.restored)
         } else {
             select(target)
             fullscreen = target
@@ -929,6 +931,7 @@ final class TourSim: ObservableObject {
             self.recording = nil
             if aiming { endAiming() }
             flash(.note, "Video of the \(window(recording)?.name ?? "") window saved")
+            done.insert(.videoSaved)
             return
         }
         guard let target = takeTarget() else { return }
@@ -939,7 +942,7 @@ final class TourSim: ObservableObject {
 
     private func toggleStrip() {
         stripHidden.toggle()
-        done.insert(.hidStrip)
+        done.insert(stripHidden ? .hidStrip : .stripBack)
         flash(.note, stripHidden ? "Strip hidden — it comes back while aiming" : "Strip shown")
     }
 
@@ -992,7 +995,10 @@ final class TourSim: ObservableObject {
     }
 
     func endDrag() {
-        change { lifted = nil }
+        change {
+            if lifted != nil, done.contains(.dragged) { done.insert(.dropped) }
+            lifted = nil
+        }
     }
 
     // MARK: - Flashes

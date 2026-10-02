@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
 
 /// The tour's pages, in order.
 enum TourPage: Int, CaseIterable, Identifiable {
@@ -55,6 +56,8 @@ struct TourTip: Identifiable {
     let hint: String
     let setup: SimSetup
     let preview: [TourModel.DemoStep]
+    /// The user has done what `hint` asks, so the next tip can come up.
+    let isDone: (TourSim) -> Bool
 }
 
 /// Drives the tour: which page is up, the demo or preview playing on it, and the keys the user tries.
@@ -93,10 +96,17 @@ final class TourModel: ObservableObject {
     let sim = TourSim()
     let store: PreferencesStore
     private var demoWork: [DispatchWorkItem] = []
+    private var simWatch: AnyCancellable?
+    /// A finished tip is about to hand on to the next.
+    private var advancing = false
 
     init(store: PreferencesStore) {
         self.store = store
         sim.reset(TourPage.welcome.windows)
+        // `objectWillChange` fires before the change lands; look on the next turn.
+        simWatch = sim.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.advanceIfTipDone() }
+        }
     }
 
     var prefs: Preferences { store.prefs }
@@ -156,6 +166,20 @@ final class TourModel: ObservableObject {
         showTip(tipIndex)
     }
 
+    /// The user did what the tip asks: after a beat to see it happen, on to the next tip.
+    private func advanceIfTipDone() {
+        guard page == .tips, !demoPlaying, !advancing, let tip = currentTip, tip.isDone(sim) else { return }
+        advancing = true
+        let index = tipIndex
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self else { return }
+            self.advancing = false
+            guard self.page == .tips, self.tipIndex == index, !self.demoPlaying else { return }
+            self.tipsPlaying = true
+            self.showTip((index + 1) % max(self.tips.count, 1))
+        }
+    }
+
     var tips: [TourTip] {
         let superKey = superSymbol
         let launcher = prefs.launcher.title
@@ -167,47 +191,54 @@ final class TourModel: ObservableObject {
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], spaces: [3: 2, 4: 2], spaceCount: 3),
                     preview: [.wait(0.8), .action(.space2), .wait(1.3), .action(.space1), .wait(1.1), .action(.cycleNext),
                               .wait(0.9), .action(.moveToSpace2), .wait(1.5), .action(.goToEmptySpace), .wait(1.4),
-                              .action(.space1), .wait(1.2)]),
+                              .action(.space1), .wait(1.2)],
+                    isDone: { $0.done.contains(.switchedSpace) && $0.shownSpace.first == 1 }),
             TourTip(id: "search", symbol: "magnifyingglass", title: "Search",
                     keys: [combo(.search)],
                     text: "Find any window by typing part of its name; ↩ goes there.",
                     hint: "\(combo(.search)), type part of a name, ↩",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail, .music]),
                     preview: [.wait(0.8), .action(.search), .wait(0.8), .type("t"), .wait(0.35), .type("e"), .wait(0.35),
-                              .type("r"), .wait(1.1), .key(.enter), .wait(1.6)]),
+                              .type("r"), .wait(1.1), .key(.enter), .wait(1.6)],
+                    isDone: { $0.done.contains(.searched) }),
             TourTip(id: "launcher", symbol: "sparkle.magnifyingglass", title: "Launcher",
                     keys: [combo(.openLauncher), "\(superKey) \(superKey)"],
                     text: "\(combo(.openLauncher)) opens \(launcher). Two quick taps of \(superKey): \(prefs.superDoubleTapAction?.title.lowercased() ?? "focus the aimed window").",
                     hint: "\(combo(.openLauncher)), or tap \(superKey) twice",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
-                    preview: [.wait(0.8), .action(.openLauncher), .wait(2.3), .superTap, .wait(0.15), .superTap, .wait(2.3)]),
+                    preview: [.wait(0.8), .action(.openLauncher), .wait(2.3), .superTap, .wait(0.15), .superTap, .wait(2.3)],
+                    isDone: { $0.done.contains(.launched) }),
             TourTip(id: "maximize", symbol: "arrow.up.left.and.arrow.down.right", title: "Maximize and fullscreen",
                     keys: [combo(.maximizeWindow), combo(.toggleMaximize)],
                     text: "\(combo(.maximizeWindow)) fills the screen beside the strip. \(combo(.toggleMaximize)) goes fullscreen; again, and the window is back.",
                     hint: "\(combo(.maximizeWindow)), then \(combo(.toggleMaximize)) twice",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
                     preview: [.wait(0.8), .action(.maximizeWindow), .wait(1.4), .action(.cycleNext), .wait(1), .action(.toggleMaximize),
-                              .wait(1.4), .action(.toggleMaximize), .wait(1.3)]),
+                              .wait(1.4), .action(.toggleMaximize), .wait(1.3)],
+                    isDone: { $0.done.contains(.restored) }),
             TourTip(id: "declutter", symbol: "rectangle.3.group", title: "Declutter",
                     keys: [combo(.declutter)],
                     text: "Every window in view at once, none on top of another, resized as little as possible.",
                     hint: combo(.declutter),
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
-                    preview: [.wait(1), .action(.declutter), .wait(2.6)]),
+                    preview: [.wait(1), .action(.declutter), .wait(2.6)],
+                    isDone: { $0.done.contains(.decluttered) }),
             TourTip(id: "capture", symbol: "camera.viewfinder", title: "Picture or video",
                     keys: [combo(.screenshotWindow), combo(.toggleRecording)],
                     text: "\(combo(.screenshotWindow)) takes a picture, \(combo(.toggleRecording)) starts and stops a video — of the one window, not the screen.",
                     hint: "\(combo(.screenshotWindow)), or \(combo(.toggleRecording)) twice",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
                     preview: [.wait(0.8), .action(.screenshotWindow), .wait(1.5), .action(.toggleRecording), .wait(2.4),
-                              .action(.toggleRecording), .wait(1.5)]),
+                              .action(.toggleRecording), .wait(1.5)],
+                    isDone: { !$0.done.isDisjoint(with: [.pictured, .videoSaved]) }),
             TourTip(id: "invisible", symbol: "eye.slash", title: "Invisible strip",
                     keys: [combo(.toggleInvisibleStrip)],
                     text: "Hide the strip and get its room back; it shows up again whenever aiming mode opens.",
-                    hint: "\(combo(.toggleInvisibleStrip)), then tap \(superKey)",
+                    hint: "\(combo(.toggleInvisibleStrip)), tap \(superKey) to see it, \(combo(.toggleInvisibleStrip)) again",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
                     preview: [.wait(0.8), .action(.toggleInvisibleStrip), .wait(1.4), .superTap, .wait(1.3), .key(.cancel),
-                              .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)]),
+                              .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)],
+                    isDone: { $0.done.contains(.stripBack) }),
             TourTip(id: "drag", symbol: "hand.draw", title: "Drag and drop",
                     keys: [],
                     text: "Drag an icon along the strip to reorder the queue.",
@@ -215,7 +246,8 @@ final class TourModel: ObservableObject {
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
                     preview: [.wait(0.6), .pointer(SimWindow.mail.id), .wait(0.8), .lift(SimWindow.mail.id), .wait(0.4),
                               .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.6), .drop,
-                              .wait(0.8), .pointer(nil), .wait(1)]),
+                              .wait(0.8), .pointer(nil), .wait(1)],
+                    isDone: { $0.done.contains(.dropped) }),
         ]
         if prefs.multiMonitorMode {
             tips.insert(TourTip(id: "monitors", symbol: "display.2", title: "Monitors",
@@ -224,7 +256,8 @@ final class TourModel: ObservableObject {
                                 hint: "\(combo(.focusNextMonitor)), then \(combo(.moveToNextMonitor))",
                                 setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], monitors: [3: 1, 4: 1], monitorCount: 2),
                                 preview: [.wait(0.9), .action(.focusNextMonitor), .wait(1.4), .action(.focusNextMonitor), .wait(1.3),
-                                          .action(.moveToNextMonitor), .wait(1.6), .action(.focusNextMonitor), .wait(1.3)]),
+                                          .action(.moveToNextMonitor), .wait(1.6), .action(.focusNextMonitor), .wait(1.3)],
+                                isDone: { $0.done.contains(.movedToMonitor) }),
                         at: 1)
         }
         return tips
@@ -250,6 +283,7 @@ final class TourModel: ObservableObject {
         demoPlaying = true
         guard scheduled else { return }
         var at: TimeInterval = 0
+        var lastStep: TimeInterval = 0
         for step in demoSteps {
             if case .wait(let seconds) = step {
                 at += seconds
@@ -258,9 +292,11 @@ final class TourModel: ObservableObject {
             let work = DispatchWorkItem { [weak self] in self?.run(step) }
             demoWork.append(work)
             DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
+            lastStep = at
         }
         demoStarted = Date()
-        demoLength = at + 0.6
+        // A tip hands on to the next as soon as its last step has had a moment to show.
+        demoLength = page == .tips ? lastStep + 1.2 : at + 0.6
         let end = DispatchWorkItem { [weak self] in self?.demoEnded() }
         demoWork.append(end)
         DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: end)
