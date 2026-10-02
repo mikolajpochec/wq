@@ -1,8 +1,27 @@
 import AppKit
 import SwiftUI
 
+/// The settings' tabs, shown as the window's toolbar the way macOS settings windows are.
+enum SettingsTab: String, CaseIterable {
+    case general, focus, shortcuts, strip, animations
+
+    var title: String { rawValue.capitalized }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .focus: return "cursorarrow.rays"
+        case .shortcuts: return "keyboard"
+        case .strip: return "sidebar.left"
+        case .animations: return "wand.and.stars"
+        }
+    }
+}
+
+/// One tab of the settings.
 struct SettingsView: View {
     @ObservedObject var store: PreferencesStore
+    let tab: SettingsTab
     let hotkeyFailures: [HotkeyAction]
     let spacesAvailable: Bool
     var showTour: () -> Void = {}
@@ -11,12 +30,14 @@ struct SettingsView: View {
     @State private var newAimAction: HotkeyAction = .toggleRecording
 
     var body: some View {
-        TabView {
-            general.tabItem { Label("General", systemImage: "gearshape") }
-            focus.tabItem { Label("Focus", systemImage: "cursorarrow.rays") }
-            shortcuts.tabItem { Label("Shortcuts", systemImage: "keyboard") }
-            strip.tabItem { Label("Strip", systemImage: "sidebar.left") }
-            animations.tabItem { Label("Animations", systemImage: "wand.and.stars") }
+        Group {
+            switch tab {
+            case .general: general
+            case .focus: focus
+            case .shortcuts: shortcuts
+            case .strip: strip
+            case .animations: animations
+            }
         }
         .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
     }
@@ -523,17 +544,31 @@ final class SettingsWindowController: NSWindowController {
     static let size = NSSize(width: 600, height: 560)
 
     private let store: PreferencesStore
+    private let tabs: NSTabViewController
 
+    /// A tab view controller in toolbar style: the tabs are the window's toolbar, and its title
+    /// follows the tab — the standard macOS settings window, which a SwiftUI `TabView` in a plain
+    /// window is not (on macOS 26 that draws as a blank segmented bar).
     init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool,
          showTour: @escaping () -> Void) {
         self.store = store
-        let view = SettingsView(store: store, hotkeyFailures: failures(), spacesAvailable: spacesAvailable,
-                                showTour: showTour)
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
-                              styleMask: [.titled, .closable, .miniaturizable],
-                              backing: .buffered, defer: false)
-        window.title = "WindowQueue Settings"
-        window.contentView = NSHostingView(rootView: view)
+        tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        for tab in SettingsTab.allCases {
+            let view = SettingsView(store: store, tab: tab, hotkeyFailures: failures(),
+                                    spacesAvailable: spacesAvailable, showTour: showTour)
+            let hosting = NSHostingController(rootView: view)
+            // The window takes its title from the tab on show.
+            hosting.title = tab.title
+            let item = NSTabViewItem(viewController: hosting)
+            item.label = tab.title
+            item.image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title)
+            tabs.addTabViewItem(item)
+        }
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.toolbarStyle = .preference
+        window.setContentSize(Self.size)
         window.center()
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -541,6 +576,27 @@ final class SettingsWindowController: NSWindowController {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("unsupported") }
+
+    /// Draws every tab of the settings window, title bar and toolbar included, into PNGs without
+    /// putting it on screen. Debug command `settings-render <dir>`.
+    static func render(store: PreferencesStore, to directory: URL) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let controller = SettingsWindowController(store: store, failures: { [] }, spacesAvailable: true, showTour: {})
+        guard let window = controller.window else { return }
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderBack(nil)
+        for (index, tab) in SettingsTab.allCases.enumerated() {
+            controller.tabs.selectedTabViewItemIndex = index
+            RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+            guard let frame = window.contentView?.superview else { continue }
+            if let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+                frame.cacheDisplay(in: frame.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?
+                    .write(to: directory.appendingPathComponent("settings-\(index)-\(tab.rawValue).png"))
+            }
+        }
+        window.orderOut(nil)
+    }
 
     func present() {
         showWindow(nil)

@@ -1546,7 +1546,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .maximizeWindow:
             // One after another, so an app that snaps its own frame does not fight the next one.
             for window in group { maximize(window, bringUp: false) }
-            if let first = group.first { bringUp(first) }
+            // The one brought up on top becomes the selection, as it does maximizing a single
+            // aimed window.
+            if let first = group.first {
+                model.select(id: first.id, announce: false)
+                bringUp(first)
+            }
             announceGroup("Maximized \(count) windows")
         case .minimizeWindow:
             for window in group { minimize(window) }
@@ -2317,6 +2322,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TourWindowController.render(store: store, to: URL(fileURLWithPath: path))
         case "tour":
             showTour()
+        case "settings-render":
+            guard let path = words.dropFirst().first else { return }
+            SettingsWindowController.render(store: store, to: URL(fileURLWithPath: path))
         default:
             break
         }
