@@ -544,9 +544,10 @@ struct TourView: View {
                     if !current, let first = tip.keys.first { KeyCaps(text: first, small: true) }
                 }
                 if current {
-                    if !tip.keys.isEmpty {
-                        HStack(spacing: 5) {
-                            ForEach(Array(tip.keys.enumerated()), id: \.offset) { KeyCaps(text: $0.element, small: true) }
+                    // Each shortcut turns green once the user has used it on the desktop.
+                    HStack(spacing: 5) {
+                        ForEach(Array(tip.goals.enumerated()), id: \.offset) { _, goal in
+                            KeyCaps(text: goal.keys, small: true, done: tip.used(goal, in: model.done))
                         }
                     }
                     Text(tip.text)
@@ -684,6 +685,13 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
                 snap("tip\(index)-\(tip.id)-\(shot)")
                 shot += 1
             }
+        }
+        // A user trying a tip: the shortcut used turns green.
+        if let index = model.tips.firstIndex(where: { $0.id == "capture" }) {
+            model.showTip(index, scheduled: false)
+            model.takeOver()
+            model.run(.action(.screenshotWindow))
+            snap("tip-user-tried")
         }
         window.close()
     }

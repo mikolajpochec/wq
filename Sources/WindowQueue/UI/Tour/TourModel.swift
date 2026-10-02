@@ -47,17 +47,28 @@ enum TourPage: Int, CaseIterable, Identifiable {
 /// One of the tips on the last page: what it does, its keys, and a preview on the pretend desktop
 /// that plays before the next tip comes up — or that the user can take over and try.
 struct TourTip: Identifiable {
+    /// One of a tip's shortcuts, and what the pretend desktop records once it has been used.
+    struct Goal {
+        let keys: String
+        let event: TourEvent
+    }
+
     let id: String
     let symbol: String
     let title: String
-    let keys: [String]
+    let goals: [Goal]
     let text: String
     /// What to try, for the "Your turn" card.
     let hint: String
     let setup: SimSetup
     let preview: [TourModel.DemoStep]
-    /// The user has done what `hint` asks, so the next tip can come up.
-    let isDone: (TourSim) -> Bool
+
+    var keys: [String] { goals.map(\.keys) }
+
+    func used(_ goal: Goal, in done: Set<TourEvent>) -> Bool { done.contains(goal.event) }
+
+    /// Every one of the tip's shortcuts has been used, so the next tip can come up.
+    func isDone(_ done: Set<TourEvent>) -> Bool { goals.allSatisfy { done.contains($0.event) } }
 }
 
 /// Drives the tour: which page is up, the demo or preview playing on it, and the keys the user tries.
@@ -166,12 +177,13 @@ final class TourModel: ObservableObject {
         showTip(tipIndex)
     }
 
-    /// The user did what the tip asks: after a beat to see it happen, on to the next tip.
+    /// The user has used every one of the tip's shortcuts: a second to see the last one happen,
+    /// then on to the next tip.
     private func advanceIfTipDone() {
-        guard page == .tips, !demoPlaying, !advancing, let tip = currentTip, tip.isDone(sim) else { return }
+        guard page == .tips, !demoPlaying, !advancing, let tip = currentTip, tip.isDone(sim.done) else { return }
         advancing = true
         let index = tipIndex
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self else { return }
             self.advancing = false
             guard self.page == .tips, self.tipIndex == index, !self.demoPlaying else { return }
@@ -185,79 +197,71 @@ final class TourModel: ObservableObject {
         let launcher = prefs.launcher.title
         var tips = [
             TourTip(id: "workspaces", symbol: "square.grid.3x3", title: "Workspaces",
-                    keys: ["\(combo(.space1))…9", "\(combo(.moveToSpace1))…9", combo(.goToEmptySpace)],
+                    goals: [.init(keys: "\(combo(.space1))…9", event: .switchedSpace), .init(keys: "\(combo(.moveToSpace1))…9", event: .movedToSpace),
+                            .init(keys: combo(.goToEmptySpace), event: .wentToEmptySpace)],
                     text: "\(combo(.space1))…9 go to workspace N; \(combo(.moveToSpace1))…9 take the window along. \(combo(.goToEmptySpace)) finds an empty one.",
-                    hint: "\(combo(.space2)), then \(combo(.space1))",
+                    hint: "\(combo(.space2)), \(combo(.moveToSpace1)) and \(combo(.goToEmptySpace))",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], spaces: [3: 2, 4: 2], spaceCount: 3),
                     preview: [.wait(0.8), .action(.space2), .wait(1.3), .action(.space1), .wait(1.1), .action(.cycleNext),
                               .wait(0.9), .action(.moveToSpace2), .wait(1.5), .action(.goToEmptySpace), .wait(1.4),
-                              .action(.space1), .wait(1.2)],
-                    isDone: { $0.done.contains(.switchedSpace) && $0.shownSpace.first == 1 }),
+                              .action(.space1), .wait(1.2)]),
             TourTip(id: "search", symbol: "magnifyingglass", title: "Search",
-                    keys: [combo(.search)],
+                    goals: [.init(keys: combo(.search), event: .searched)],
                     text: "Find any window by typing part of its name; ↩ goes there.",
                     hint: "\(combo(.search)), type part of a name, ↩",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail, .music]),
                     preview: [.wait(0.8), .action(.search), .wait(0.8), .type("t"), .wait(0.35), .type("e"), .wait(0.35),
-                              .type("r"), .wait(1.1), .key(.enter), .wait(1.6)],
-                    isDone: { $0.done.contains(.searched) }),
+                              .type("r"), .wait(1.1), .key(.enter), .wait(1.6)]),
             TourTip(id: "launcher", symbol: "sparkle.magnifyingglass", title: "Launcher",
-                    keys: [combo(.openLauncher), "\(superKey) \(superKey)"],
+                    goals: [.init(keys: combo(.openLauncher), event: .launched), .init(keys: "\(superKey) \(superKey)", event: .doubleTapped)],
                     text: "\(combo(.openLauncher)) opens \(launcher). Two quick taps of \(superKey): \(prefs.superDoubleTapAction?.title.lowercased() ?? "focus the aimed window").",
-                    hint: "\(combo(.openLauncher)), or tap \(superKey) twice",
+                    hint: "\(combo(.openLauncher)), then tap \(superKey) twice",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
-                    preview: [.wait(0.8), .action(.openLauncher), .wait(2.3), .superTap, .wait(0.15), .superTap, .wait(2.3)],
-                    isDone: { $0.done.contains(.launched) }),
+                    preview: [.wait(0.8), .action(.openLauncher), .wait(2.3), .superTap, .wait(0.15), .superTap, .wait(2.3)]),
             TourTip(id: "maximize", symbol: "arrow.up.left.and.arrow.down.right", title: "Maximize and fullscreen",
-                    keys: [combo(.maximizeWindow), combo(.toggleMaximize)],
+                    goals: [.init(keys: combo(.maximizeWindow), event: .maximized), .init(keys: combo(.toggleMaximize), event: .fullscreened)],
                     text: "\(combo(.maximizeWindow)) fills the screen beside the strip. \(combo(.toggleMaximize)) goes fullscreen; again, and the window is back.",
-                    hint: "\(combo(.maximizeWindow)), then \(combo(.toggleMaximize)) twice",
+                    hint: "\(combo(.maximizeWindow)), then \(combo(.toggleMaximize))",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
                     preview: [.wait(0.8), .action(.maximizeWindow), .wait(1.4), .action(.cycleNext), .wait(1), .action(.toggleMaximize),
-                              .wait(1.4), .action(.toggleMaximize), .wait(1.3)],
-                    isDone: { $0.done.contains(.restored) }),
+                              .wait(1.4), .action(.toggleMaximize), .wait(1.3)]),
             TourTip(id: "declutter", symbol: "rectangle.3.group", title: "Declutter",
-                    keys: [combo(.declutter)],
+                    goals: [.init(keys: combo(.declutter), event: .decluttered)],
                     text: "Every window in view at once, none on top of another, resized as little as possible.",
                     hint: combo(.declutter),
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
-                    preview: [.wait(1), .action(.declutter), .wait(2.6)],
-                    isDone: { $0.done.contains(.decluttered) }),
+                    preview: [.wait(1), .action(.declutter), .wait(2.6)]),
             TourTip(id: "capture", symbol: "camera.viewfinder", title: "Picture or video",
-                    keys: [combo(.screenshotWindow), combo(.toggleRecording)],
+                    goals: [.init(keys: combo(.screenshotWindow), event: .pictured), .init(keys: combo(.toggleRecording), event: .videoSaved)],
                     text: "\(combo(.screenshotWindow)) takes a picture, \(combo(.toggleRecording)) starts and stops a video — of the one window, not the screen.",
-                    hint: "\(combo(.screenshotWindow)), or \(combo(.toggleRecording)) twice",
+                    hint: "\(combo(.screenshotWindow)), then \(combo(.toggleRecording)) to start and stop",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
                     preview: [.wait(0.8), .action(.screenshotWindow), .wait(1.5), .action(.toggleRecording), .wait(2.4),
-                              .action(.toggleRecording), .wait(1.5)],
-                    isDone: { !$0.done.isDisjoint(with: [.pictured, .videoSaved]) }),
+                              .action(.toggleRecording), .wait(1.5)]),
             TourTip(id: "invisible", symbol: "eye.slash", title: "Invisible strip",
-                    keys: [combo(.toggleInvisibleStrip)],
+                    goals: [.init(keys: combo(.toggleInvisibleStrip), event: .hidStrip), .init(keys: superKey, event: .peekedStrip)],
                     text: "Hide the strip and get its room back; it shows up again whenever aiming mode opens.",
-                    hint: "\(combo(.toggleInvisibleStrip)), tap \(superKey) to see it, \(combo(.toggleInvisibleStrip)) again",
+                    hint: "\(combo(.toggleInvisibleStrip)), then tap \(superKey) to see the strip",
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
                     preview: [.wait(0.8), .action(.toggleInvisibleStrip), .wait(1.4), .superTap, .wait(1.3), .key(.cancel),
-                              .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)],
-                    isDone: { $0.done.contains(.stripBack) }),
+                              .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)]),
             TourTip(id: "drag", symbol: "hand.draw", title: "Drag and drop",
-                    keys: [],
+                    goals: [.init(keys: "Drag an icon", event: .dropped)],
                     text: "Drag an icon along the strip to reorder the queue.",
                     hint: "Drag an icon along the strip",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
                     preview: [.wait(0.6), .pointer(SimWindow.mail.id), .wait(0.8), .lift(SimWindow.mail.id), .wait(0.4),
                               .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.6), .drop,
-                              .wait(0.8), .pointer(nil), .wait(1)],
-                    isDone: { $0.done.contains(.dropped) }),
+                              .wait(0.8), .pointer(nil), .wait(1)]),
         ]
         if prefs.multiMonitorMode {
             tips.insert(TourTip(id: "monitors", symbol: "display.2", title: "Monitors",
-                                keys: [combo(.focusNextMonitor), combo(.moveToNextMonitor)],
+                                goals: [.init(keys: combo(.focusNextMonitor), event: .switchedMonitor), .init(keys: combo(.moveToNextMonitor), event: .movedToMonitor)],
                                 text: "Each monitor has its own strip. \(combo(.focusNextMonitor)) goes to the next monitor, \(combo(.moveToNextMonitor)) takes the window along; \(combo(.focusMonitor1))…4 go to monitor N.",
                                 hint: "\(combo(.focusNextMonitor)), then \(combo(.moveToNextMonitor))",
                                 setup: SimSetup(windows: [.safari, .notes, .terminal, .mail], monitors: [3: 1, 4: 1], monitorCount: 2),
                                 preview: [.wait(0.9), .action(.focusNextMonitor), .wait(1.4), .action(.focusNextMonitor), .wait(1.3),
-                                          .action(.moveToNextMonitor), .wait(1.6), .action(.focusNextMonitor), .wait(1.3)],
-                                isDone: { $0.done.contains(.movedToMonitor) }),
+                                          .action(.moveToNextMonitor), .wait(1.6), .action(.focusNextMonitor), .wait(1.3)]),
                         at: 1)
         }
         return tips

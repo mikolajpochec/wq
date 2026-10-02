@@ -39,8 +39,8 @@ enum TourEvent: Hashable {
     case grouped, enteredGroup, locked, cycledLocked
     case switchedSpace, movedToSpace, wentToEmptySpace
     case switchedMonitor, movedToMonitor
-    case searched, launched, maximized, restored, decluttered, pictured, recorded, videoSaved
-    case hidStrip, stripBack, dragged, dropped
+    case searched, launched, doubleTapped, maximized, fullscreened, restored, decluttered
+    case pictured, recorded, videoSaved, hidStrip, stripBack, peekedStrip, dragged, dropped
 }
 
 /// Where the pretend desktop starts: which windows, and on which workspace and monitor each is.
@@ -383,10 +383,16 @@ final class TourSim: ObservableObject {
             beginAiming()
             return
         }
-        if let doubleTap, Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
-            change { endAiming() }
-            perform(doubleTap)
-            return
+        if Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
+            done.insert(.doubleTapped)
+            if let doubleTap {
+                // What the double tap runs counts as the double tap, not as that action's own key.
+                let before = done
+                change { endAiming() }
+                perform(doubleTap)
+                done = before.union([.doubleTapped])
+                return
+            }
         }
         confirm()
     }
@@ -584,6 +590,7 @@ final class TourSim: ObservableObject {
             aimAnchor = index
             aimCursor = index
             done.insert(.aimed)
+            if stripHidden { done.insert(.peekedStrip) }
         }
     }
 
@@ -803,8 +810,8 @@ final class TourSim: ObservableObject {
         } else {
             select(target)
             fullscreen = target
+            done.insert(.fullscreened)
         }
-        done.insert(.maximized)
     }
 
     private func goToSpace(_ index: Int) {
@@ -847,8 +854,10 @@ final class TourSim: ObservableObject {
             flash(.note, "No empty workspace")
             return
         }
+        // Its own shortcut, not the numbered ones: only that one is ticked off.
+        let before = done
         if carrying { moveTarget(toSpace: empty) } else { goToSpace(empty) }
-        done.insert(.wentToEmptySpace)
+        done = before.union([.wentToEmptySpace])
     }
 
     private func focusMonitor(_ index: Int) {

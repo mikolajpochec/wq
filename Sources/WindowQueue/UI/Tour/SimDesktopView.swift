@@ -560,6 +560,8 @@ struct SimWindowView: View {
 struct KeyCaps: View {
     let text: String
     var small = false
+    /// Used already: the cap turns green, with a tick.
+    var done = false
 
     static func split(_ text: String) -> [String] {
         let modifiers: Set<Character> = ["⌃", "⌥", "⇧", "⌘"]
@@ -596,16 +598,21 @@ struct KeyCaps: View {
         // the desktop show a cap per key, as pressed.
         HStack(spacing: 4) {
             ForEach(Array((small ? [text] : Self.split(text)).enumerated()), id: \.offset) { _, cap in
-                label(cap)
-                    .padding(.horizontal, small ? 6 : 8)
-                    .frame(minWidth: small ? 22 : 30, minHeight: small ? 20 : 30)
-                    .background(
-                        RoundedRectangle(cornerRadius: small ? 5 : 6)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .shadow(color: .black.opacity(0.3), radius: 0, y: small ? 1 : 2)
-                    )
-                    .overlay(RoundedRectangle(cornerRadius: small ? 5 : 6).stroke(Color.primary.opacity(0.15)))
-                    .fixedSize()
+                HStack(spacing: 3) {
+                    if done { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+                    label(cap)
+                }
+                .foregroundStyle(done ? Color.white : Color.primary)
+                .padding(.horizontal, small ? 6 : 8)
+                .frame(minWidth: small ? 22 : 30, minHeight: small ? 20 : 30)
+                .background(
+                    RoundedRectangle(cornerRadius: small ? 5 : 6)
+                        .fill(done ? Color.green : Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: .black.opacity(0.3), radius: 0, y: small ? 1 : 2)
+                )
+                .overlay(RoundedRectangle(cornerRadius: small ? 5 : 6).stroke(done ? Color.green : Color.primary.opacity(0.15)))
+                .fixedSize()
+                .animation(.easeOut(duration: 0.2), value: done)
             }
         }
     }

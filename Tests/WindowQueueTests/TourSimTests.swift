@@ -115,6 +115,20 @@ final class TourSimTests: XCTestCase {
         XCTAssertTrue(sim.done.isSuperset(of: [.switchedSpace, .movedToSpace, .wentToEmptySpace]))
     }
 
+    func testEachOfATipsShortcutsIsTickedOffOnItsOwn() throws {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.tips, scheduled: false)
+        let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "workspaces" })
+        model.showTip(index, scheduled: false)
+        let tip = model.tips[index]
+        let combo = model.prefs.combo(for: .goToEmptySpace)
+        XCTAssertTrue(model.handleKey(keyCode: Int(combo.keyCode), flags: .option))
+        XCTAssertEqual(tip.goals.map { tip.used($0, in: model.done) }, [false, false, true],
+                       "going to an empty workspace isn't a numbered switch")
+        XCTAssertFalse(tip.isDone(model.done))
+        model.stop()
+    }
+
     func testEachMonitorHasItsOwnQueue() {
         let sim = TourSim()
         sim.animated = false
@@ -189,7 +203,7 @@ final class TourModelTests: XCTestCase {
         XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
         XCTAssertEqual(model.tipIndex, index, "it stays a beat, to see what happened")
         let moved = expectation(description: "next tip")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             XCTAssertEqual(model.tipIndex, index + 1)
             XCTAssertTrue(model.demoPlaying)
             model.stop()
