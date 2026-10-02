@@ -126,6 +126,28 @@ struct TourView: View {
         }
     }
 
+    /// The way into everything on the aiming pages, set apart at the top of them: tap the super key
+    /// on its own. Green while aiming mode is open on the desktop.
+    private func enterAiming(_ text: String) -> some View {
+        let on = sim.aiming
+        return HStack(alignment: .center, spacing: 12) {
+            KeyCaps(text: model.superSymbol, done: on)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(on ? "Aiming mode is on — esc leaves it" : "First, tap \(model.superSymbol) on its own")
+                    .font(.system(size: 14, weight: .bold))
+                Text("That opens aiming mode. \(text)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill((on ? Color.green : Color.accentColor).opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke((on ? Color.green : Color.accentColor).opacity(0.7), lineWidth: 1.5))
+        .animation(.easeOut(duration: 0.2), value: on)
+    }
+
     private func callout(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol).foregroundStyle(Color.accentColor)
@@ -300,7 +322,7 @@ struct TourView: View {
             tasks(taskList)
         case .aiming:
             pageTitle("Aiming mode")
-            paragraph("Tap **\(superKey)** on its own. The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
+            enterAiming("The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
             VStack(alignment: .leading, spacing: 6) {
                 keyRow([String(along.first!), String(along.last!)], "Move the aim; [ and ] work too", joiner: "/")
                 keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
@@ -313,10 +335,9 @@ struct TourView: View {
             tasks(taskList)
         case .tiling:
             pageTitle("Tiling")
-            paragraph("Tiling starts in aiming mode: tap **\(superKey)** on its own first. Aim at two or more windows and a menu of layouts appears beside them. **\(model.intoArrow)** steps into it, **↩** tiles.")
+            enterAiming("Tiling happens there: aim at two or more windows and a menu of layouts appears beside them.")
             paragraph("A tiled layout follows the queue: move one of its windows along the queue and the layout reflows. Windows with fixed proportions, like the **iOS Simulator**, keep them — the others share the room that's left.")
             VStack(alignment: .leading, spacing: 6) {
-                keyRow([superKey], "Tap on its own to enter aiming mode")
                 keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
                 keyRow([model.intoArrow, "↩"], "Open the layouts, then tile", joiner: "then")
                 keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
@@ -325,9 +346,8 @@ struct TourView: View {
             tasks(taskList)
         case .groups:
             pageTitle("Groups")
-            paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it. Grouping starts in aiming mode: tap **\(superKey)** on its own first.")
+            enterAiming("Grouping happens there. Grouped windows share one place in the strip, and open in a strip of their own beside it.")
             VStack(alignment: .leading, spacing: 6) {
-                keyRow([superKey], "Tap on its own to enter aiming mode")
                 keyRow(["⇧\(String(along.last!))", "G"], "Aim multiple windows, then group them", joiner: "then")
                 keyRow([model.intoArrow], "While aiming at a group: step into it")
                 keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
@@ -347,11 +367,13 @@ struct TourView: View {
         switch model.page {
         case .basics: return [(.cycled, "Go to the next window — \(model.combo(.cycleNext))"), (.moved, "Move a window along the queue — \(model.combo(.moveLeft))"),
                    (.clicked, "Click an icon in the strip")]
-        case .aiming: return [(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim three windows with ⇧\(String(along.last!))"),
+        case .aiming: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"), (.aimedThree, "Aim three windows with ⇧\(String(along.last!))"),
                    (.confirmed, "Focus one with ↩ or another \(superKey) tap")]
-        case .tiling: return [(.tiled, "Tile windows — tap \(superKey), ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — tap \(superKey), aim, then \(superKey)\(String(along.first!))"),
+        case .tiling: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
+                   (.tiled, "Tile windows — ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)\(String(along.first!))"),
                    (.secondLayout, "Try a second layout")]
-        case .groups: return [(.grouped, "Group two windows — tap \(superKey), ⇧\(String(along.last!)), then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
+        case .groups: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
+                   (.grouped, "Group two windows — ⇧\(String(along.last!)), then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
                    (.cycledLocked, "Cycle while it's locked — \(model.combo(.cycleNext))")]
         default: return []
         }
