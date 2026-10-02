@@ -109,13 +109,20 @@ struct TourView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func keyRow(_ keys: String, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            HStack(spacing: 3) {
-                ForEach(keys.split(separator: " ").map(String.init), id: \.self) { KeyCaps(text: $0, small: true) }
+    /// A shortcut or two on the left — each one cap, joined by "or" / "then" — and what it does.
+    private func keyRow(_ combos: [String], _ text: String, joiner: String = "or") -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 4) {
+                ForEach(Array(combos.enumerated()), id: \.offset) { index, combo in
+                    if index > 0 {
+                        Text(joiner).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    KeyCaps(text: combo, small: true)
+                }
             }
-            .frame(width: 96, alignment: .leading)
+            .frame(width: 104, alignment: .leading)
             Text(text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 
@@ -215,7 +222,7 @@ struct TourView: View {
     private var lesson: some View {
         HStack(alignment: .top, spacing: 24) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     lessonText
                 }
                 .padding(.trailing, 4)
@@ -234,10 +241,10 @@ struct TourView: View {
         case .basics:
             pageTitle("Focus and move")
             paragraph("The strip lists your windows in queue order; the highlighted one has focus. Walk through it without reaching for the mouse.")
-            VStack(alignment: .leading, spacing: 7) {
-                keyRow(model.combo(.cycleNext), "Next window")
-                keyRow(model.combo(.cyclePrevious), "Previous window")
-                keyRow("\(model.combo(.moveLeft)) \(model.combo(.moveRight))", "Move the window earlier or later in the queue")
+            VStack(alignment: .leading, spacing: 6) {
+                keyRow([model.combo(.cycleNext)], "Next window")
+                keyRow([model.combo(.cyclePrevious)], "Previous window")
+                keyRow([model.combo(.moveLeft), model.combo(.moveRight)], "Move the window earlier or later in the queue", joiner: "/")
             }
             callout("cursorarrow.click", "Click an icon to focus its window, or scroll over the strip to run through the queue. Hovering focuses the window under the pointer — you can turn that off in Setup.")
             tasks([(.cycled, "Go to the next window"), (.moved, "Move a window along the queue"),
@@ -245,37 +252,37 @@ struct TourView: View {
         case .aiming:
             pageTitle("Aiming mode")
             paragraph("Tap **\(superKey)** on its own. The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
-            VStack(alignment: .leading, spacing: 7) {
-                keyRow("\(String(along.first!)) \(String(along.last!))", "Move the aim (or [ ])")
-                keyRow("⇧\(String(along.last!))", "Aim at several windows")
-                keyRow("A", "Aim at all of them")
-                keyRow("\(superKey)\(String(along.last!))", "Carry the aimed windows along the queue")
-                keyRow("↩ \(superKey)", "Focus the aimed window — Return, Space or another tap")
-                keyRow("esc", "Leave, changing nothing")
+            VStack(alignment: .leading, spacing: 6) {
+                keyRow([String(along.first!), String(along.last!)], "Move the aim; [ and ] work too", joiner: "/")
+                keyRow(["⇧\(String(along.last!))"], "Aim at several windows")
+                keyRow(["A"], "Aim at all of them")
+                keyRow(["\(superKey)\(String(along.last!))"], "Carry the aimed windows along the queue")
+                keyRow(["↩", superKey], "Focus the aimed window; Space works too")
+                keyRow(["esc"], "Leave, changing nothing")
             }
-            callout("keyboard", "**No \(superKey) needed while aiming.** The mode has the keyboard to itself, so every shortcut works with its letter alone: \(bareShortcuts).")
+            callout("keyboard", "**No \(superKey) needed while aiming:** shortcuts work with their letter alone — \(bareShortcuts).")
             tasks([(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim at three windows with ⇧\(String(along.last!))"),
                    (.confirmed, "Focus one with ↩ or another \(superKey) tap")])
         case .tiling:
             pageTitle("Tiling")
             paragraph("Aim at two or more windows and a menu of layouts appears beside them. **\(model.intoArrow)** steps into it, **↩** tiles.")
             paragraph("A tiled layout follows the queue: move one of its windows along the queue and the layout reflows. Windows with fixed proportions, like the **iOS Simulator**, keep them — the others share the room that's left.")
-            VStack(alignment: .leading, spacing: 7) {
-                keyRow("⇧\(String(along.last!))", "Aim at the windows to tile")
-                keyRow("\(model.intoArrow) ↩", "Open the layouts, then tile")
-                keyRow("\(String(along.first!)) \(String(along.last!))", "Pick another layout")
-                keyRow("\(superKey)\(String(along.first!))", "While aiming: move a window, and the tiles follow")
+            VStack(alignment: .leading, spacing: 6) {
+                keyRow(["⇧\(String(along.last!))"], "Aim at the windows to tile")
+                keyRow([model.intoArrow, "↩"], "Open the layouts, then tile", joiner: "then")
+                keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
+                keyRow(["\(superKey)\(String(along.first!))"], "While aiming: move a window, and the tiles follow")
             }
             tasks([(.tiled, "Tile two or more windows"), (.reorderedTiles, "Reorder a tiled layout"),
                    (.secondLayout, "Try a second layout")])
         case .groups:
             pageTitle("Groups")
             paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it.")
-            VStack(alignment: .leading, spacing: 7) {
-                keyRow("⇧\(String(along.last!)) G", "Aim at several, then G groups them")
-                keyRow(model.intoArrow, "While aiming at a group: step into it")
-                keyRow(model.combo(.toggleGroup), "Ungroup the selected window's group")
-                keyRow(model.combo(.toggleGroupLock), "Lock cycling to the group, and unlock it")
+            VStack(alignment: .leading, spacing: 6) {
+                keyRow(["⇧\(String(along.last!))", "G"], "Aim at several, then group them", joiner: "then")
+                keyRow([model.intoArrow], "While aiming at a group: step into it")
+                keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
+                keyRow([model.combo(.toggleGroupLock)], "Lock cycling to the group, and unlock it")
             }
             callout("lock.fill", "While locked, \(model.combo(.cyclePrevious)) and \(model.combo(.cycleNext)) only go round the group, and its strip shows a padlock.")
             tasks([(.grouped, "Group two windows"), (.locked, "Lock cycling to the group"),
@@ -288,8 +295,7 @@ struct TourView: View {
     /// The shortcuts that answer to their letter alone in aiming mode, the useful ones first.
     private var bareShortcuts: String {
         let wanted: [(HotkeyAction, String)] = [(.maximizeWindow, "maximize"), (.toggleMaximize, "fullscreen"),
-                                                (.toggleGroup, "group"), (.closeWindow, "close"),
-                                                (.screenshotWindow, "picture of the window")]
+                                                (.toggleGroup, "group"), (.closeWindow, "close")]
         let prefs = store.prefs
         return wanted.compactMap { action, word in
             let combo = prefs.combo(for: action)
@@ -436,26 +442,26 @@ struct TourView: View {
         let superKey = model.superSymbol
         var tips = [
             Tip(symbol: "square.grid.3x3", title: "Workspaces", keys: ["\(model.combo(.space1))…9"],
-                text: "Go to a workspace; with ⇧ the window comes along. \(model.combo(.goToEmptySpace)) finds an empty one."),
+                text: "Go to workspace N; \(model.combo(.moveToSpace1))…9 takes the window along. \(model.combo(.goToEmptySpace)) finds an empty one."),
             Tip(symbol: "magnifyingglass", title: "Search", keys: [model.combo(.search)],
                 text: "Find any window by typing part of its name."),
             Tip(symbol: "arrow.up.left.and.arrow.down.right", title: "Maximize and fullscreen",
                 keys: [model.combo(.maximizeWindow), model.combo(.toggleMaximize)],
-                text: "Fill the screen beside the strip; fullscreen again puts the window back."),
+                text: "\(model.combo(.maximizeWindow)) fills the screen beside the strip. \(model.combo(.toggleMaximize)) goes fullscreen; again, and the window is back."),
             Tip(symbol: "rectangle.3.group", title: "Declutter", keys: [model.combo(.declutter)],
                 text: "Show every window at once, resizing them as little as possible."),
             Tip(symbol: "camera.viewfinder", title: "Picture or video", keys: [model.combo(.screenshotWindow), model.combo(.toggleRecording)],
-                text: "Of the one window, not the whole screen, saved where macOS keeps screenshots."),
+                text: "\(model.combo(.screenshotWindow)) takes a picture, \(model.combo(.toggleRecording)) starts and stops a video — of the one window, not the screen."),
             Tip(symbol: "eye.slash", title: "Invisible strip", keys: [model.combo(.toggleInvisibleStrip)],
                 text: "Hide the strip; it comes back whenever aiming mode opens."),
             Tip(symbol: "hand.draw", title: "Drag and drop", keys: [],
                 text: "Drag an icon along the strip to reorder the queue; scroll over the strip to run through it."),
-            Tip(symbol: "command", title: "Double tap", keys: ["\(superKey) \(superKey)"],
+            Tip(symbol: "command", title: "Double tap", keys: [superKey, superKey],
                 text: "Two quick taps: \(prefs.superDoubleTapAction?.title.lowercased() ?? "focus the aimed window"). Change it in Settings › Focus."),
         ]
         if NSScreen.screens.count > 1 || prefs.multiMonitorMode {
             tips.insert(Tip(symbol: "display.2", title: "Monitors", keys: [model.combo(.focusNextMonitor), model.combo(.moveToNextMonitor)],
-                            text: "Go to the next monitor; with ⇧ the window comes along. \(model.combo(.focusMonitor1)) and on go to monitor N."),
+                            text: "\(model.combo(.focusNextMonitor)) goes to the next monitor, \(model.combo(.moveToNextMonitor)) takes the window along. \(model.combo(.focusMonitor1))…4 go to monitor N."),
                         at: 1)
         }
         return tips
@@ -469,7 +475,7 @@ struct TourView: View {
                 Spacer()
             }
             if !tip.keys.isEmpty {
-                HStack(spacing: 6) { ForEach(tip.keys, id: \.self) { KeyCaps(text: $0, small: true) } }
+                HStack(spacing: 6) { ForEach(Array(tip.keys.enumerated()), id: \.offset) { KeyCaps(text: $0.element, small: true) } }
             }
             Text(tip.text).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

@@ -365,19 +365,39 @@ struct KeyCaps: View {
         return caps
     }
 
+    private static let modifierNames: [String: String] = [
+        "⌃": "control", "⌥": "option", "⇧": "shift", "⌘": "command",
+    ]
+
+    /// A big modifier cap carries its name under the symbol, as Apple's keyboards print it — on
+    /// its own `⌃` reads as a stray caret.
+    @ViewBuilder
+    private func label(_ cap: String) -> some View {
+        if !small, let name = Self.modifierNames[cap] {
+            VStack(spacing: 0) {
+                Text(cap).font(.system(size: 13, weight: .semibold))
+                Text(name).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+            }
+        } else {
+            Text(cap).font(.system(size: small ? 11 : 15, weight: small ? .medium : .semibold))
+        }
+    }
+
     var body: some View {
-        HStack(spacing: small ? 2 : 4) {
-            ForEach(Array(Self.split(text).enumerated()), id: \.offset) { _, cap in
-                Text(cap)
-                    .font(.system(size: small ? 11 : 15, weight: .semibold, design: .rounded))
-                    .padding(.horizontal, small ? 5 : 8)
-                    .frame(minWidth: small ? 18 : 28, minHeight: small ? 18 : 28)
+        // Small caps (in text) hold a whole shortcut each, as menus write them; the big ones over
+        // the desktop show a cap per key, as pressed.
+        HStack(spacing: 4) {
+            ForEach(Array((small ? [text] : Self.split(text)).enumerated()), id: \.offset) { _, cap in
+                label(cap)
+                    .padding(.horizontal, small ? 6 : 8)
+                    .frame(minWidth: small ? 22 : 30, minHeight: small ? 20 : 30)
                     .background(
-                        RoundedRectangle(cornerRadius: small ? 4 : 6)
+                        RoundedRectangle(cornerRadius: small ? 5 : 6)
                             .fill(Color(nsColor: .controlBackgroundColor))
                             .shadow(color: .black.opacity(0.3), radius: 0, y: small ? 1 : 2)
                     )
-                    .overlay(RoundedRectangle(cornerRadius: small ? 4 : 6).stroke(Color.primary.opacity(0.15)))
+                    .overlay(RoundedRectangle(cornerRadius: small ? 5 : 6).stroke(Color.primary.opacity(0.15)))
+                    .fixedSize()
             }
         }
     }
