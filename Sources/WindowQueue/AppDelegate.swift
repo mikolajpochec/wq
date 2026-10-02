@@ -1540,18 +1540,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyToAimedGroup(_ action: HotkeyAction) {
         let group = model.aimedWindows
         guard group.count > 1 else { return }
+        // What was selected before aiming: the aim never moved it, and acting on a run of windows
+        // is no reason to move it either.
+        let selected = model.selectedWindow
         endAiming(commit: false)
         let count = group.count
         switch action {
         case .maximizeWindow:
             // One after another, so an app that snaps its own frame does not fight the next one.
             for window in group { maximize(window, bringUp: false) }
-            // The one brought up on top becomes the selection, as it does maximizing a single
-            // aimed window.
-            if let first = group.first {
-                model.select(id: first.id, announce: false)
-                bringUp(first)
-            }
+            // The selection stays where it was and comes up on top; bringing up the first aimed
+            // window instead would hand it the focus, and the selection would follow.
+            if let selected { bringUp(selected) }
             announceGroup("Maximized \(count) windows")
         case .minimizeWindow:
             for window in group { minimize(window) }
