@@ -303,7 +303,7 @@ struct TourView: View {
             paragraph("Tap **\(superKey)** on its own. The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
             VStack(alignment: .leading, spacing: 6) {
                 keyRow([String(along.first!), String(along.last!)], "Move the aim; [ and ] work too", joiner: "/")
-                keyRow(["⇧\(String(along.last!))"], "Aim at several windows")
+                keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
                 keyRow(["A"], "Aim at all of them")
                 keyRow(["\(superKey)\(String(along.last!))"], "Carry the aimed windows along the queue")
                 keyRow(["↩", superKey], "Focus the aimed window; Space works too")
@@ -328,7 +328,7 @@ struct TourView: View {
             paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it. Grouping starts in aiming mode: tap **\(superKey)** on its own first.")
             VStack(alignment: .leading, spacing: 6) {
                 keyRow([superKey], "Tap on its own to enter aiming mode")
-                keyRow(["⇧\(String(along.last!))", "G"], "Aim at several, then group them", joiner: "then")
+                keyRow(["⇧\(String(along.last!))", "G"], "Aim multiple windows, then group them", joiner: "then")
                 keyRow([model.intoArrow], "While aiming at a group: step into it")
                 keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
                 keyRow([model.combo(.toggleGroupLock)], "Lock cycling to the group, and unlock it")
@@ -347,7 +347,7 @@ struct TourView: View {
         switch model.page {
         case .basics: return [(.cycled, "Go to the next window — \(model.combo(.cycleNext))"), (.moved, "Move a window along the queue — \(model.combo(.moveLeft))"),
                    (.clicked, "Click an icon in the strip")]
-        case .aiming: return [(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim at three windows with ⇧\(String(along.last!))"),
+        case .aiming: return [(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim three windows with ⇧\(String(along.last!))"),
                    (.confirmed, "Focus one with ↩ or another \(superKey) tap")]
         case .tiling: return [(.tiled, "Tile windows — tap \(superKey), ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — tap \(superKey), aim, then \(superKey)\(String(along.first!))"),
                    (.secondLayout, "Try a second layout")]
