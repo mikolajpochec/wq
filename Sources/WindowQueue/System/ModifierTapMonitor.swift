@@ -22,7 +22,9 @@ final class ModifierTapMonitor {
     /// Something during this press ruled it out as a tap. Cleared only by releasing everything.
     private var invalidated = false
 
-    func start() {
+    /// With `includingOtherApps` off only WindowQueue's own windows are watched — what the tour
+    /// needs, and all that works before Accessibility is granted.
+    func start(includingOtherApps: Bool = true) {
         let flags: NSEvent.EventTypeMask = [.flagsChanged]
         let interruptions: NSEvent.EventTypeMask = [
             .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
@@ -30,11 +32,11 @@ final class ModifierTapMonitor {
 
         // Global monitors see other apps' events; local ones see our own panels', which matters
         // once the aiming panel has taken key focus.
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: flags, handler: { [weak self] in
+        if includingOtherApps, let monitor = NSEvent.addGlobalMonitorForEvents(matching: flags, handler: { [weak self] in
             self?.handle($0)
         }) { monitors.append(monitor) }
 
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: interruptions, handler: { [weak self] _ in
+        if includingOtherApps, let monitor = NSEvent.addGlobalMonitorForEvents(matching: interruptions, handler: { [weak self] _ in
             self?.cancel()
         }) { monitors.append(monitor) }
 

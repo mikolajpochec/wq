@@ -34,6 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A group the pointer is resting on, shown without stepping into it.
     private let spaceMover = WindowSpaceMover()
     private var settingsWindow: SettingsWindowController?
+    private var tour: TourWindowController?
+    /// The tour's window has the keyboard: the shortcuts and the super key tap go to its pretend
+    /// desktop rather than to the real windows.
+    private var tourHasKeyboard = false
+    /// Accessibility is granted, so the shortcuts can do what they promise.
+    private var accessGranted = false
+    private let grantAccessItem = NSMenuItem(title: "Grant Accessibility Access…",
+                                             action: #selector(grantAccessibility), keyEquivalent: "")
     private var scrollFocusWork: DispatchWorkItem?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
@@ -73,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.queuePerMonitor = prefs.multiMonitorMode
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
-                self.hotkeys.apply(prefs)
+                self.syncHotkeys(prefs)
                 WindowTiler.respectsSizeLimits = prefs.respectWindowSizeLimits
                 LoginItem.apply(enabled: prefs.launchAtLogin)
                 // `@Published` fires before the new value lands; read it on the next turn.
@@ -226,8 +234,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         modifierTaps.modifiers = store.prefs.superModifier.eventFlags
-        modifierTaps.onTap = { [weak self] in self?.toggleAiming() }
-        modifierTaps.start()
+        modifierTaps.onTap = { [weak self] in
+            // The tour watches its own window for the tap.
+            guard self?.tourHasKeyboard == false else { return }
+            self?.toggleAiming()
+        }
 
         // Hover focus never moves the pointer: the pointer is already where the user wants it.
         let hoverFocus = FocusFollowsMouse(model: model, store: store) { [weak self] window in
@@ -257,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return false }
             // Nor while a jump to another desktop is under way: whatever slides under the pointer
             // on the way is not where the user is going, and focusing it would turn the jump back.
-            return self.model.aimingID != nil || self.search?.isOpen == true
+            return self.model.aimingID != nil || self.search?.isOpen == true || self.tourHasKeyboard
                 || SpaceSwitcher.destination != nil || WindowDragMover.isCarrying
         }
         hoverFocus.start()
@@ -299,21 +310,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onAction = { [weak self] action in self?.perform(action) }
         debugCommands = DebugCommands { [weak self] words in self?.runDebugCommand(words) }
         debugCommands?.start()
-        hotkeys.apply(store.prefs)
+        // Until Accessibility is granted the shortcuts would swallow their keys and do nothing.
+        syncHotkeys()
         RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
 
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .sink { [weak self] note in
-                guard let window = note.object as? NSWindow,
-                      window === self?.settingsWindow?.window else { return }
-                NSApp.setActivationPolicy(.accessory)
-                self?.enumerator?.refresh()
+                guard let self, let window = note.object as? NSWindow,
+                      window === self.settingsWindow?.window || window === self.tour?.window else { return }
+                // Back to living in the menu bar once neither of our windows is left open.
+                let others = [self.settingsWindow?.window, self.tour?.window].compactMap { $0 }
+                    .filter { $0 !== window && $0.isVisible }
+                if others.isEmpty { NSApp.setActivationPolicy(.accessory) }
+                self.enumerator?.refresh()
             }
             .store(in: &cancellables)
 
-        permissions.requestAndWait { [weak self] in
+        // A new user meets the tour, which asks for Accessibility in its own words; the system's
+        // prompt on top of it would only be a second dialog saying less.
+        let firstRun = !store.prefs.onboardingCompleted
+        if firstRun { showTour() }
+        permissions.requestAndWait(prompt: !firstRun) { [weak self] in
             guard let self else { return }
             Diagnostics.note("accessibility granted, starting enumeration")
+            self.accessGranted = true
+            self.grantAccessItem.isHidden = true
+            self.syncHotkeys()
+            self.modifierTaps.start()
             // The saved order can only be applied once there is something to apply it to.
             // `@Published` fires from `willSet`, so the model still holds the old value when a
             // subscriber runs. Hopping to the next turn of the run loop is what makes the queue
@@ -2288,6 +2311,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             enumerator?.refresh()
         case "dump":
             DebugCommands.writeState(model)
+        case "tour-render":
+            guard let path = words.dropFirst().first else { return }
+            TourWindowController.render(store: store, to: URL(fileURLWithPath: path))
+        case "tour":
+            showTour()
         default:
             break
         }
@@ -2300,7 +2328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "rectangle.stack",
                                      accessibilityDescription: "WindowQueue")
         let menu = NSMenu()
+        grantAccessItem.target = self
+        grantAccessItem.isHidden = AXIsProcessTrusted()
+        menu.addItem(grantAccessItem)
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+            .target = self
+        menu.addItem(withTitle: "Show the Tour…", action: #selector(showTour), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Sort queue by workspace", action: #selector(sortByWorkspace),
                      keyEquivalent: "s")
@@ -2326,7 +2359,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindow = SettingsWindowController(
                 store: store,
                 failures: { [weak self] in self?.hotkeys.failures.map(\.action) ?? [] },
-                spacesAvailable: SpacesBridge.shared.isAvailable
+                spacesAvailable: SpacesBridge.shared.isAvailable,
+                showTour: { [weak self] in self?.showTour() }
             )
         }
         settingsWindow?.present()
@@ -2334,6 +2368,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.enumerator?.refresh()
         }
+    }
+
+    /// The welcome tour: a pretend desktop to watch and try everything in, then the few settings
+    /// that matter most. Closing it, finished or not, counts as having seen it.
+    @objc private func showTour() {
+        if tour == nil {
+            let tour = TourWindowController(store: store)
+            tour.onKeyboardChange = { [weak self] hasKeyboard in
+                guard let self else { return }
+                self.tourHasKeyboard = hasKeyboard
+                if hasKeyboard { self.endAiming(commit: false) }
+                self.syncHotkeys()
+            }
+            tour.onClose = { [weak self] in
+                self?.store.prefs.onboardingCompleted = true
+            }
+            self.tour = tour
+        }
+        tour?.present()
+    }
+
+    @objc private func grantAccessibility() {
+        Permissions.prompt()
+        Permissions.openAccessibilitySettings()
+    }
+
+    /// The shortcuts are live only once they can work, and not while the tour is trying them out.
+    private func syncHotkeys(_ prefs: Preferences? = nil) {
+        hotkeys.isSuspended = !accessGranted || tourHasKeyboard
+        hotkeys.apply(prefs ?? store.prefs)
     }
 
     /// Sorting by hand also re-arms automatic sorting, which a manual reorder had switched off.

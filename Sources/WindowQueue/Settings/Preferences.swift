@@ -163,6 +163,9 @@ enum SuperModifier: String, Codable, CaseIterable, Identifiable {
         return optionTypesASCII ? .controlOption : .option
     }
 
+    /// The modifier symbols alone, for showing shortcuts: `⌥`, `⌃⌥`.
+    var symbol: String { String(title.prefix { $0 != " " }) }
+
     var title: String {
         switch self {
         case .option: return "⌥ Option"
@@ -477,6 +480,10 @@ struct Preferences: Codable, Equatable {
     /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
     var superDoubleTapAction: HotkeyAction? = .openRaycastCommand
 
+    /// The welcome tour has been seen through or closed. A fresh install starts without it, so the
+    /// tour opens on first launch; settings saved before the tour existed count as having seen it.
+    var onboardingCompleted: Bool = false
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -537,6 +544,8 @@ struct Preferences: Codable, Equatable {
         animationsEnabled = value(.animationsEnabled, defaults.animationsEnabled)
         disabledAnimations = value(.disabledAnimations, defaults.disabledAnimations)
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
+        // Not `defaults`: someone already using WindowQueue is not a new user.
+        onboardingCompleted = value(.onboardingCompleted, true)
     }
 
     init() {}

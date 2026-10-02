@@ -7,9 +7,10 @@ final class Permissions {
 
     var isTrusted: Bool { AXIsProcessTrusted() }
 
-    /// Prompts once, then polls until the user grants access, calling `onGranted` on the main thread.
-    func requestAndWait(onGranted: @escaping () -> Void) {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    /// Prompts once (unless `prompt` is off — the tour asks in its own words instead), then polls
+    /// until the user grants access, calling `onGranted` on the main thread.
+    func requestAndWait(prompt: Bool = true, onGranted: @escaping () -> Void) {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         if AXIsProcessTrustedWithOptions(options) {
             onGranted()
             return
@@ -21,6 +22,12 @@ final class Permissions {
             self?.timer = nil
             onGranted()
         }
+    }
+
+    /// Shows the system's own request, which offers to open the settings at the right switch.
+    static func prompt() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     static func openAccessibilitySettings() {

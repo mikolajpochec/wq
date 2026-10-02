@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var store: PreferencesStore
     let hotkeyFailures: [HotkeyAction]
     let spacesAvailable: Bool
+    var showTour: () -> Void = {}
 
     @State private var rectangleStatus = ""
     @State private var newAimAction: HotkeyAction = .toggleRecording
@@ -54,6 +55,32 @@ struct SettingsView: View {
 
     private var general: some View {
         Form {
+            Section("Getting started") {
+                // Polled: the grant happens in System Settings, which tells nobody.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    if AXIsProcessTrusted() {
+                        Label("Accessibility access is granted", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        HStack {
+                            Label("WindowQueue needs Accessibility access to see and move windows; its shortcuts stay off until then.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("Grant Access…") {
+                                Permissions.prompt()
+                                Permissions.openAccessibilitySettings()
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    caption("A short tour of focusing, aiming, tiling and groups, with a pretend desktop to try them in.")
+                    Spacer()
+                    Button("Show the Tour") { showTour() }
+                }
+            }
+
             Section("Queue") {
                 Picker("Queue scope", selection: $store.prefs.scope) {
                     ForEach(QueueScope.allCases.filter { $0 != .monitor || store.prefs.multiMonitorMode }) {
@@ -497,9 +524,11 @@ final class SettingsWindowController: NSWindowController {
 
     private let store: PreferencesStore
 
-    init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool) {
+    init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool,
+         showTour: @escaping () -> Void) {
         self.store = store
-        let view = SettingsView(store: store, hotkeyFailures: failures(), spacesAvailable: spacesAvailable)
+        let view = SettingsView(store: store, hotkeyFailures: failures(), spacesAvailable: spacesAvailable,
+                                showTour: showTour)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                               styleMask: [.titled, .closable, .miniaturizable],
                               backing: .buffered, defer: false)

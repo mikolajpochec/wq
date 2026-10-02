@@ -21,6 +21,10 @@ final class HotkeyManager {
     /// Invoked on the main thread when a registered shortcut fires.
     var onAction: ((HotkeyAction) -> Void)?
 
+    /// Nothing is registered while set: before Accessibility is granted, when the shortcuts could
+    /// only swallow keys and do nothing, and while the tour has the keyboard to try them in.
+    var isSuspended = false
+
     private static let signature: OSType = 0x5751_4B45 // 'WQKE'
 
     init() {
@@ -63,6 +67,14 @@ final class HotkeyManager {
     /// character it types, ś for ⌥S. So nothing is touched unless a shortcut actually changed.
     func apply(_ prefs: Preferences) {
         // Without multi-monitor mode the monitor shortcuts leave their keys to other apps.
+        guard !isSuspended else {
+            if appliedCombos != nil {
+                unregisterAll()
+                appliedCombos = nil
+                Diagnostics.note("hotkeys suspended")
+            }
+            return
+        }
         let actions = HotkeyAction.allCases.filter { prefs.multiMonitorMode || !$0.isMonitorAction }
         let wanted = Dictionary(uniqueKeysWithValues: actions.map { ($0, prefs.combo(for: $0)) })
         guard wanted != appliedCombos else { return }
