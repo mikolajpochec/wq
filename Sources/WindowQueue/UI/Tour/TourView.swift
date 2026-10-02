@@ -156,15 +156,55 @@ struct TourView: View {
     private var desktop: some View {
         VStack(spacing: 8) {
             SimDesktopView(sim: sim, prefs: store.prefs, onClick: model.page.isInteractive ? { model.click($0) } : nil)
+                .overlay(alignment: .topLeading) {
+                    if model.demoPlaying {
+                        Label("DEMO", systemImage: "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.red.opacity(0.85)))
+                            .foregroundStyle(.white)
+                            .padding(.top, 22)
+                            .padding(.leading, 10)
+                            .transition(.opacity)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if model.demoPlaying {
+                        // How far through the demo is, so it reads as a recording that will end.
+                        TimelineView(.animation) { context in
+                            let progress = min(1, context.date.timeIntervalSince(model.demoStarted) / model.demoLength)
+                            GeometryReader { geometry in
+                                Capsule().fill(Color.red.opacity(0.85))
+                                    .frame(width: geometry.size.width * progress, height: 3)
+                            }
+                            .frame(height: 3)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                    }
+                }
+                .overlay {
+                    if model.awaitingUser {
+                        turnPrompt.transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.25), value: model.demoPlaying)
+                .animation(.easeOut(duration: 0.25), value: model.awaitingUser)
             HStack(spacing: 8) {
                 Circle().fill(model.demoPlaying ? Color.red : Color.green).frame(width: 7, height: 7)
-                Text(model.demoPlaying ? "Demo playing — press the keys yourself to take over"
-                                       : "Your turn — this desktop is pretend, your real windows stay put")
+                Text(model.demoPlaying ? "Demo — watch, or press any shortcut to try it yourself"
+                                       : "Your turn — the desktop is pretend, your real windows stay put")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button(model.demoPlaying ? "Restart Demo" : "Watch Demo") { model.playDemo() }
-                    .controlSize(.small)
+                if model.demoPlaying {
+                    Button("Skip Demo") { model.finishDemo() }
+                        .controlSize(.small)
+                } else {
+                    Button("Watch Demo Again") { model.playDemo() }
+                        .controlSize(.small)
+                }
             }
             .frame(width: SimDesktopView.size.width)
         }
@@ -247,8 +287,7 @@ struct TourView: View {
                 keyRow([model.combo(.moveLeft), model.combo(.moveRight)], "Move the window earlier or later in the queue", joiner: "/")
             }
             callout("cursorarrow.click", "Click an icon to focus its window, or scroll over the strip to run through the queue. Hovering focuses the window under the pointer — you can turn that off in Setup.")
-            tasks([(.cycled, "Go to the next window"), (.moved, "Move a window along the queue"),
-                   (.clicked, "Click an icon in the strip")])
+            tasks(taskList)
         case .aiming:
             pageTitle("Aiming mode")
             paragraph("Tap **\(superKey)** on its own. The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
@@ -261,8 +300,7 @@ struct TourView: View {
                 keyRow(["esc"], "Leave, changing nothing")
             }
             callout("keyboard", "**No \(superKey) needed while aiming:** shortcuts work with their letter alone — \(bareShortcuts).")
-            tasks([(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim at three windows with ⇧\(String(along.last!))"),
-                   (.confirmed, "Focus one with ↩ or another \(superKey) tap")])
+            tasks(taskList)
         case .tiling:
             pageTitle("Tiling")
             paragraph("Aim at two or more windows and a menu of layouts appears beside them. **\(model.intoArrow)** steps into it, **↩** tiles.")
@@ -273,8 +311,7 @@ struct TourView: View {
                 keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
                 keyRow(["\(superKey)\(String(along.first!))"], "While aiming: move a window, and the tiles follow")
             }
-            tasks([(.tiled, "Tile two or more windows"), (.reorderedTiles, "Reorder a tiled layout"),
-                   (.secondLayout, "Try a second layout")])
+            tasks(taskList)
         case .groups:
             pageTitle("Groups")
             paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it.")
@@ -285,11 +322,47 @@ struct TourView: View {
                 keyRow([model.combo(.toggleGroupLock)], "Lock cycling to the group, and unlock it")
             }
             callout("lock.fill", "While locked, \(model.combo(.cyclePrevious)) and \(model.combo(.cycleNext)) only go round the group, and its strip shows a padlock.")
-            tasks([(.grouped, "Group two windows"), (.locked, "Lock cycling to the group"),
-                   (.cycledLocked, "Cycle while it's locked")])
+            tasks(taskList)
         default:
             EmptyView()
         }
+    }
+
+    /// The page's "Your turn" checklist.
+    private var taskList: [(TourEvent, String)] {
+        let superKey = model.superSymbol
+        let along = model.alongArrows
+        switch model.page {
+        case .basics: return [(.cycled, "Go to the next window — \(model.combo(.cycleNext))"), (.moved, "Move a window along the queue — \(model.combo(.moveLeft))"),
+                   (.clicked, "Click an icon in the strip")]
+        case .aiming: return [(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim at three windows with ⇧\(String(along.last!))"),
+                   (.confirmed, "Focus one with ↩ or another \(superKey) tap")]
+        case .tiling: return [(.tiled, "Tile windows — tap \(superKey), ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)\(String(along.first!))"),
+                   (.secondLayout, "Try a second layout")]
+        case .groups: return [(.grouped, "Group two windows — tap \(superKey), ⇧\(String(along.last!)), then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
+                   (.cycledLocked, "Cycle while it's locked — \(model.combo(.cycleNext))")]
+        default: return []
+        }
+    }
+
+    /// What the desktop shows once the demo hands over: it's the user's turn now, and where to start.
+    private var turnPrompt: some View {
+        let next = taskList.first { !model.done.contains($0.0) }
+        return VStack(spacing: 6) {
+            Label("Your turn", systemImage: "hand.point.up.left.fill")
+                .font(.system(size: 15, weight: .bold))
+            Text("The demo is over — this desktop now follows your keys and clicks.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            if let next {
+                Text(.init("Try: **\(next.1)**")).font(.system(size: 12)).padding(.top, 2)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 8)
+        .allowsHitTesting(false)
     }
 
     /// The shortcuts that answer to their letter alone in aiming mode, the useful ones first.
@@ -563,14 +636,16 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.contentView = host
         func snap(_ name: String) {
+            // Let transitions and springs finish, as they would on screen.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.45))
             host.layoutSubtreeIfNeeded()
             guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
             host.cacheDisplay(in: host.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("\(name).png"))
         }
         for page in TourPage.allCases {
-            model.show(page)
-            model.stop()
+            // The demo step by step, without its timers, then the hand-over to the user.
+            model.show(page, scheduled: false)
             snap("\(page.rawValue)-\(page.title)-0")
             var shot = 1
             for step in page.demo {
@@ -579,6 +654,8 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
                 snap("\(page.rawValue)-\(page.title)-\(shot)")
                 shot += 1
             }
+            model.finishDemo()
+            snap("\(page.rawValue)-\(page.title)-turn")
         }
         window.close()
     }

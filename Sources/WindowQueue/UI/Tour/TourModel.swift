@@ -88,6 +88,12 @@ final class TourModel: ObservableObject {
 
     @Published private(set) var page: TourPage = .welcome
     @Published private(set) var demoPlaying = false
+    /// When the demo started and how long it runs, for its progress bar.
+    @Published private(set) var demoStarted = Date.distantPast
+    @Published private(set) var demoLength: TimeInterval = 1
+    /// The demo has handed over and the user hasn't done anything yet: the desktop says it's
+    /// their turn, so it is not mistaken for more of the demo.
+    @Published private(set) var awaitingUser = false
     let sim = TourSim()
     let store: PreferencesStore
     private var demoWork: [DispatchWorkItem] = []
@@ -99,12 +105,15 @@ final class TourModel: ObservableObject {
 
     var prefs: Preferences { store.prefs }
 
-    func show(_ page: TourPage) {
+    /// - Parameter scheduled: off, the demo is only marked as playing and its steps are left for
+    ///   the caller to `run` — for rendering the tour without timers.
+    func show(_ page: TourPage, scheduled: Bool = true) {
         stopDemo()
+        awaitingUser = false
         self.page = page
         sim.reset(page.windows)
         sim.clearDone()
-        if !page.demo.isEmpty { playDemo() }
+        if !page.demo.isEmpty { playDemo(scheduled: scheduled) }
     }
 
     func next() {
@@ -122,10 +131,14 @@ final class TourModel: ObservableObject {
 
     // MARK: - Demo
 
-    func playDemo() {
+    /// Plays the page's demo once, then resets the desktop and hands it to the user. It doesn't
+    /// loop: a desktop that keeps moving on its own reads as an animation, not a playground.
+    func playDemo(scheduled: Bool = true) {
         stopDemo()
         sim.reset(page.windows)
+        awaitingUser = false
         demoPlaying = true
+        guard scheduled else { return }
         var at: TimeInterval = 0
         for step in page.demo {
             if case .wait(let seconds) = step {
@@ -136,9 +149,19 @@ final class TourModel: ObservableObject {
             demoWork.append(work)
             DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
         }
-        let again = DispatchWorkItem { [weak self] in self?.playDemo() }
-        demoWork.append(again)
-        DispatchQueue.main.asyncAfter(deadline: .now() + at + 1, execute: again)
+        demoStarted = Date()
+        demoLength = at + 0.6
+        let end = DispatchWorkItem { [weak self] in self?.finishDemo() }
+        demoWork.append(end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: end)
+    }
+
+    /// Ends the demo — played through or skipped — and gives the desktop, back as it started, to the user.
+    func finishDemo() {
+        stopDemo()
+        sim.reset(page.windows)
+        sim.clearDone()
+        awaitingUser = page.isInteractive
     }
 
     private func stopDemo() {
@@ -149,6 +172,7 @@ final class TourModel: ObservableObject {
 
     /// The user pressed a key or clicked: the demo makes way, and the desktop starts afresh.
     private func takeOver() {
+        awaitingUser = false
         guard demoPlaying else { return }
         stopDemo()
         sim.reset(page.windows)
@@ -214,8 +238,8 @@ final class TourModel: ObservableObject {
             probe.animated = false
             probe.reset(page.windows)
             guard probe.press(keyCode: keyCode, flags: flags, prefs: prefs) else { return false }
-            takeOver()
         }
+        takeOver()
         return sim.press(keyCode: keyCode, flags: flags, prefs: prefs)
     }
 

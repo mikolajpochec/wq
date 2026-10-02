@@ -106,3 +106,21 @@ final class TourSimTests: XCTestCase {
         XCTAssertEqual(SuperModifier.controlOption.symbol, "⌃⌥")
     }
 }
+
+final class TourModelTests: XCTestCase {
+    func testTheDemoHandsTheDesktopOverRatherThanLooping() {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.basics, scheduled: false)
+        XCTAssertTrue(model.demoPlaying)
+        XCTAssertFalse(model.awaitingUser)
+        model.run(.action(.cycleNext))
+        XCTAssertTrue(model.done.isEmpty, "the demo's own doings don't tick tasks off")
+        model.finishDemo()
+        XCTAssertFalse(model.demoPlaying)
+        XCTAssertTrue(model.awaitingUser)
+        XCTAssertEqual(model.sim.selected, SimWindow.safari.id, "the desktop is back as it started")
+        model.click(SimWindow.notes.id)
+        XCTAssertFalse(model.awaitingUser)
+        XCTAssertTrue(model.done.contains(.clicked))
+    }
+}
