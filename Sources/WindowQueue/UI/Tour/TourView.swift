@@ -304,7 +304,7 @@ struct TourView: View {
             VStack(alignment: .leading, spacing: 6) {
                 keyRow([String(along.first!), String(along.last!)], "Move the aim; [ and ] work too", joiner: "/")
                 keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
-                keyRow(["A"], "Aim at all of them")
+                keyRow(["A"], "Aim all windows")
                 keyRow(["\(superKey)\(String(along.last!))"], "Carry the aimed windows along the queue")
                 keyRow(["↩", superKey], "Focus the aimed window; Space works too")
                 keyRow(["esc"], "Leave, changing nothing")
