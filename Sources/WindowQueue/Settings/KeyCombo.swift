@@ -76,7 +76,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
         return "#\(keyCode)"
     }
 
-    private static func translate(keyCode: UInt32) -> String? {
+    /// What the key types on the current layout with these Carbon modifiers held, e.g. `@` for
+    /// Option-L on a German layout. Nil when the layout cannot be read.
+    static func typedText(keyCode: UInt32, modifiers: UInt32) -> String? {
+        translate(keyCode: keyCode, modifierState: (modifiers >> 8) & 0xFF, action: kUCKeyActionDown)
+    }
+
+    private static func translate(keyCode: UInt32, modifierState: UInt32 = 0,
+                                  action: Int = kUCKeyActionDisplay) -> String? {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let layoutPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
         else { return nil }
@@ -89,7 +96,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
             var length = 0
             var chars = [UniChar](repeating: 0, count: 4)
             let status = UCKeyTranslate(
-                layout, UInt16(keyCode), UInt16(kUCKeyActionDisplay), 0,
+                layout, UInt16(keyCode), UInt16(action), modifierState,
                 UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit),
                 &deadKeyState, chars.count, &length, &chars
             )

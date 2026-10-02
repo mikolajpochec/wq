@@ -150,6 +150,19 @@ enum SuperModifier: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// What a fresh install starts with: Option, unless Option with the digits or brackets types
+    /// ASCII on this keyboard layout — `@ [ ] { } | \\` on German, Nordic, French or Swiss ones —
+    /// where taking those keys would stop the user typing them. Control+Option types nothing.
+    static var suggested: SuperModifier {
+        let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6,
+                    kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9, kVK_ANSI_0, kVK_ANSI_LeftBracket, kVK_ANSI_RightBracket]
+        let optionTypesASCII = keys.contains { key in
+            guard let typed = KeyCombo.typedText(keyCode: UInt32(key), modifiers: UInt32(optionKey)) else { return false }
+            return typed.unicodeScalars.contains { $0.isASCII && $0.properties.isGraphemeBase && $0.value > 0x20 }
+        }
+        return optionTypesASCII ? .controlOption : .option
+    }
+
     var title: String {
         switch self {
         case .option: return "⌥ Option"
@@ -319,9 +332,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
         case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
         // Monitors take Control on top of the workspace keys: super-Control-N goes to monitor N and
-        // super-Control-Tab on to the next one; with Shift they take the window along.
-        case .focusNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey))
-        case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Tab, modifiers: superMask | UInt32(controlKey) | shift)
+        // super-Control-Space on to the next one; with Shift they take the window along.
+        case .focusNextMonitor: return KeyCombo(keyCode: kVK_Space, modifiers: superMask | UInt32(controlKey))
+        case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Space, modifiers: superMask | UInt32(controlKey) | shift)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -358,20 +371,20 @@ struct Preferences: Codable, Equatable {
 
     var stripDisplay: StripDisplayMode = .highlightActiveScreen
     /// Opacity of the greyed-out strips on inactive screens.
-    var inactiveStripOpacity: Double = 0.55
+    var inactiveStripOpacity: Double = 1.0
     var stripSide: StripSide = .left
     var stripAlignment: StripAlignment = .center
     /// Where a group's strip goes: before the main strip (above or left of it) or after it.
-    var groupStripPlacement: GroupStripPlacement = .automatic
+    var groupStripPlacement: GroupStripPlacement = .before
     /// Gap between the strip and the screen edges around it.
     var stripMargin: Double = 4
     /// No longer set by hand: the strip is as thick as an icon row needs. Kept so an old stored
     /// blob still decodes.
     var stripWidth: Double = 36
-    var iconSize: Double = 34
+    var iconSize: Double = 36
     var showSpaceBadge: Bool = true
     /// Keep the queue grouped by workspace without having to sort it by hand.
-    var autoSortByWorkspace: Bool = true
+    var autoSortByWorkspace: Bool = false
     var stripOpacity: Double = 1.0
     /// Get out of the way of a fullscreen window, where an always-on-top strip is an intrusion.
     var hideInFullscreen: Bool = true
@@ -385,7 +398,7 @@ struct Preferences: Codable, Equatable {
     var aimingDimOpacity: Double = 0.45
     /// How long scrolling over the strip has to stop before the selected window is focused, so
     /// running through the queue does not focus everything on the way past.
-    var scrollFocusDelay: Double = 0.3
+    var scrollFocusDelay: Double = 0.5
     /// Move the pointer to the middle of a window when it is focused, so the cursor follows the
     /// keyboard instead of being left behind on another screen.
     var warpCursorToWindow: Bool = true
@@ -445,12 +458,12 @@ struct Preferences: Codable, Equatable {
 
     /// Aiming mode appears at once: no dimming fading in, no strip growing or unfolding, and no
     /// wait to see whether a second tap of the super key is coming.
-    var instantAiming: Bool = false
+    var instantAiming: Bool = true
 
     /// Off, nothing in WindowQueue animates; everything changes at once.
     var animationsEnabled: Bool = true
     /// Animations switched off on their own while the rest keep running.
-    var disabledAnimations: Set<AnimationKind> = []
+    var disabledAnimations: Set<AnimationKind> = [.aimCursor, .groupStrip, .namePopup]
 
     /// The strip is only on screen while aiming mode is open; the rest of the time the queue is
     /// there but out of sight, and a change is announced by the popup alone.
@@ -462,7 +475,7 @@ struct Preferences: Codable, Equatable {
 
     /// What a second tap of the super key does, straight after the first one opened aiming mode.
     /// Nil keeps the plain behaviour: the second tap confirms the aim and focuses the window.
-    var superDoubleTapAction: HotkeyAction? = .search
+    var superDoubleTapAction: HotkeyAction? = .openRaycastCommand
 
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
@@ -636,6 +649,8 @@ final class PreferencesStore: ObservableObject {
             prefs = decoded
         } else {
             var fresh = Preferences()
+            fresh.launcher = LauncherApp.firstInstalled
+            fresh.superModifier = SuperModifier.suggested
             fresh.bindings = Preferences.defaultBindings(superMask: fresh.superModifier.carbonMask)
             prefs = fresh
         }

@@ -25,6 +25,7 @@ enum Diagnostics {
     static func note(_ message: String) {
         let line = "[\(Date())] \(message)\n"
         let url = eventsURL
+        rotateIfLarge(url)
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
             handle.write(Data(line.utf8))
@@ -32,6 +33,22 @@ enum Diagnostics {
         } else {
             try? line.write(to: url, atomically: true, encoding: .utf8)
         }
+    }
+
+    private static let maxEventsSize = 5_000_000
+    private static var notesSinceSizeCheck = 0
+
+    /// Keeps the log from growing for ever: past a few megabytes it becomes `events.1.log`,
+    /// replacing the one before. The size is looked at every few hundred notes, not every one.
+    private static func rotateIfLarge(_ url: URL) {
+        notesSinceSizeCheck += 1
+        guard notesSinceSizeCheck >= 200 else { return }
+        notesSinceSizeCheck = 0
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        guard size > maxEventsSize else { return }
+        let old = url.deletingLastPathComponent().appendingPathComponent("events.1.log")
+        try? FileManager.default.removeItem(at: old)
+        try? FileManager.default.moveItem(at: url, to: old)
     }
 
     /// The WindowServer and accessibility halves of a dump ask every application about every

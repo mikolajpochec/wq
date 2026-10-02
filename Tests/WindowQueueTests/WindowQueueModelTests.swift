@@ -671,6 +671,7 @@ final class PreferencesMigrationTests: XCTestCase {
 final class AnimationPreferencesTests: XCTestCase {
     func testEachAnimationCanBeSwitchedOffAloneOrAllAtOnce() {
         var prefs = Preferences()
+        prefs.disabledAnimations = []
         XCTAssertTrue(AnimationKind.allCases.allSatisfy(prefs.animates))
 
         prefs.disabledAnimations = [.namePopup]
@@ -694,6 +695,6 @@ final class AnimationPreferencesTests: XCTestCase {
 
         let older = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
         XCTAssertTrue(older.animationsEnabled)
-        XCTAssertTrue(older.disabledAnimations.isEmpty)
+        XCTAssertEqual(older.disabledAnimations, Preferences().disabledAnimations)
     }
 }

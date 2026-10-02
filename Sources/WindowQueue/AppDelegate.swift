@@ -2004,7 +2004,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func focusMonitor(_ number: Int?) {
         guard store.prefs.multiMonitorMode else { return }
         let screens = Monitors.orderedScreens
-        guard screens.count > 1 else { return }
+        guard screens.count > 1 else {
+            toast?.showCentred(title: "Only one monitor", subtitle: "There is no other monitor to go to")
+            return
+        }
         if let number, !screens.indices.contains(number - 1) {
             toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
             return
@@ -2119,6 +2122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // What the target's own monitor shows: with several, the strip's display says nothing
         // about whether the switch happened.
         let origin = target.flatMap { SpacesBridge.shared.spaceOnShow(onDisplayOf: $0) }
+        // Desktops are known and this one is not among them: the system shortcut below would only
+        // hand ⌃N to the frontmost app (Mission Control's own shortcuts are off out of the box).
+        let known = SpacesBridge.shared.userSpaceIDs.count
+        if target == nil, known > 0, store.prefs.spaceSwitchMethod != .systemShortcut {
+            toast?.showCentred(title: "No workspace \(index)",
+                               subtitle: known == 1 ? "There is 1 workspace" : "There are \(known) workspaces")
+            return
+        }
         switch store.prefs.spaceSwitchMethod {
         case .focusWindow:
             if focusWindow(onSpaceIndex: index) { break }

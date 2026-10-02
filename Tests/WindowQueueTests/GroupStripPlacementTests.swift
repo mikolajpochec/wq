@@ -4,6 +4,7 @@ import XCTest
 final class GroupStripPlacementTests: XCTestCase {
     func testAutomaticFollowsAlignment() {
         var prefs = Preferences()
+        prefs.groupStripPlacement = .automatic
         prefs.stripAlignment = .end
         XCTAssertTrue(prefs.groupStripIsBefore)
         prefs.stripAlignment = .center
@@ -48,8 +49,8 @@ final class GroupStripPlacementTests: XCTestCase {
         XCTAssertEqual(decoded.groupStripPlacement, .overGroup)
     }
 
-    func testOldPreferencesDecodeToAutomatic() throws {
+    func testOldPreferencesDecodeToTheDefault() throws {
         let prefs = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
-        XCTAssertEqual(prefs.groupStripPlacement, .automatic)
+        XCTAssertEqual(prefs.groupStripPlacement, Preferences().groupStripPlacement)
     }
 }

@@ -26,6 +26,11 @@ enum LauncherApp: String, Codable, CaseIterable, Identifiable {
     }
 
     var isAvailable: Bool { self == .spotlight || applicationURL != nil }
+
+    /// What a fresh install starts with: Raycast, else Alfred, else Spotlight, which every Mac has.
+    static var firstInstalled: LauncherApp {
+        [.raycast, .alfred].first(where: \.isAvailable) ?? .spotlight
+    }
 }
 
 /// Opening the things macOS has no API for: the launcher and Mission Control.
