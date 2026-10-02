@@ -193,16 +193,16 @@ struct TourView: View {
                 .animation(.easeOut(duration: 0.25), value: model.awaitingUser)
             HStack(spacing: 8) {
                 Circle().fill(model.demoPlaying ? Color.red : Color.green).frame(width: 7, height: 7)
-                Text(model.demoPlaying ? "Demo — watch, or press any shortcut to try it yourself"
+                Text(model.demoPlaying ? "Demo — press any shortcut or click to try it yourself"
                                        : "Your turn — the desktop is pretend, your real windows stay put")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if model.demoPlaying {
-                    Button("Skip Demo") { model.finishDemo() }
+                    Button("Stop Demo") { model.finishDemo() }
                         .controlSize(.small)
-                } else {
-                    Button("Watch Demo Again") { model.playDemo() }
+                } else if !model.page.demo.isEmpty {
+                    Button("Watch Demo") { model.playDemo() }
                         .controlSize(.small)
                 }
             }
@@ -218,7 +218,7 @@ struct TourView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     pageTitle("Welcome to WindowQueue")
                     paragraph("Every window you open joins a **queue**, shown as a strip of icons at the edge of the screen. Go through it from the keyboard, pick several windows at once, tile them, group them.")
-                    paragraph("Each step plays a short demo on a pretend desktop, then it's your turn — the keys work there just as they will on your real windows.")
+                    paragraph("The next steps each give you a pretend desktop to try one idea on — the keys work there just as they will on your real windows, which stay put.")
                     Divider()
                     Text("PERMISSIONS").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -351,7 +351,7 @@ struct TourView: View {
         return VStack(spacing: 6) {
             Label("Your turn", systemImage: "hand.point.up.left.fill")
                 .font(.system(size: 15, weight: .bold))
-            Text("The demo is over — this desktop now follows your keys and clicks.")
+            Text("This desktop is yours to try — it follows your keys and clicks.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             if let next {
                 Text(.init("Try: **\(next.1)**")).font(.system(size: 12)).padding(.top, 2)

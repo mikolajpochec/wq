@@ -35,39 +35,15 @@ enum TourPage: Int, CaseIterable, Identifiable {
         }
     }
 
-    /// What the demo does, the keys shown as it presses them. Loops until the user takes over.
+    /// The Welcome page's demo, the keys shown as it presses them. It loops until the user does
+    /// anything; the later pages have none — they are the user's to try from the start, and a
+    /// desktop moving on its own there read as canned rather than responsive.
     var demo: [TourModel.DemoStep] {
-        switch self {
-        case .welcome:
-            return [.wait(1), .action(.cycleNext), .wait(1), .action(.cycleNext), .wait(1.2), .superTap,
-                    .wait(0.8), .key(.next), .wait(0.6), .key(.next, extend: true), .wait(1.2), .key(.cancel),
-                    .wait(1), .action(.cycleNext), .wait(1.5)]
-        case .basics:
-            return [.wait(1), .action(.cycleNext), .wait(1), .action(.cycleNext), .wait(1.3), .action(.moveLeft),
-                    .wait(1), .action(.moveLeft), .wait(1.3), .click(SimWindow.mail.id), .wait(1.3),
-                    .action(.cyclePrevious), .wait(1.6)]
-        case .aiming:
-            return [.wait(0.8), .superTap, .wait(1), .key(.next), .wait(0.7), .key(.next), .wait(1),
-                    .key(.next, extend: true), .wait(0.7), .key(.next, extend: true), .wait(1.4), .key(.cancel),
-                    .wait(1), .superTap, .wait(0.8), .key(.next), .wait(0.8), .key(.enter), .wait(1.6)]
-        case .tiling:
-            return [.wait(0.8), .superTap, .wait(0.8), .key(.next, extend: true), .wait(0.6),
-                    .key(.next, extend: true), .wait(1), .key(.into), .wait(1), .key(.enter), .wait(1.8),
-                    // Moving the Simulator to the front makes it the main window: the layout reflows,
-                    // and the phone keeps its proportions while the others share what is left.
-                    .superTap, .wait(0.7), .key(.next), .wait(0.8), .key(.previous, carry: true), .wait(1.8),
-                    .key(.cancel), .wait(0.8), .superTap, .wait(0.6), .key(.previous), .wait(0.5),
-                    .key(.next, extend: true), .wait(0.5),
-                    .key(.next, extend: true), .wait(0.8), .key(.into), .wait(0.8), .key(.next), .wait(0.8),
-                    .key(.enter), .wait(2)]
-        case .groups:
-            return [.wait(0.8), .superTap, .wait(0.7), .key(.next), .wait(0.6), .key(.next, extend: true),
-                    .wait(1), .bareAction(.toggleGroup), .wait(1.5), .action(.toggleGroupLock), .wait(1.3),
-                    .action(.cycleNext), .wait(1), .action(.cycleNext), .wait(1), .action(.toggleGroupLock),
-                    .wait(1.2), .action(.cycleNext), .wait(1.6)]
-        case .setup, .tips:
-            return []
-        }
+        guard self == .welcome else { return [] }
+        return [.wait(1), .action(.cycleNext), .wait(1), .action(.cycleNext), .wait(1.2), .superTap,
+                .wait(0.8), .key(.previous), .wait(0.6), .key(.previous), .wait(0.6), .key(.next, extend: true),
+                .wait(0.6), .key(.next, extend: true), .wait(1), .key(.into), .wait(0.9), .key(.enter), .wait(1.8),
+                .superTap, .wait(0.7), .key(.cancel), .wait(1), .action(.cycleNext), .wait(1.5)]
     }
 }
 
@@ -113,7 +89,11 @@ final class TourModel: ObservableObject {
         self.page = page
         sim.reset(page.windows)
         sim.clearDone()
-        if !page.demo.isEmpty { playDemo(scheduled: scheduled) }
+        if page.demo.isEmpty {
+            awaitingUser = page.isInteractive
+        } else {
+            playDemo(scheduled: scheduled)
+        }
     }
 
     func next() {
@@ -131,8 +111,7 @@ final class TourModel: ObservableObject {
 
     // MARK: - Demo
 
-    /// Plays the page's demo once, then resets the desktop and hands it to the user. It doesn't
-    /// loop: a desktop that keeps moving on its own reads as an animation, not a playground.
+    /// Plays the page's demo, over and over until the user takes over.
     func playDemo(scheduled: Bool = true) {
         stopDemo()
         sim.reset(page.windows)
@@ -151,12 +130,12 @@ final class TourModel: ObservableObject {
         }
         demoStarted = Date()
         demoLength = at + 0.6
-        let end = DispatchWorkItem { [weak self] in self?.finishDemo() }
-        demoWork.append(end)
-        DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: end)
+        let again = DispatchWorkItem { [weak self] in self?.playDemo() }
+        demoWork.append(again)
+        DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: again)
     }
 
-    /// Ends the demo — played through or skipped — and gives the desktop, back as it started, to the user.
+    /// Ends the demo and gives the desktop, back as it started, to the user.
     func finishDemo() {
         stopDemo()
         sim.reset(page.windows)
@@ -232,13 +211,7 @@ final class TourModel: ObservableObject {
 
     func handleKey(keyCode: Int, flags: NSEvent.ModifierFlags) -> Bool {
         guard page.isInteractive else { return false }
-        if demoPlaying {
-            // Only a key the desktop answers takes the demo away; ⌘W and the like pass through.
-            let probe = TourSim()
-            probe.animated = false
-            probe.reset(page.windows)
-            guard probe.press(keyCode: keyCode, flags: flags, prefs: prefs) else { return false }
-        }
+        // The user is trying it: whatever the key, the demo stops at once.
         takeOver()
         return sim.press(keyCode: keyCode, flags: flags, prefs: prefs)
     }

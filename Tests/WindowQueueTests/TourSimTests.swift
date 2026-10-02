@@ -108,19 +108,22 @@ final class TourSimTests: XCTestCase {
 }
 
 final class TourModelTests: XCTestCase {
-    func testTheDemoHandsTheDesktopOverRatherThanLooping() {
+    func testOnlyTheWelcomePageHasADemoAndAnyActionStopsIt() {
+        XCTAssertTrue(TourPage.allCases.filter { !$0.demo.isEmpty } == [.welcome])
         let model = TourModel(store: PreferencesStore())
-        model.show(.basics, scheduled: false)
+        model.show(.welcome, scheduled: false)
         XCTAssertTrue(model.demoPlaying)
-        XCTAssertFalse(model.awaitingUser)
         model.run(.action(.cycleNext))
         XCTAssertTrue(model.done.isEmpty, "the demo's own doings don't tick tasks off")
-        model.finishDemo()
-        XCTAssertFalse(model.demoPlaying)
-        XCTAssertTrue(model.awaitingUser)
-        XCTAssertEqual(model.sim.selected, SimWindow.safari.id, "the desktop is back as it started")
         model.click(SimWindow.notes.id)
-        XCTAssertFalse(model.awaitingUser)
+        XCTAssertFalse(model.demoPlaying)
         XCTAssertTrue(model.done.contains(.clicked))
+
+        model.show(.basics)
+        XCTAssertFalse(model.demoPlaying)
+        XCTAssertTrue(model.awaitingUser, "a lesson page is the user's to try at once")
+        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_RightBracket, flags: .option))
+        XCTAssertFalse(model.awaitingUser)
+        XCTAssertTrue(model.done.contains(.cycled))
     }
 }
