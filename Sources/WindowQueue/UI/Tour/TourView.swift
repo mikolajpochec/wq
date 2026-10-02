@@ -303,9 +303,10 @@ struct TourView: View {
             tasks(taskList)
         case .tiling:
             pageTitle("Tiling")
-            paragraph("Aim at two or more windows and a menu of layouts appears beside them. **\(model.intoArrow)** steps into it, **↩** tiles.")
+            paragraph("Tiling starts in aiming mode: tap **\(superKey)** on its own first. Aim at two or more windows and a menu of layouts appears beside them. **\(model.intoArrow)** steps into it, **↩** tiles.")
             paragraph("A tiled layout follows the queue: move one of its windows along the queue and the layout reflows. Windows with fixed proportions, like the **iOS Simulator**, keep them — the others share the room that's left.")
             VStack(alignment: .leading, spacing: 6) {
+                keyRow([superKey], "Tap on its own to enter aiming mode")
                 keyRow(["⇧\(String(along.last!))"], "Aim at the windows to tile")
                 keyRow([model.intoArrow, "↩"], "Open the layouts, then tile", joiner: "then")
                 keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
@@ -314,8 +315,9 @@ struct TourView: View {
             tasks(taskList)
         case .groups:
             pageTitle("Groups")
-            paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it.")
+            paragraph("Windows that belong together can be grouped: they share one place in the strip, and open in a strip of their own beside it. Grouping starts in aiming mode: tap **\(superKey)** on its own first.")
             VStack(alignment: .leading, spacing: 6) {
+                keyRow([superKey], "Tap on its own to enter aiming mode")
                 keyRow(["⇧\(String(along.last!))", "G"], "Aim at several, then group them", joiner: "then")
                 keyRow([model.intoArrow], "While aiming at a group: step into it")
                 keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
@@ -337,7 +339,7 @@ struct TourView: View {
                    (.clicked, "Click an icon in the strip")]
         case .aiming: return [(.aimed, "Tap \(superKey) on its own"), (.aimedThree, "Aim at three windows with ⇧\(String(along.last!))"),
                    (.confirmed, "Focus one with ↩ or another \(superKey) tap")]
-        case .tiling: return [(.tiled, "Tile windows — tap \(superKey), ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)\(String(along.first!))"),
+        case .tiling: return [(.tiled, "Tile windows — tap \(superKey), ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — tap \(superKey), aim, then \(superKey)\(String(along.first!))"),
                    (.secondLayout, "Try a second layout")]
         case .groups: return [(.grouped, "Group two windows — tap \(superKey), ⇧\(String(along.last!)), then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
                    (.cycledLocked, "Cycle while it's locked — \(model.combo(.cycleNext))")]
