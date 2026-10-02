@@ -307,7 +307,7 @@ struct TourView: View {
             paragraph("A tiled layout follows the queue: move one of its windows along the queue and the layout reflows. Windows with fixed proportions, like the **iOS Simulator**, keep them — the others share the room that's left.")
             VStack(alignment: .leading, spacing: 6) {
                 keyRow([superKey], "Tap on its own to enter aiming mode")
-                keyRow(["⇧\(String(along.last!))"], "Aim at the windows to tile")
+                keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
                 keyRow([model.intoArrow, "↩"], "Open the layouts, then tile", joiner: "then")
                 keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
                 keyRow(["\(superKey)\(String(along.first!))"], "While aiming: move a window, and the tiles follow")
