@@ -14,7 +14,7 @@
 All your windows in one ordered list, shown in a strip on the side of the screen. Step through
 it, and carry a window earlier or later.
 
-<img src="docs/assets/keys-queue.svg" height="46" alt="⌥[ ⌥] to cycle, ⌥⇧[ ⌥⇧] to move">
+<img src="docs/assets/keys-queue.svg" alt="⌥[ / ⌥] previous / next window; ⌥⇧[ / ⌥⇧] move the window earlier / later">
 
 <img src="docs/assets/queue.gif" width="600" alt="Cycling through windows and moving one in the queue">
 
@@ -22,7 +22,7 @@ it, and carry a window earlier or later.
 Tap <kbd>⌥</kbd> on its own to aim at windows without focusing them. Add <kbd>⇧</kbd> to aim at
 several, then act on all of them at once.
 
-<img src="docs/assets/keys-aiming.svg" height="46" alt="Tap ⌥, then ↓, ⇧↓, ↩">
+<img src="docs/assets/keys-aiming.svg" alt="Tap ⌥ to start aiming; [ / ] move the aim; ⇧] aim at more windows; ↩ focus">
 
 <img src="docs/assets/aiming.gif" width="600" alt="Aiming at windows in aiming mode">
 
@@ -30,7 +30,7 @@ several, then act on all of them at once.
 Aim at windows and pick a layout. Fixed-shape windows like the iOS Simulator keep their
 proportions, and reordering the queue lays the tiles out again.
 
-<img src="docs/assets/keys-tiling.svg" height="46" alt="Tap ⌥, ⇧↓ to aim, → for layouts, ↩">
+<img src="docs/assets/keys-tiling.svg" alt="While aiming: ⇧] aim at windows; → open the layouts; ↩ tile; ⌥[ move a window, the tiles follow">
 
 <img src="docs/assets/tiling.gif" width="600" alt="Tiling Xcode, the Simulator and Safari, then reordering them">
 
@@ -38,28 +38,28 @@ proportions, and reordering the queue lays the tiles out again.
 <kbd>G</kbd> in aiming mode bundles windows into one strip entry. Lock a group and cycling stays
 inside it.
 
-<img src="docs/assets/keys-groups.svg" height="46" alt="G to group, ⌃⌥L to lock">
+<img src="docs/assets/keys-groups.svg" alt="While aiming: G groups the aimed windows; ⌃⌥L locks cycling to the group">
 
 <img src="docs/assets/groups.gif" width="600" alt="Grouping two windows and locking cycling to them">
 
 ### Workspaces
 Jump to a workspace by number, take the window along, or find an empty one.
 
-<img src="docs/assets/keys-workspaces.svg" height="46" alt="⌥1…9, ⌥⇧1…9, ⌥0">
+<img src="docs/assets/keys-workspaces.svg" alt="⌥1…9 go to workspace; ⌥⇧1…9 take the window there; ⌥0 go to an empty workspace">
 
 <img src="docs/assets/workspaces.gif" width="600" alt="Switching workspaces and moving a window to another">
 
 ### Window finder
 Type part of a window's name and go straight there.
 
-<img src="docs/assets/keys-search.svg" height="46" alt="⌥Space">
+<img src="docs/assets/keys-search.svg" alt="⌥Space find a window by name">
 
 <img src="docs/assets/search.gif" width="600" alt="Finding Terminal by typing">
 
 ### Declutter
 Every window in view at once, none on top of another, resized as little as possible.
 
-<img src="docs/assets/keys-declutter.svg" height="46" alt="⌥D">
+<img src="docs/assets/keys-declutter.svg" alt="⌥D spread out every window in view">
 
 <img src="docs/assets/declutter.gif" width="600" alt="Overlapping windows spreading out">
 

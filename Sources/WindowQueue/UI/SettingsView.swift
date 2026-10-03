@@ -578,7 +578,7 @@ final class SettingsWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
     /// Draws every tab of the settings window, title bar and toolbar included, into PNGs without
-    /// putting it on screen. Debug command `settings-render <dir>`.
+    /// putting it on screen. Run as `WindowQueue --render settings <dir>`.
     static func render(store: PreferencesStore, to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let controller = SettingsWindowController(store: store, failures: { [] }, spacesAvailable: true, showTour: {})

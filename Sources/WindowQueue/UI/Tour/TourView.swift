@@ -308,7 +308,6 @@ struct TourView: View {
     @ViewBuilder
     private var lessonText: some View {
         let superKey = model.superSymbol
-        let along = model.alongArrows
         switch model.page {
         case .basics:
             pageTitle("Focus and move")
@@ -324,10 +323,10 @@ struct TourView: View {
             pageTitle("Aiming mode")
             enterAiming("The screen dims, the strip grows and an orange aim appears — nothing takes focus until you say so.")
             VStack(alignment: .leading, spacing: 6) {
-                keyRow([String(along.first!), String(along.last!)], "Move the aim; [ and ] work too", joiner: "/")
-                keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
+                keyRow(["[", "]"], "Move the aim; arrows work too", joiner: "/")
+                keyRow(["⇧]"], "Aim multiple windows")
                 keyRow(["A"], "Aim all windows")
-                keyRow(["\(superKey)\(String(along.last!))"], "Carry the aimed windows along the queue")
+                keyRow(["\(superKey)]"], "Carry the aimed windows along the queue")
                 keyRow(["↩", superKey], "Focus the aimed window; Space works too")
                 keyRow(["esc"], "Leave, changing nothing")
             }
@@ -338,17 +337,17 @@ struct TourView: View {
             enterAiming("Tiling happens there: aim at two or more windows and a menu of layouts appears beside them.")
             paragraph("A tiled layout follows the queue: move one of its windows along the queue and the layout reflows. Windows with fixed proportions, like the **iOS Simulator**, keep them — the others share the room that's left.")
             VStack(alignment: .leading, spacing: 6) {
-                keyRow(["⇧\(String(along.last!))"], "Aim multiple windows")
+                keyRow(["⇧]"], "Aim multiple windows")
                 keyRow([model.intoArrow, "↩"], "Open the layouts, then tile", joiner: "then")
-                keyRow([String(along.first!), String(along.last!)], "Pick another layout", joiner: "/")
-                keyRow(["\(superKey)\(String(along.first!))"], "While aiming: move a window, and the tiles follow")
+                keyRow(["[", "]"], "Pick another layout", joiner: "/")
+                keyRow(["\(superKey)["], "While aiming: move a window, and the tiles follow")
             }
             tasks(taskList)
         case .groups:
             pageTitle("Groups")
             enterAiming("Grouping happens there. Grouped windows share one place in the strip, and open in a strip of their own beside it.")
             VStack(alignment: .leading, spacing: 6) {
-                keyRow(["⇧\(String(along.last!))", "G"], "Aim multiple windows, then group them", joiner: "then")
+                keyRow(["⇧]", "G"], "Aim multiple windows, then group them", joiner: "then")
                 keyRow([model.intoArrow], "While aiming at a group: step into it")
                 keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
                 keyRow([model.combo(.toggleGroupLock)], "Lock cycling to the group, and unlock it")
@@ -363,17 +362,16 @@ struct TourView: View {
     /// The page's "Your turn" checklist.
     private var taskList: [(TourEvent, String)] {
         let superKey = model.superSymbol
-        let along = model.alongArrows
         switch model.page {
         case .basics: return [(.cycled, "Go to the next window — \(model.combo(.cycleNext))"), (.moved, "Move a window along the queue — \(model.combo(.moveLeft))"),
                    (.clicked, "Click an icon in the strip")]
-        case .aiming: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"), (.aimedThree, "Aim three windows with ⇧\(String(along.last!))"),
+        case .aiming: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"), (.aimedThree, "Aim three windows with ⇧]"),
                    (.confirmed, "Focus one with ↩ or another \(superKey) tap")]
         case .tiling: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
-                   (.tiled, "Tile windows — ⇧\(String(along.last!)), then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)\(String(along.first!))"),
+                   (.tiled, "Tile windows — ⇧], then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)["),
                    (.secondLayout, "Try a second layout")]
         case .groups: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
-                   (.grouped, "Group two windows — ⇧\(String(along.last!)), then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
+                   (.grouped, "Group two windows — ⇧], then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
                    (.cycledLocked, "Cycle while it's locked — \(model.combo(.cycleNext))")]
         default: return []
         }
@@ -661,7 +659,7 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Draws every page — and the demo's states along the way — into PNGs without putting anything
-    /// on screen, for checking the tour's look. Debug command `tour-render <dir>`.
+    /// on screen, for checking the tour's look. Run as `WindowQueue --render tour <dir>`.
     static func render(store: PreferencesStore, to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let model = TourModel(store: store)

@@ -1,9 +1,13 @@
 #!/bin/bash
-# Turns the frames and keycaps from the `readme-render <dir>` debug command into the README's
-# pictures in docs/assets. Needs ffmpeg. Usage: Scripts/make-readme-assets.sh <dir>
+# Draws the README's pictures into docs/assets: scenes on the tour's pretend desktop as GIFs, and
+# each feature's keys as SVG. Runs a one-off `WindowQueue --render readme`, so a running copy of
+# the app is left alone. Needs ffmpeg.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-SRC=${1:?usage: make-readme-assets.sh <readme-render output dir>}
+SRC=$(mktemp -d -t windowqueue-readme)
+trap 'rm -rf "$SRC"' EXIT
+swift build >/dev/null
+"$(swift build --show-bin-path)/WindowQueue" --render readme "$SRC"
 OUT=docs/assets
 mkdir -p "$OUT"
 for scene in "$SRC"/*/; do

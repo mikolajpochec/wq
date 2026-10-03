@@ -4,7 +4,7 @@ import SwiftUI
 /// The README's pictures: short scenes played on the tour's pretend desktop, saved frame by frame
 /// (Scripts/make-readme-assets.sh turns them into GIFs), and the keys of each feature as SVG
 /// keycaps. Uses the default settings, not the user's, so the pictures match a fresh install.
-/// Debug command `readme-render <dir>`.
+/// Run as `WindowQueue --render readme <dir>`.
 enum ReadmeRenderer {
     struct Scene {
         let name: String
@@ -12,11 +12,15 @@ enum ReadmeRenderer {
         let steps: [TourModel.DemoStep]
     }
 
-    /// One picture of keys: groups of keys held together, with a word between groups.
+    /// One picture of keys: a row per shortcut, the keys on the left and what they do on the right.
     struct Keys {
+        struct Row {
+            /// Keys held together; several groups are alternatives, shown with a slash between.
+            let groups: [[String]]
+            let text: String
+        }
         let name: String
-        let groups: [[String]]
-        let joiner: String
+        let rows: [Row]
     }
 
     static var prefs: Preferences {
@@ -71,15 +75,40 @@ enum ReadmeRenderer {
             let combo = prefs.combo(for: action)
             return combo.modifierSymbols.map(String.init) + [KeyCombo.keyName(for: combo.keyCode)]
         }
+        typealias Row = Keys.Row
         let superKey = prefs.superModifier.symbol
         return [
-            Keys(name: "queue", groups: [caps(.cyclePrevious), caps(.cycleNext), caps(.moveLeft), caps(.moveRight)], joiner: "·"),
-            Keys(name: "aiming", groups: [[superKey], ["↓"], ["⇧", "↓"], ["↩"]], joiner: "then"),
-            Keys(name: "tiling", groups: [[superKey], ["⇧", "↓"], ["→"], ["↩"]], joiner: "then"),
-            Keys(name: "groups", groups: [["G"], caps(.toggleGroupLock)], joiner: "·"),
-            Keys(name: "workspaces", groups: [caps(.space1) + ["…9"], caps(.moveToSpace1) + ["…9"], caps(.goToEmptySpace)], joiner: "·"),
-            Keys(name: "search", groups: [caps(.search)], joiner: ""),
-            Keys(name: "declutter", groups: [caps(.declutter)], joiner: ""),
+            Keys(name: "queue", rows: [
+                Row(groups: [caps(.cyclePrevious), caps(.cycleNext)], text: "Previous / next window"),
+                Row(groups: [caps(.moveLeft), caps(.moveRight)], text: "Move the window earlier / later"),
+            ]),
+            Keys(name: "aiming", rows: [
+                Row(groups: [[superKey]], text: "Tap on its own to start aiming"),
+                Row(groups: [["["], ["]"]], text: "Move the aim"),
+                Row(groups: [["⇧", "]"]], text: "Aim at more windows"),
+                Row(groups: [["↩"]], text: "Focus the aimed window"),
+            ]),
+            Keys(name: "tiling", rows: [
+                Row(groups: [["⇧", "]"]], text: "While aiming: aim at windows"),
+                Row(groups: [["→"]], text: "Open the layouts"),
+                Row(groups: [["↩"]], text: "Tile"),
+                Row(groups: [[superKey, "["]], text: "Move a window; the tiles follow"),
+            ]),
+            Keys(name: "groups", rows: [
+                Row(groups: [["G"]], text: "While aiming: group the aimed windows"),
+                Row(groups: [caps(.toggleGroupLock)], text: "Lock cycling to the group"),
+            ]),
+            Keys(name: "workspaces", rows: [
+                Row(groups: [caps(.space1) + ["…9"]], text: "Go to workspace 1–9"),
+                Row(groups: [caps(.moveToSpace1) + ["…9"]], text: "Take the window there"),
+                Row(groups: [caps(.goToEmptySpace)], text: "Go to an empty workspace"),
+            ]),
+            Keys(name: "search", rows: [
+                Row(groups: [caps(.search)], text: "Find a window by name"),
+            ]),
+            Keys(name: "declutter", rows: [
+                Row(groups: [caps(.declutter)], text: "Spread out every window in view"),
+            ]),
         ]
     }
 
@@ -135,56 +164,61 @@ enum ReadmeRenderer {
         window.close()
     }
 
-    /// Keycaps in the tour's style: one cap per key, a modifier's name under its symbol.
+    /// Small keycaps, one per key, and what the keys do beside them. The text is a mid grey that
+    /// reads on GitHub's light and dark pages alike.
     static func svg(_ keys: Keys) -> String {
-        let names = ["⌘": "command", "⌥": "option", "⌃": "control", "⇧": "shift"]
-        let height: CGFloat = 52, gap: CGFloat = 6, groupGap: CGFloat = 14, pad: CGFloat = 4
-        let symbolFont = NSFont.systemFont(ofSize: 20, weight: .medium)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .medium)
-        let wordFont = NSFont.systemFont(ofSize: 15, weight: .medium)
+        let cap: CGFloat = 26, gap: CGFloat = 4, rowHeight: CGFloat = 34, pad: CGFloat = 2
+        let capFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let textFont = NSFont.systemFont(ofSize: 14)
         func width(_ text: String, _ font: NSFont) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
         func escape(_ text: String) -> String {
             text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;")
         }
-        let family = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Segoe UI Symbol', 'Helvetica Neue', Arial, sans-serif"
-        var body = ""
-        var x = pad
-        for (g, group) in keys.groups.enumerated() {
-            if g > 0, !keys.joiner.isEmpty {
-                let w = width(keys.joiner, wordFont)
-                body += "<text x='\(x + groupGap / 2 + w / 2)' y='\(pad + height / 2 + 5)' font-size='15' font-weight='500' fill='#8b949e' text-anchor='middle'>\(escape(keys.joiner))</text>"
-                x += w + groupGap
-            } else if g > 0 {
-                x += groupGap
-            }
-            for key in group {
-                // "…9" after a key reads as a range, not a cap of its own.
-                if key.hasPrefix("…") {
-                    let w = width(key, wordFont)
-                    body += "<text x='\(x + w / 2)' y='\(pad + height / 2 + 5)' font-size='15' font-weight='500' fill='#8b949e' text-anchor='middle'>\(escape(key))</text>"
-                    x += w + gap
-                    continue
-                }
-                let label = names[key]
-                let symbol = key.count > 1 && label == nil ? key.lowercased() : key
-                let w = max(height, width(symbol, symbolFont) + 26, label.map { width($0, labelFont) + 18 } ?? 0)
-                let midX = x + w / 2
-                body += "<rect x='\(x)' y='\(pad + 3)' width='\(w)' height='\(height - 3)' rx='9' fill='#b9bdc4'/>"
-                body += "<rect x='\(x)' y='\(pad)' width='\(w)' height='\(height - 4)' rx='9' fill='url(#cap)' stroke='#c4c8ce'/>"
-                if let label {
-                    body += "<text x='\(midX)' y='\(pad + 24)' font-size='20' font-weight='500' fill='#24292f' text-anchor='middle'>\(escape(symbol))</text>"
-                    body += "<text x='\(midX)' y='\(pad + 40)' font-size='10' font-weight='500' fill='#6e7781' text-anchor='middle'>\(label)</text>"
-                } else {
-                    body += "<text x='\(midX)' y='\(pad + height / 2 + 5)' font-size='20' font-weight='500' fill='#24292f' text-anchor='middle'>\(escape(symbol))</text>"
-                }
-                x += w + gap
-            }
-            x -= gap
+        func capWidth(_ key: String) -> CGFloat {
+            key.hasPrefix("…") ? width(key, capFont) : max(cap, width(key.count > 1 ? key.lowercased() : key, capFont) + 14)
         }
-        let total = x + pad
+        func rowWidth(_ row: Keys.Row) -> CGFloat {
+            let slash = width("/", capFont) + 2 * gap
+            return row.groups.map { group in group.map(capWidth).reduce(0, +) + gap * CGFloat(group.count - 1) }
+                .reduce(0, +) + slash * CGFloat(row.groups.count - 1)
+        }
+        let keysWidth = keys.rows.map(rowWidth).max() ?? 0
+        let textX = pad + keysWidth + 14
+        let textWidth = keys.rows.map { width($0.text, textFont) }.max() ?? 0
+        let total = (textX + textWidth + pad).rounded(.up)
+        let height = (CGFloat(keys.rows.count) * rowHeight + 2 * pad).rounded(.up)
+
+        var body = ""
+        for (r, row) in keys.rows.enumerated() {
+            let top = pad + CGFloat(r) * rowHeight + (rowHeight - cap) / 2
+            let baseline = top + cap / 2 + 4.5
+            var x = pad
+            for (g, group) in row.groups.enumerated() {
+                if g > 0 {
+                    let w = width("/", capFont)
+                    body += "<text x='\(x + gap + w / 2)' y='\(baseline)' font-size='13' fill='#8b949e' text-anchor='middle'>/</text>"
+                    x += w + 2 * gap
+                }
+                for key in group {
+                    let w = capWidth(key)
+                    if key.hasPrefix("…") {
+                        body += "<text x='\(x + w / 2)' y='\(baseline)' font-size='13' fill='#8b949e' text-anchor='middle'>\(escape(key))</text>"
+                    } else {
+                        let label = key.count > 1 ? key.lowercased() : key
+                        body += "<rect x='\(x)' y='\(top + 2)' width='\(w)' height='\(cap - 2)' rx='6' fill='#b9bdc4'/>"
+                        body += "<rect x='\(x)' y='\(top)' width='\(w)' height='\(cap - 2.5)' rx='6' fill='url(#cap)' stroke='#c4c8ce'/>"
+                        body += "<text x='\(x + w / 2)' y='\(baseline - 1)' font-size='13' font-weight='500' fill='#24292f' text-anchor='middle'>\(escape(label))</text>"
+                    }
+                    x += w + gap
+                }
+                x -= gap
+            }
+            body += "<text x='\(textX)' y='\(baseline)' font-size='14' fill='#8b949e'>\(escape(row.text))</text>"
+        }
+        let family = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Segoe UI Symbol', 'Helvetica Neue', Arial, sans-serif"
         return """
-        <svg xmlns='http://www.w3.org/2000/svg' width='\(Int(total.rounded(.up)))' height='\(Int(height + 2 * pad))' viewBox='0 0 \(Int(total.rounded(.up))) \(Int(height + 2 * pad))' font-family="\(family)">
+        <svg xmlns='http://www.w3.org/2000/svg' width='\(Int(total))' height='\(Int(height))' viewBox='0 0 \(Int(total)) \(Int(height))' font-family="\(family)">
         <defs><linearGradient id='cap' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#ffffff'/><stop offset='1' stop-color='#eef0f3'/></linearGradient></defs>
         \(body)
         </svg>

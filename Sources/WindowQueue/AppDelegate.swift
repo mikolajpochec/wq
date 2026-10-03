@@ -2317,17 +2317,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             enumerator?.refresh()
         case "dump":
             DebugCommands.writeState(model)
-        case "tour-render":
-            guard let path = words.dropFirst().first else { return }
-            TourWindowController.render(store: store, to: URL(fileURLWithPath: path))
         case "tour":
             showTour()
-        case "readme-render":
-            guard let path = words.dropFirst().first else { return }
-            ReadmeRenderer.render(to: URL(fileURLWithPath: path))
-        case "settings-render":
-            guard let path = words.dropFirst().first else { return }
-            SettingsWindowController.render(store: store, to: URL(fileURLWithPath: path))
         default:
             break
         }

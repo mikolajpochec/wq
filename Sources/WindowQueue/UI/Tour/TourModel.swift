@@ -383,10 +383,10 @@ final class TourModel: ObservableObject {
     }
 
     private static func keyCode(_ key: DemoKey, prefs: Preferences) -> Int {
-        let vertical = prefs.stripSide.isVertical
         switch key {
-        case .next: return vertical ? kVK_DownArrow : kVK_RightArrow
-        case .previous: return vertical ? kVK_UpArrow : kVK_LeftArrow
+        // [ and ] move along the queue whichever side the strip is on; the arrows work too.
+        case .next: return kVK_ANSI_RightBracket
+        case .previous: return kVK_ANSI_LeftBracket
         case .into:
             switch prefs.stripSide {
             case .left: return kVK_RightArrow
@@ -434,9 +434,6 @@ final class TourModel: ObservableObject {
     func combo(_ action: HotkeyAction) -> String { prefs.combo(for: action).displayString }
 
     var superSymbol: String { prefs.superModifier.symbol }
-
-    /// The arrows that run along the strip.
-    var alongArrows: String { prefs.stripSide.isVertical ? "↑↓" : "←→" }
 
     /// The arrow pointing from the strip into the screen.
     var intoArrow: String {
