@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 — 2026-10-03
+
+Welcome tour improvements.
+
+- Moving the aim is shown as `[` / `]`, the keys used everywhere else; the arrows still work.
+- A new **Close windows** tip: ⌥Q, or Q while aiming.
+- ⌥0 on the pretend desktop adds a workspace when every one is in use, so the Workspaces tip can always be finished.
+- Opening the window finder (⌥Space) is enough for the Search tip.
+- Finished tips get a check, the tour skips past them, and it ends on a new **All set** page once every tip is done.
+
 ## 1.0.0 — 2026-10-03
 
 The first public release.
