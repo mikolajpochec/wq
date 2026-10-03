@@ -1813,7 +1813,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             !$0.isMinimized && ($0.id == id || ($0.spaceID != nil && $0.spaceID == window.spaceID))
         }
         guard members.count > 1, !WindowTiler.coveredWindowIDs(among: Set(members.map(\.id)),
-                                                                ownPIDs: Set(members.map(\.pid))).isEmpty else { return }
+                                                                ownPIDs: Set(members.map(\.pid)),
+                                                                queued: Set(model.windows.map(\.id))).isEmpty else { return }
         // Some apps order a window forward only on a second ask, or a moment after the first one
         // has been answered: look again shortly, and ask again if the layout is still buried.
         guard raises < 3 else {

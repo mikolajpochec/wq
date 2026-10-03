@@ -311,12 +311,22 @@ enum WindowTiler {
         }
     }
 
-    /// Those of `ids` that some other ordinary window overlaps from in front. Windows of the apps in
-    /// `ownPIDs` do not count: an app's own popovers, palettes and dialogs belong on top of it.
-    static func coveredWindowIDs(among ids: Set<CGWindowID>, ownPIDs: Set<pid_t>) -> Set<CGWindowID> {
+    /// Those of `ids` that some other ordinary window overlaps from in front. A window in the
+    /// queue (`queued`) always counts, whichever app it belongs to — another Chrome window over the
+    /// tiled one buries it as surely as any other app's. Other windows of the apps in `ownPIDs` do
+    /// not: an app's own popovers, palettes and dialogs belong on top of it.
+    static func coveredWindowIDs(among ids: Set<CGWindowID>, ownPIDs: Set<pid_t>,
+                                 queued: Set<CGWindowID>) -> Set<CGWindowID> {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]]
         else { return [] }
+        return coveredWindowIDs(among: ids, in: list, ownPIDs: ownPIDs, queued: queued,
+                                selfPID: ProcessInfo.processInfo.processIdentifier)
+    }
+
+    /// The same, over a window list as `CGWindowListCopyWindowInfo` gives it, front to back.
+    static func coveredWindowIDs(among ids: Set<CGWindowID>, in list: [[String: Any]], ownPIDs: Set<pid_t>,
+                                 queued: Set<CGWindowID>, selfPID: pid_t) -> Set<CGWindowID> {
         var covered = Set<CGWindowID>()
         var above: [CGRect] = []
         // Front to back: every ordinary window met before one of `ids` is in front of it.
@@ -331,8 +341,8 @@ enum WindowTiler {
                     covered.insert(number)
                 }
             } else if (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
-                      let owner = info[kCGWindowOwnerPID as String] as? pid_t,
-                      owner != ProcessInfo.processInfo.processIdentifier, !ownPIDs.contains(owner) {
+                      let owner = info[kCGWindowOwnerPID as String] as? pid_t, owner != selfPID,
+                      queued.contains(number) || !ownPIDs.contains(owner) {
                 above.append(bounds)
             }
         }
