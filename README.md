@@ -92,10 +92,10 @@ Requires macOS 14 or later, on Apple silicon or Intel.
    for **Accessibility** access, which WindowQueue needs to move and focus other apps' windows.
    It lives in the menu bar; the tour can be reopened from there or from Settings.
 
-Until releases are notarized, macOS refuses the first launch of a downloaded copy ("Apple could not
-verify…"). Choose **Done**, then **System Settings › Privacy & Security › Open Anyway**, or run
-`xattr -dr com.apple.quarantine /Applications/WindowQueue.app` once. An update signed this way also
-makes macOS forget the Accessibility grant: remove WindowQueue from the list and allow it again.
+Releases are not notarized, so macOS refuses the first launch of a downloaded copy ("Apple could
+not verify…"). Choose **Done**, then **System Settings › Privacy & Security › Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/WindowQueue.app` once. Every release is signed with the
+same certificate, so updating keeps the Accessibility grant.
 
 ## Release
 
@@ -103,17 +103,13 @@ makes macOS forget the Accessibility grant: remove WindowQueue from the list and
 make release         # tests, then dist/WindowQueue-<version>.dmg and .zip
 ```
 
-The app is universal (arm64 + x86_64) and signed with the hardened runtime. With a
-**Developer ID Application** certificate in the keychain it is signed with that (or set
-`SIGN_ID=...`), and notarized and stapled once a notarytool profile exists:
+The app is universal (arm64 + x86_64), signed with the hardened runtime and the self-signed
+**WindowQueue Release** certificate, which `make cert` creates once in a keychain of its own. Keep
+that certificate: a release signed with another one makes every user grant Accessibility again.
+`Scripts/make-signing-cert.sh` says what to back up.
 
-```sh
-xcrun notarytool store-credentials windowqueue --apple-id <apple-id> --team-id <team-id>
-```
-
-Without one it is signed ad hoc. The version comes from `CFBundleShortVersionString` in
-`Resources/Info.plist`; bump it and `CHANGELOG.md` together. `make icon` redraws the app icon from
-`Scripts/make-icon.swift`.
+The version comes from `CFBundleShortVersionString` in `Resources/Info.plist`; bump it and
+`CHANGELOG.md` together. `make icon` redraws the app icon from `Scripts/make-icon.swift`.
 
 ## Build and run
 
@@ -132,7 +128,8 @@ Requires Swift 6 / Xcode command line tools and macOS 14+.
 
 `make bundle` signs with the first code-signing identity in your keychain, falling back to an ad-hoc
 signature. Prefer a real identity: an ad-hoc signature changes on every build, and macOS then revokes
-the Accessibility grant each time. `make cert` creates a self-signed one if you have none.
+the Accessibility grant each time. `make cert` creates a self-signed one, and `make bundle
+SIGN_ID="WindowQueue Release"` uses it.
 
 ## Accessibility permission
 
@@ -275,9 +272,9 @@ Sources/WindowQueue/
   UI/                     strip panel and view, title toast, settings, shortcut recorder
   Settings/               Preferences (UserDefaults) and KeyCombo
 Scripts/
-  release.sh                  universal, signed (and notarized) DMG and zip in dist/
+  release.sh                  universal, signed DMG and zip in dist/
   make-icon.swift             draws Resources/AppIcon.icns
-  make-signing-cert.sh        self-signed code-signing identity
+  make-signing-cert.sh        the self-signed "WindowQueue Release" signing identity
   enable-desktop-shortcuts.sh registers ⌃5 … ⌃9 "Switch to Desktop N"
 ```
 

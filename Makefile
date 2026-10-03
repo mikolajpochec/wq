@@ -45,7 +45,7 @@ install: bundle
 cert:
 	./Scripts/make-signing-cert.sh
 
-# A universal, hardened, signed (and, with a Developer ID, notarized) DMG and zip in dist/.
+# A universal DMG and zip in dist/, signed with the "WindowQueue Release" certificate (make cert).
 release:
 	./Scripts/release.sh
 
