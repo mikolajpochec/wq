@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The tour's window has the keyboard: the shortcuts and the super key tap go to its pretend
     /// desktop rather than to the real windows.
     private var tourHasKeyboard = false
+    private let updates = UpdateChecker()
+    private var updateWindow: UpdateWindowController?
+    /// Up at the top of the menu once a newer release is out, until this copy is updated.
+    private let updateItem = NSMenuItem(title: "", action: #selector(showUpdate), keyEquivalent: "")
     /// Accessibility is granted, so the shortcuts can do what they promise.
     private var accessGranted = false
     private let grantAccessItem = NSMenuItem(title: "Grant Accessibility Access…",
@@ -73,10 +77,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.tiledOrders[group] = order.map { $0 == old ? new : $0 }
             }
         }
+        updates.onAvailable = { [weak self] release, announce in
+            guard let self else { return }
+            self.updateItem.title = "Update Available: \(release.version)…"
+            self.updateItem.isHidden = false
+            if announce { self.showUpdate() }
+        }
+        updates.onUpToDate = { [weak self] in
+            self?.updateItem.isHidden = true
+            self?.toast?.showCentred(title: "WindowQueue is up to date",
+                                     subtitle: "Version \(UpdateChecker.currentVersion) is the latest")
+        }
+        updates.onFailure = { [weak self] reason in
+            self?.toast?.showCentred(title: "Couldn't check for updates", subtitle: reason)
+        }
         store.$prefs
             .receive(on: RunLoop.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
+                if prefs.checkForUpdates { self.updates.start() } else { self.updates.stop() }
                 self.model.scope = prefs.effectiveScope
                 self.model.queuePerMonitor = prefs.multiMonitorMode
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
@@ -318,9 +337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .sink { [weak self] note in
                 guard let self, let window = note.object as? NSWindow,
-                      window === self.settingsWindow?.window || window === self.tour?.window else { return }
-                // Back to living in the menu bar once neither of our windows is left open.
-                let others = [self.settingsWindow?.window, self.tour?.window].compactMap { $0 }
+                      window === self.settingsWindow?.window || window === self.tour?.window
+                      || window === self.updateWindow?.window else { return }
+                // Back to living in the menu bar once none of our windows is left open.
+                let others = [self.settingsWindow?.window, self.tour?.window, self.updateWindow?.window].compactMap { $0 }
                     .filter { $0 !== window && $0.isVisible }
                 if others.isEmpty { NSApp.setActivationPolicy(.accessory) }
                 self.enumerator?.refresh()
@@ -2331,6 +2351,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "rectangle.stack",
                                      accessibilityDescription: "WindowQueue")
         let menu = NSMenu()
+        updateItem.target = self
+        updateItem.isHidden = true
+        menu.addItem(updateItem)
         grantAccessItem.target = self
         grantAccessItem.isHidden = AXIsProcessTrusted()
         menu.addItem(grantAccessItem)
@@ -2345,6 +2368,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "About WindowQueue", action: #selector(showAbout), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Quit WindowQueue", action: #selector(quit), keyEquivalent: "q")
             .target = self
@@ -2365,7 +2390,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store: store,
                 failures: { [weak self] in self?.hotkeys.failures.map(\.action) ?? [] },
                 spacesAvailable: SpacesBridge.shared.isAvailable,
-                showTour: { [weak self] in self?.showTour() }
+                showTour: { [weak self] in self?.showTour() },
+                checkForUpdates: { [weak self] in self?.checkForUpdates() }
             )
         }
         settingsWindow?.present()
@@ -2406,6 +2432,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
         NSApp.windows.filter { $0.isVisible && $0.className.contains("About") }.forEach { $0.orderFrontRegardless() }
+    }
+
+    /// The newer release found, with the way to download it.
+    @objc private func showUpdate() {
+        guard let release = updates.available else { return }
+        if updateWindow?.window.isVisible != true {
+            updateWindow = UpdateWindowController(release: release)
+        }
+        updateWindow?.present()
+    }
+
+    @objc private func checkForUpdates() {
+        updates.check(userAsked: true)
     }
 
     @objc private func grantAccessibility() {

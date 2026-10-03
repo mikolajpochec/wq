@@ -25,6 +25,7 @@ struct SettingsView: View {
     let hotkeyFailures: [HotkeyAction]
     let spacesAvailable: Bool
     var showTour: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     @State private var rectangleStatus = ""
     @State private var newAimAction: HotkeyAction = .toggleRecording
@@ -99,6 +100,15 @@ struct SettingsView: View {
                     caption("A short tour of focusing, aiming, tiling and groups, with a pretend desktop to try them in.")
                     Spacer()
                     Button("Show the Tour") { showTour() }
+                }
+            }
+
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: $store.prefs.checkForUpdates)
+                HStack {
+                    caption("Version \(UpdateChecker.currentVersion). WindowQueue looks for a new release on GitHub once a day and tells you; it never installs anything itself.")
+                    Spacer()
+                    Button("Check Now") { checkForUpdates() }
                 }
             }
 
@@ -550,13 +560,14 @@ final class SettingsWindowController: NSWindowController {
     /// follows the tab — the standard macOS settings window, which a SwiftUI `TabView` in a plain
     /// window is not (on macOS 26 that draws as a blank segmented bar).
     init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool,
-         showTour: @escaping () -> Void) {
+         showTour: @escaping () -> Void, checkForUpdates: @escaping () -> Void = {}) {
         self.store = store
         tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         for tab in SettingsTab.allCases {
             let view = SettingsView(store: store, tab: tab, hotkeyFailures: failures(),
-                                    spacesAvailable: spacesAvailable, showTour: showTour)
+                                    spacesAvailable: spacesAvailable, showTour: showTour,
+                                    checkForUpdates: checkForUpdates)
             let hosting = NSHostingController(rootView: view)
             // The window takes its title from the tab on show.
             hosting.title = tab.title

@@ -484,6 +484,9 @@ struct Preferences: Codable, Equatable {
     /// tour opens on first launch; settings saved before the tour existed count as having seen it.
     var onboardingCompleted: Bool = false
 
+    /// Looks for a newer release on GitHub at launch and once a day, and says so; never installs.
+    var checkForUpdates: Bool = true
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -546,6 +549,7 @@ struct Preferences: Codable, Equatable {
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
         // Not `defaults`: someone already using WindowQueue is not a new user.
         onboardingCompleted = value(.onboardingCompleted, true)
+        checkForUpdates = value(.checkForUpdates, defaults.checkForUpdates)
     }
 
     init() {}
