@@ -162,6 +162,19 @@ final class TourSimTests: XCTestCase {
         XCTAssertTrue(sim.done.isSuperset(of: [.searched, .decluttered, .dragged]))
     }
 
+    func testClosingTicksOffEachWay() {
+        let sim = sim([.safari, .notes, .terminal, .mail])
+        press(sim, kVK_ANSI_Q, .option)
+        XCTAssertTrue(sim.closed.contains(SimWindow.safari.id))
+        XCTAssertEqual(sim.done, [.closed])
+        sim.superTap(symbol: "⌥")
+        press(sim, kVK_DownArrow)
+        press(sim, kVK_ANSI_Q) // bare in aiming mode
+        XCTAssertEqual(sim.closed.count, 2)
+        XCTAssertFalse(sim.aiming)
+        XCTAssertTrue(sim.done.contains(.closedWhileAiming))
+    }
+
     func testTheTourIsForNewUsersOnly() throws {
         XCTAssertFalse(Preferences().onboardingCompleted)
         let older = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))

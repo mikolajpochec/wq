@@ -41,6 +41,7 @@ enum TourEvent: Hashable {
     case switchedMonitor, movedToMonitor
     case searched, launched, doubleTapped, maximized, fullscreened, restored, decluttered
     case pictured, recorded, videoSaved, hidStrip, stripBack, peekedStrip, dragged, dropped
+    case closed, closedWhileAiming
 }
 
 /// Where the pretend desktop starts: which windows, and on which workspace and monitor each is.
@@ -956,7 +957,9 @@ final class TourSim: ObservableObject {
     }
 
     private func closeTarget() {
+        let wasAiming = aiming
         guard let target = takeTarget() else { return }
+        done.insert(wasAiming ? .closedWhileAiming : .closed)
         closed.insert(target)
         tiled.removeAll { $0 == target }
         if selected == target {
