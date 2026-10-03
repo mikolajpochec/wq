@@ -4,7 +4,7 @@ import Combine
 
 /// The tour's pages, in order.
 enum TourPage: Int, CaseIterable, Identifiable {
-    case welcome, basics, aiming, tiling, groups, setup, tips
+    case welcome, basics, aiming, tiling, groups, setup, tips, done
 
     var id: Int { rawValue }
 
@@ -17,11 +17,12 @@ enum TourPage: Int, CaseIterable, Identifiable {
         case .groups: return "Groups"
         case .setup: return "Setup"
         case .tips: return "Tips"
+        case .done: return "All set"
         }
     }
 
     /// The pretend desktop answers the keys on these pages.
-    var isInteractive: Bool { self != .setup }
+    var isInteractive: Bool { self != .setup && self != .done }
 
     var windows: [SimWindow] {
         switch self {
@@ -110,6 +111,8 @@ final class TourModel: ObservableObject {
     private var simWatch: AnyCancellable?
     /// A finished tip is about to hand on to the next.
     private var advancing = false
+    /// The tips the user has done on the desktop, ticked in the list.
+    @Published private(set) var finishedTips: Set<String> = []
 
     init(store: PreferencesStore) {
         self.store = store
@@ -178,18 +181,29 @@ final class TourModel: ObservableObject {
     }
 
     /// The user has used every one of the tip's shortcuts: a second to see the last one happen,
-    /// then on to the next tip.
+    /// then on to the next tip not done yet — or, with every tip done, to the last page.
     private func advanceIfTipDone() {
         guard page == .tips, !demoPlaying, !advancing, let tip = currentTip, tip.isDone(sim.done) else { return }
         advancing = true
+        finishedTips.insert(tip.id)
         let index = tipIndex
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self else { return }
             self.advancing = false
             guard self.page == .tips, self.tipIndex == index, !self.demoPlaying else { return }
+            guard let next = Self.nextTip(after: index, of: self.tips.map(\.id), finished: self.finishedTips) else {
+                self.show(.done)
+                return
+            }
             self.tipsPlaying = true
-            self.showTip((index + 1) % max(self.tips.count, 1))
+            self.showTip(next)
         }
+    }
+
+    /// The next tip after `index` not done yet, going round the list; nil once all are done.
+    static func nextTip(after index: Int, of ids: [String], finished: Set<String>) -> Int? {
+        guard !ids.isEmpty else { return nil }
+        return (1...ids.count).map { (index + $0) % ids.count }.first { !finished.contains(ids[$0]) }
     }
 
     var tips: [TourTip] {

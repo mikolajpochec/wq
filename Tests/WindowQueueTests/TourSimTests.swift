@@ -219,6 +219,14 @@ final class TourModelTests: XCTestCase {
         XCTAssertTrue(model.done.contains(.cycled))
     }
 
+    func testTipsSkipThoseDoneAndEndWhenAllAre() {
+        let ids = ["a", "b", "c", "d"]
+        XCTAssertEqual(TourModel.nextTip(after: 0, of: ids, finished: ["a"]), 1)
+        XCTAssertEqual(TourModel.nextTip(after: 1, of: ids, finished: ["a", "b", "c"]), 3)
+        XCTAssertEqual(TourModel.nextTip(after: 3, of: ids, finished: ["b", "c", "d"]), 0, "goes round to one left earlier")
+        XCTAssertNil(TourModel.nextTip(after: 2, of: ids, finished: Set(ids)), "all done: on to the last page")
+    }
+
     func testDoingATipMovesOnToTheNext() throws {
         let model = TourModel(store: PreferencesStore())
         model.show(.tips, scheduled: false)

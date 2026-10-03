@@ -29,6 +29,7 @@ struct TourView: View {
                 case .basics, .aiming, .tiling, .groups: lesson
                 case .setup: setup
                 case .tips: tips
+                case .done: allSet
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,7 +73,7 @@ struct TourView: View {
 
     private var footer: some View {
         HStack {
-            if model.page != .tips {
+            if model.page != .done {
                 Button("Skip Tour") { close() }
                     .buttonStyle(.link)
             }
@@ -81,10 +82,11 @@ struct TourView: View {
                 Button("Back") { model.back() }
                     .keyboardShortcut(.leftArrow, modifiers: [.command])
             }
-            if model.page == .tips {
+            if model.page == .done {
                 Button("Start Using WindowQueue") { close() }
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
             } else {
                 Button("Next") { model.next() }
                     .keyboardShortcut(.rightArrow, modifiers: [.command])
@@ -550,6 +552,30 @@ struct TourView: View {
         .padding(24)
     }
 
+    /// The end of the tour: what to remember, and the way out.
+    private var allSet: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.green)
+            Text("You're all set").font(.system(size: 30, weight: .bold))
+            paragraph("WindowQueue lives in the menu bar, and your windows are already in the queue.")
+                .multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 8) {
+                keyRow([model.combo(.cyclePrevious), model.combo(.cycleNext)], "Previous or next window", joiner: "/")
+                keyRow([model.superSymbol], "Tap on its own to aim")
+                keyRow([model.combo(.search)], "Find a window by name")
+            }
+            .frame(width: 320)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
+            Text("The tour stays in the menu bar and in Settings whenever you want another look.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: 460)
+    }
+
     private func tipRow(_ tip: TourTip, index: Int) -> some View {
         let current = index == model.tipIndex
         return Button { model.pickTip(index) } label: {
@@ -561,6 +587,9 @@ struct TourView: View {
                         .foregroundStyle(current ? Color.accentColor : .secondary)
                     Text(tip.title).font(.system(size: 13, weight: current ? .semibold : .regular))
                     Spacer(minLength: 4)
+                    if model.finishedTips.contains(tip.id) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    }
                     if !current, let first = tip.keys.first { KeyCaps(text: first, small: true) }
                 }
                 if current {
