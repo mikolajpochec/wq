@@ -9,6 +9,8 @@ struct SimDesktopView: View {
     var onClick: ((Int) -> Void)?
     /// The user started dragging an icon, which takes the desktop over from a preview.
     var onDragStart: (() -> Void)?
+    /// Square for the README's GIFs, which can't have transparent corners and stay small.
+    var cornerRadius: CGFloat = 12
 
     static let size = CGSize(width: 600, height: 400)
     private static let pairScale: CGFloat = 0.465
@@ -23,8 +25,8 @@ struct SimDesktopView: View {
             flashes
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.15)))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(Color.primary.opacity(0.15)))
     }
 
     private func screen(_ monitor: Int) -> some View {

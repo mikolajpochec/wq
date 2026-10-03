@@ -347,18 +347,22 @@ final class TourModel: ObservableObject {
     }
 
     func run(_ step: DemoStep) {
-        let prefs = self.prefs
+        Self.perform(step, on: sim, prefs: prefs)
+    }
+
+    /// Plays one step on a pretend desktop, with the keys the given settings bind.
+    static func perform(_ step: DemoStep, on sim: TourSim, prefs: Preferences) {
         switch step {
         case .action(let action):
             let combo = prefs.combo(for: action)
-            sim.press(keyCode: Int(combo.keyCode), flags: Self.flags(combo.modifiers), prefs: prefs)
+            sim.press(keyCode: Int(combo.keyCode), flags: flags(combo.modifiers), prefs: prefs)
         case .bareAction(let action):
             sim.press(keyCode: Int(prefs.combo(for: action).keyCode), flags: [], prefs: prefs)
         case .key(let key, let extend, let carry):
             var flags: NSEvent.ModifierFlags = []
             if extend { flags.insert(.shift) }
             if carry { flags.formUnion(prefs.superModifier.eventFlags) }
-            sim.press(keyCode: keyCode(key), flags: flags, prefs: prefs)
+            sim.press(keyCode: keyCode(key, prefs: prefs), flags: flags, prefs: prefs)
         case .superTap:
             sim.superTap(symbol: prefs.superModifier.symbol, doubleTap: prefs.superDoubleTapAction)
         case .click(let id):
@@ -378,7 +382,7 @@ final class TourModel: ObservableObject {
         }
     }
 
-    private func keyCode(_ key: DemoKey) -> Int {
+    private static func keyCode(_ key: DemoKey, prefs: Preferences) -> Int {
         let vertical = prefs.stripSide.isVertical
         switch key {
         case .next: return vertical ? kVK_DownArrow : kVK_RightArrow
