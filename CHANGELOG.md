@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.3 (2026-10-03)
+
+- Maximizing a tiled window with ⌥M frees its layout, as moving or resizing it by hand does. Fullscreen (⌥F) still keeps the layout.
+
 ## 1.1.2 — 2026-10-03
 
 - Focusing a tiled window brings up the whole layout even when another window of one of its apps — a second Chrome window, another terminal — was on top of it.
