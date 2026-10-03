@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 (2026-10-03)
+
+- New setting, Settings › General › Queue › **Wrap around at the ends of the queue** (on by default). Turned off, cycling with ⌥[ / ⌥] and moving the aim stop at the first and last window instead of coming round to the other end.
+
 ## 1.1.3 (2026-10-03)
 
 - Maximizing a tiled window with ⌥M frees its layout, as moving or resizing it by hand does. Fullscreen (⌥F) still keeps the layout.
