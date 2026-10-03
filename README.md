@@ -86,8 +86,8 @@ never reorders, and only the move shortcuts change the order.
 
 Requires macOS 14 or later, on Apple silicon or Intel.
 
-1. Download `WindowQueue-<version>.dmg` from the releases page, open it and drag **WindowQueue**
-   into **Applications**.
+1. Download `WindowQueue-<version>.dmg` from the [latest release](https://github.com/mikolajpochec/wq/releases/latest),
+   open it and drag **WindowQueue** into **Applications**.
 2. Open it from Applications. A welcome tour walks through the basics on a pretend desktop and asks
    for **Accessibility** access, which WindowQueue needs to move and focus other apps' windows.
    It lives in the menu bar; the tour can be reopened from there or from Settings.
