@@ -1052,7 +1052,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         Diagnostics.note("tiling broken by a change to window \(id)")
-        model.clearTiled(containing: id)
+        breakTiling(group)
+    }
+
+    /// The layout is no more: its windows stay exactly where they are, simply free again.
+    private func breakTiling(_ group: WindowQueueModel.TiledGroup) {
+        if let first = group.ids.first { model.clearTiled(containing: first) }
         tiledOrders[group.id] = nil
         for member in group.ids { tiledFrames[member] = nil }
     }
@@ -1674,6 +1679,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Its old frame is still worth keeping: the fullscreen shortcut can put it back later.
         if framesBeforeMaximize[window.id] == nil {
             framesBeforeMaximize[window.id] = WindowTiler.frame(of: window)
+        }
+        // Maximizing takes the window out of its layout, as moving it by hand would. (Fullscreen
+        // does not: that is a visit, and the window comes back to its place.)
+        if let group = model.tiledGroup(of: window.id) {
+            Diagnostics.note("tiling broken by maximizing window \(window.id)")
+            breakTiling(group)
         }
         WindowTiler.fill(window, in: tilingArea(of: [window]), gaps: WindowTiler.Gaps(prefs: store.prefs))
         if bringUp { self.bringUp(window) }

@@ -795,6 +795,8 @@ final class TourSim: ObservableObject {
 
     private func maximize() {
         guard let target = takeTarget() else { return }
+        // As in the app: maximizing takes the window out of its layout, which frees the rest.
+        if tiled.contains(target) { tiled = [] }
         select(target)
         maximized.insert(target)
         decluttered = false

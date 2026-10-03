@@ -77,6 +77,18 @@ final class TourSimTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(moved[SimWindow.simulator.id]).minX, try XCTUnwrap(moved[SimWindow.xcode.id]).minX)
     }
 
+    func testMaximizingATiledWindowFreesTheLayout() {
+        let sim = sim([.xcode, .simulator, .safari])
+        sim.superTap(symbol: "⌥")
+        press(sim, kVK_DownArrow, .shift)
+        press(sim, kVK_DownArrow, .shift)
+        press(sim, kVK_RightArrow)
+        press(sim, kVK_Return)
+        XCTAssertEqual(sim.tiled.count, 3)
+        press(sim, kVK_ANSI_M, .option)
+        XCTAssertTrue(sim.tiled.isEmpty)
+    }
+
     func testAGroupLockKeepsCyclingInsideIt() {
         let sim = sim([.safari, .notes, .terminal, .mail])
         sim.superTap(symbol: "⌥")
