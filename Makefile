@@ -10,7 +10,7 @@ BUNDLE  := $(APP).app
 CONF    := release
 BIN     := .build/$(CONF)/$(APP)
 
-.PHONY: all build bundle run install clean debug cert
+.PHONY: all build bundle run install clean debug cert icon
 
 all: bundle
 
@@ -25,6 +25,7 @@ bundle: build
 	mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources
 	cp $(BIN) $(BUNDLE)/Contents/MacOS/$(APP)
 	cp Resources/Info.plist $(BUNDLE)/Contents/Info.plist
+	cp Resources/AppIcon.icns $(BUNDLE)/Contents/Resources/AppIcon.icns
 	printf 'APPL????' > $(BUNDLE)/Contents/PkgInfo
 	codesign --force --sign "$(SIGN_ID)" --identifier com.mpochec.windowqueue $(BUNDLE)
 	echo "built $(BUNDLE)"
@@ -43,6 +44,10 @@ install: bundle
 
 cert:
 	./Scripts/make-signing-cert.sh
+
+# Redraws Resources/AppIcon.icns from Scripts/make-icon.swift.
+icon:
+	swift Scripts/make-icon.swift
 
 clean:
 	rm -rf .build $(BUNDLE)

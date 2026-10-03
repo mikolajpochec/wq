@@ -8,6 +8,8 @@
 	<string>WindowQueue</string>
 	<key>CFBundleExecutable</key>
 	<string>WindowQueue</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mpochec.windowqueue</string>
 	<key>CFBundlePackageType</key>
