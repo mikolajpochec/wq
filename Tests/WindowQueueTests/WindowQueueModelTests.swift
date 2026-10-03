@@ -150,6 +150,25 @@ final class WindowQueueModelTests: XCTestCase {
         XCTAssertEqual(model.aimedWindows.map(\.id), [1, 2])
     }
 
+    func testWithoutWrappingCyclingAndAimStopAtTheEnds() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10)])
+        model.wrapsAround = false
+        model.select(id: 3, announce: false)
+        XCTAssertNil(model.cycle(by: 1), "past the last window: nothing")
+        XCTAssertEqual(model.selectedID, 3)
+        model.select(id: 1, announce: false)
+        XCTAssertNil(model.cycle(by: -1))
+        XCTAssertEqual(model.cycle(by: 1)?.id, 2)
+
+        model.beginAiming()
+        model.moveAim(by: -1)
+        model.moveAim(by: -1)
+        XCTAssertEqual(model.aimedWindow?.id, 1, "the aim stops at the first window too")
+        model.wrapsAround = true
+        model.moveAim(by: -1)
+        XCTAssertEqual(model.aimedWindow?.id, 3, "and comes round with wrapping on")
+    }
+
     func testCurrentSpaceScopeCycleStaysOnWorkspace() {
         let model = makeModel([window(1, space: 10), window(2, space: 20), window(3, space: 10)])
         model.scope = .currentSpace

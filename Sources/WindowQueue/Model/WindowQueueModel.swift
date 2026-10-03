@@ -23,6 +23,8 @@ final class WindowQueueModel: ObservableObject {
     @Published var scope: QueueScope = .global
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
+    /// Cycling and the aim come round from one end of the queue to the other; off, they stop there.
+    var wrapsAround = true
     @Published var currentSpaceID: UInt64? {
         didSet {
             guard currentSpaceID != oldValue else { return }
@@ -384,7 +386,8 @@ final class WindowQueueModel: ObservableObject {
         }
     }
 
-    /// Moves the aim within the visible slice, wrapping around, without focusing anything.
+    /// Moves the aim within the visible slice without focusing anything, wrapping around at the
+    /// ends unless that is turned off.
     @discardableResult
     func moveAim(by delta: Int) -> ManagedWindow? {
         if delta != 0 { lastAimStep = delta }
@@ -393,8 +396,7 @@ final class WindowQueueModel: ObservableObject {
         let visible = aimableWindows
         guard !visible.isEmpty else { return nil }
         let current = visible.firstIndex { $0.id == aimingID } ?? (delta > 0 ? -1 : 0)
-        let count = visible.count
-        aimingID = visible[((current + delta) % count + count) % count].id
+        aimingID = visible[step(from: current, by: delta, count: visible.count)].id
         return aimedWindow
     }
 
@@ -941,7 +943,8 @@ final class WindowQueueModel: ObservableObject {
         if announce { announcement.send(window) }
     }
 
-    /// Moves the selection by `delta` positions within the visible slice, wrapping around.
+    /// Moves the selection by `delta` positions within the visible slice, wrapping around at the
+    /// ends unless that is turned off. At an end with wrapping off, nothing changes.
     @discardableResult
     func cycle(by delta: Int) -> ManagedWindow? {
         let visible = cyclableWindows(backwards: delta < 0)
@@ -951,12 +954,20 @@ final class WindowQueueModel: ObservableObject {
             Diagnostics.note("cycle \(delta) from \(selectedID.map(String.init) ?? "none") "
                              + "open=\(openGroupID.map(String.init) ?? "none") stops: \(stops.joined(separator: ", "))")
         }
-        let current = visible.firstIndex { $0.id == selectedID } ?? (delta > 0 ? -1 : 0)
-        let count = visible.count
-        let next = ((current + delta) % count + count) % count
+        let current = visible.firstIndex { $0.id == selectedID } ?? (delta > 0 ? -1 : visible.count)
+        let next = step(from: current, by: delta, count: visible.count)
+        guard wrapsAround || next != current else { return nil }
         let window = visible[next]
         select(id: window.id, announce: true)
         return window
+    }
+
+    /// Where a step of `delta` from `index` lands among `count` places: round the ends, or held
+    /// at them with wrapping off.
+    func step(from index: Int, by delta: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        if wrapsAround { return ((index + delta) % count + count) % count }
+        return min(max(index + delta, 0), count - 1)
     }
 
     // MARK: - Reordering

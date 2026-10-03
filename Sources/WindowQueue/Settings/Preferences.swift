@@ -487,6 +487,10 @@ struct Preferences: Codable, Equatable {
     /// Looks for a newer release on GitHub at launch and once a day, and says so; never installs.
     var checkForUpdates: Bool = true
 
+    /// Stepping past either end of the queue comes round to the other end, when cycling and when
+    /// moving the aim. Off, the steps stop at the ends.
+    var cycleWrapsAround: Bool = true
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -550,6 +554,7 @@ struct Preferences: Codable, Equatable {
         // Not `defaults`: someone already using WindowQueue is not a new user.
         onboardingCompleted = value(.onboardingCompleted, true)
         checkForUpdates = value(.checkForUpdates, defaults.checkForUpdates)
+        cycleWrapsAround = value(.cycleWrapsAround, defaults.cycleWrapsAround)
     }
 
     init() {}

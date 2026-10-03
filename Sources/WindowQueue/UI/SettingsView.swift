@@ -123,6 +123,10 @@ struct SettingsView: View {
                     caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and — with Shift — take the window there with you.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Wrap around at the ends of the queue", isOn: $store.prefs.cycleWrapsAround)
+                    caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
                     caption("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
                 }

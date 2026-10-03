@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.scope = prefs.effectiveScope
                 self.model.queuePerMonitor = prefs.multiMonitorMode
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
+                self.model.wrapsAround = prefs.cycleWrapsAround
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.syncHotkeys(prefs)
                 WindowTiler.respectsSizeLimits = prefs.respectWindowSizeLimits

@@ -338,6 +338,7 @@ final class TourSim: ObservableObject {
     @discardableResult
     func press(keyCode: Int, flags rawFlags: NSEvent.ModifierFlags, prefs: Preferences, characters: String? = nil) -> Bool {
         launcherName = prefs.launcher.title
+        wrapsAround = prefs.cycleWrapsAround
         let flags = rawFlags.intersection([.command, .option, .control, .shift])
         let cgFlags = CGEventFlags(rawValue: UInt64(flags.rawValue))
         if searchOpen {
@@ -612,7 +613,7 @@ final class TourSim: ObservableObject {
 
     private func moveAim(by step: Int) {
         change {
-            aimCursor = min(max(aimCursor + step, 0), max(aimEntries.count - 1, 0))
+            aimCursor = aimEntries.isEmpty ? 0 : wrapped(aimCursor + step, count: aimEntries.count)
             aimAnchor = aimCursor
             menuFocused = false
         }
@@ -682,11 +683,18 @@ final class TourSim: ObservableObject {
         }
     }
 
+    /// As the user's setting says: round from one end of the queue to the other, or stop there.
+    private var wrapsAround = true
+
+    private func wrapped(_ index: Int, count: Int) -> Int {
+        wrapsAround ? (index % count + count) % count : min(max(index, 0), count - 1)
+    }
+
     private func cycle(by step: Int) {
         let pool = lockedGroup.map(members) ?? queue(onMonitor: focusedMonitor)
         guard !pool.isEmpty else { return }
         let index = selected.flatMap(pool.firstIndex(of:)) ?? (step > 0 ? -1 : pool.count)
-        let next = pool[(index + step + pool.count) % pool.count]
+        let next = pool[wrapped(index + step, count: pool.count)]
         select(next)
         done.insert(.cycled)
         if lockedGroup != nil { done.insert(.cycledLocked) }
