@@ -115,6 +115,16 @@ final class TourSimTests: XCTestCase {
         XCTAssertTrue(sim.done.isSuperset(of: [.switchedSpace, .movedToSpace, .wentToEmptySpace]))
     }
 
+    func testGoingToAnEmptyWorkspaceAddsOneWhenAllAreInUse() {
+        let sim = TourSim()
+        sim.animated = false
+        sim.reset(SimSetup(windows: [.safari, .notes, .terminal], spaces: [3: 2], spaceCount: 2))
+        press(sim, kVK_ANSI_0, .option)
+        XCTAssertEqual(sim.spaceCount, 3)
+        XCTAssertEqual(sim.shownSpace, [3])
+        XCTAssertTrue(sim.done.contains(.wentToEmptySpace))
+    }
+
     func testEachOfATipsShortcutsIsTickedOffOnItsOwn() throws {
         let model = TourModel(store: PreferencesStore())
         model.show(.tips, scheduled: false)

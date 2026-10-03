@@ -851,13 +851,16 @@ final class TourSim: ObservableObject {
         let empty = (1...max(spaceCount, 1)).first { space in
             space != shownSpace[monitor] && !queue(onMonitor: monitor).contains { self.space(of: $0) == space }
         }
-        guard let empty else {
-            flash(.note, "No empty workspace")
-            return
+        // With every workspace in use, a new one is added at the end, so the shortcut always
+        // has somewhere to go and the tip can always be done.
+        let target = empty ?? spaceCount + 1
+        if empty == nil {
+            spaceCount += 1
+            flash(.note, "Added workspace \(target)")
         }
         // Its own shortcut, not the numbered ones: only that one is ticked off.
         let before = done
-        if carrying { moveTarget(toSpace: empty) } else { goToSpace(empty) }
+        if carrying { moveTarget(toSpace: target) } else { goToSpace(target) }
         done = before.union([.wentToEmptySpace])
     }
 
