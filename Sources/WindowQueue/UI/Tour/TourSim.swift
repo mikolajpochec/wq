@@ -902,6 +902,8 @@ final class TourSim: ObservableObject {
         if aiming { endAiming() }
         searchOpen.toggle()
         query = ""
+        // Opening it is the lesson; picking a window from it is up to the user.
+        if searchOpen { done.insert(.searched) }
     }
 
     private func openLauncher() {

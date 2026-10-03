@@ -208,7 +208,7 @@ final class TourModel: ObservableObject {
             TourTip(id: "search", symbol: "magnifyingglass", title: "Search",
                     goals: [.init(keys: combo(.search), event: .searched)],
                     text: "Find any window by typing part of its name; ↩ goes there.",
-                    hint: "\(combo(.search)), type part of a name, ↩",
+                    hint: "\(combo(.search)) to open the search",
                     setup: SimSetup(windows: [.safari, .notes, .terminal, .mail, .music]),
                     preview: [.wait(0.8), .action(.search), .wait(0.8), .type("t"), .wait(0.35), .type("e"), .wait(0.35),
                               .type("r"), .wait(1.1), .key(.enter), .wait(1.6)]),

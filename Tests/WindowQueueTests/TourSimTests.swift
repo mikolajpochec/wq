@@ -155,6 +155,7 @@ final class TourSimTests: XCTestCase {
         let sim = sim([.safari, .notes, .terminal, .mail])
         press(sim, kVK_Space, .option)
         XCTAssertTrue(sim.searchOpen)
+        XCTAssertTrue(sim.done.contains(.searched), "opening the search is enough for its tip")
         sim.press(keyCode: kVK_ANSI_M, flags: [], prefs: prefs, characters: "m")
         sim.press(keyCode: kVK_ANSI_A, flags: [], prefs: prefs, characters: "a")
         XCTAssertEqual(sim.searchMatches, [SimWindow.mail.id])
