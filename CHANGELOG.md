@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 — 2026-10-03
+
+- Update checks read the latest release from its page on GitHub instead of GitHub's API, which allows only 60 requests an hour per network and then refuses ("GitHub answered 403").
+- A failed automatic check tries again an hour later instead of the next day.
+
 ## 1.1.0 — 2026-10-03
 
 - **Update checks:** WindowQueue looks for a new release on GitHub at launch and once a day. A new version is announced once, with its notes and a Download button that opens the release page; after **Not Now**, an **Update Available** item stays in the menu bar menu. Nothing is ever installed for you.
