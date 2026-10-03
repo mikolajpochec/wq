@@ -263,6 +263,9 @@ workspace features disabled, and those two files are the only place to fix.
 
 ## Layout
 
+`docs/SPECIFICATION.md` describes every behaviour in detail — rules, numbers, messages and edge
+cases — written so the app could be rebuilt elsewhere, such as a GNOME Shell extension.
+
 ```
 Sources/WindowQueue/
   main.swift              NSApplication bootstrap
