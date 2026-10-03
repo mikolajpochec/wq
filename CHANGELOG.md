@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 — 2026-10-03
+
+- **Update checks:** WindowQueue looks for a new release on GitHub at launch and once a day. A new version is announced once, with its notes and a Download button that opens the release page; after **Not Now**, an **Update Available** item stays in the menu bar menu. Nothing is ever installed for you.
+- **Check for Updates…** in the menu bar menu, and Settings › General › Updates to turn automatic checks off or check now.
+
 ## 1.0.1 — 2026-10-03
 
 Welcome tour improvements.
