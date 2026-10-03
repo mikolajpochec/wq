@@ -26,102 +26,39 @@ func linear(_ ctx: CGContext, _ colors: [CGColor], from: CGPoint, to: CGPoint) {
     ctx.drawLinearGradient(gradient, start: from, end: to, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
 }
 
-let focus = rgb(0xffd23f)
-
-/// One window card. The one in front gets a title bar with the three lights, a few lines of text
-/// and the focus ring; the ones queued behind it are plain.
-func window(_ ctx: CGContext, _ r: CGRect, alpha: CGFloat, front: Bool) {
-    let radius = r.width * 0.075
+/// A window card: a plain rounded rectangle with a soft shadow under it.
+func card(_ ctx: CGContext, _ r: CGRect, _ color: CGColor, shadow: CGFloat) {
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 44, color: rgb(0x0a0630, front ? 0.5 : 0.28))
-    ctx.addPath(rounded(r, radius))
-    ctx.setFillColor(rgb(0xffffff, alpha))
+    ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 40, color: rgb(0x000000, shadow))
+    ctx.addPath(rounded(r, r.width * 0.09))
+    ctx.setFillColor(color)
     ctx.fillPath()
     ctx.restoreGState()
-    guard front else { return }
-
-    ctx.saveGState()
-    ctx.addPath(rounded(r, radius))
-    ctx.clip()
-    let bar = r.height * 0.17
-    let barRect = CGRect(x: r.minX, y: r.maxY - bar, width: r.width, height: bar)
-    ctx.setFillColor(rgb(0xeceef6))
-    ctx.fill(barRect)
-    let d = bar * 0.36
-    for (i, color) in [0xff5f57, 0xfebc2e, 0x28c840].enumerated() {
-        let x = r.minX + bar * 0.42 + CGFloat(i) * d * 1.6
-        ctx.setFillColor(rgb(UInt32(color)))
-        ctx.fillEllipse(in: CGRect(x: x, y: barRect.midY - d / 2, width: d, height: d))
-    }
-    let inset = r.width * 0.1
-    let line = r.height * 0.075
-    for (i, w) in [0.8, 0.58, 0.68].enumerated() {
-        let y = barRect.minY - inset * 0.9 - CGFloat(i) * line * 2 - line
-        ctx.addPath(rounded(CGRect(x: r.minX + inset, y: y, width: (r.width - 2 * inset) * w, height: line), line / 2))
-        ctx.setFillColor(rgb(0xd3d6e8))
-        ctx.fillPath()
-    }
-    ctx.restoreGState()
-
-    // The focus ring, in the colour of the lit icon in the strip.
-    ctx.addPath(rounded(r.insetBy(dx: -10, dy: -10), radius + 10))
-    ctx.setStrokeColor(focus)
-    ctx.setLineWidth(12)
-    ctx.strokePath()
 }
 
 func draw(_ ctx: CGContext) {
-    // Tile with a soft drop shadow, the way macOS icons sit on the grid.
+    // Graphite tile with a soft drop shadow, the way macOS icons sit on the grid.
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 28, color: rgb(0x000000, 0.3))
     ctx.addPath(squircle(tile))
-    ctx.setFillColor(rgb(0x3b2fd0))
+    ctx.setFillColor(rgb(0x1b1c20))
     ctx.fillPath()
     ctx.restoreGState()
 
     ctx.saveGState()
     ctx.addPath(squircle(tile))
     ctx.clip()
-    linear(ctx, [rgb(0x4f8dff), rgb(0x5b3df0), rgb(0x3a1fa8)], from: CGPoint(x: 0, y: tile.maxY), to: CGPoint(x: 0, y: tile.minY))
-    let glow = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                          colors: [rgb(0xffffff, 0.22), rgb(0xffffff, 0)] as CFArray, locations: nil)!
-    ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 900), startRadius: 0,
-                           endCenter: CGPoint(x: 512, y: 900), endRadius: 560, options: [])
+    linear(ctx, [rgb(0x4a4e57), rgb(0x1b1c20)], from: CGPoint(x: 0, y: tile.maxY), to: CGPoint(x: 0, y: tile.minY))
 
-    // The queue: windows receding behind the one in front.
-    let front = CGRect(x: 330, y: 206, width: 500, height: 392)
+    // The queue: the window in front, two more waiting behind it.
+    let front = CGRect(x: 222, y: 222, width: 580, height: 420)
     for depth in [2, 1] {
         let d = CGFloat(depth)
-        let scale = 1 - d * 0.1
-        let w = front.width * scale, h = front.height * scale
+        let w = front.width * (1 - d * 0.12), h = front.height * (1 - d * 0.12)
         let r = CGRect(x: front.midX - w / 2, y: front.maxY + d * 96 - h, width: w, height: h)
-        window(ctx, r, alpha: 0.82 - d * 0.22, front: false)
+        card(ctx, r, rgb(0xffffff, 0.9 - d * 0.25), shadow: 0.25)
     }
-    window(ctx, front, alpha: 1, front: true)
-
-    // The strip: one icon per window in the queue, the focused one lit, level with its window.
-    let strip = CGRect(x: 166, y: 206, width: 108, height: 604)
-    ctx.addPath(rounded(strip, 54))
-    ctx.setFillColor(rgb(0xffffff, 0.16))
-    ctx.fillPath()
-    ctx.addPath(rounded(strip.insetBy(dx: 1.5, dy: 1.5), 52.5))
-    ctx.setStrokeColor(rgb(0xffffff, 0.3))
-    ctx.setLineWidth(3)
-    ctx.strokePath()
-    let icon: CGFloat = 68
-    let spots = 4
-    let pad = (strip.width - icon) / 2
-    let gap = (strip.height - 2 * pad - CGFloat(spots) * icon) / CGFloat(spots - 1)
-    for i in 0..<spots {
-        let r = CGRect(x: strip.midX - icon / 2, y: strip.maxY - pad - icon - CGFloat(i) * (icon + gap), width: icon, height: icon)
-        ctx.saveGState()
-        let lit = i == spots - 1
-        if lit { ctx.setShadow(offset: .zero, blur: 28, color: rgb(0xffd23f, 0.9)) }
-        ctx.addPath(rounded(r, 20))
-        ctx.setFillColor(lit ? focus : rgb(0xffffff, 0.3 + CGFloat(i) * 0.1))
-        ctx.fillPath()
-        ctx.restoreGState()
-    }
+    card(ctx, front, rgb(0xffffff), shadow: 0.5)
     ctx.restoreGState()
 }
 
