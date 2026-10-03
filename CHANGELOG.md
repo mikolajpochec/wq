@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — 2026-10-03
+
+- Focusing a tiled window brings up the whole layout even when another window of one of its apps — a second Chrome window, another terminal — was on top of it.
+
 ## 1.1.1 — 2026-10-03
 
 - Update checks read the latest release from its page on GitHub instead of GitHub's API, which allows only 60 requests an hour per network and then refuses ("GitHub answered 403").
