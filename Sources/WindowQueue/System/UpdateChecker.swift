@@ -9,7 +9,13 @@ final class UpdateChecker {
         let notes: String
     }
 
-    static let latestURL = URL(string: "https://api.github.com/repos/mikolajpochec/wq/releases/latest")!
+    /// Redirects to the newest release's page. Not the REST API: that allows 60 anonymous requests
+    /// an hour per IP address, shared with everything else on the network, and answers 403 after.
+    static let latestURL = URL(string: "https://github.com/mikolajpochec/wq/releases/latest")!
+    /// The changelog as tagged with a release, for its notes.
+    static func changelogURL(tag: String) -> URL {
+        URL(string: "https://raw.githubusercontent.com/mikolajpochec/wq/\(tag)/CHANGELOG.md")!
+    }
     private static let interval: TimeInterval = 24 * 60 * 60
     /// The newest version the user has been shown the window for; later checks only keep the menu
     /// item up, so declining is not asked again every day.
@@ -49,19 +55,41 @@ final class UpdateChecker {
 
     func check(userAsked: Bool) {
         var request = URLRequest(url: Self.latestURL, timeoutInterval: 20)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.httpMethod = "HEAD"
         request.setValue("WindowQueue/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let release = data.flatMap(Self.release(from:))
+            let page = response?.url
+            let tag = page.flatMap(Self.tag(fromReleasePage:))
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard error == nil, status == 200, let release else {
-                    Diagnostics.note("update check failed: status \(status) \(error.map { "\($0)" } ?? "")")
-                    if userAsked { self.onFailure?(error?.localizedDescription ?? "GitHub answered \(status)") }
+                guard error == nil, status == 200, let page, let tag else {
+                    Diagnostics.note("update check failed: status \(status) \(page?.absoluteString ?? "") \(error.map { "\($0)" } ?? "")")
+                    if userAsked {
+                        self.onFailure?(error?.localizedDescription
+                                        ?? (status == 200 ? "No release found on GitHub" : "GitHub answered \(status); try again later"))
+                    } else if self.timer != nil {
+                        // Offline, or GitHub having a moment: an hour on, not a day.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 60 * 60) { [weak self] in
+                            guard let self, self.timer != nil else { return }
+                            self.check(userAsked: false)
+                        }
+                    }
                     return
                 }
-                self.handle(release, userAsked: userAsked)
+                let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+                Diagnostics.note("update check: latest is \(version), this is \(Self.currentVersion)")
+                guard Self.isVersion(version, newerThan: Self.currentVersion) else {
+                    self.handle(Release(version: version, page: page, notes: ""), userAsked: userAsked)
+                    return
+                }
+                // The notes are a nicety: without them the release is still announced.
+                URLSession.shared.dataTask(with: Self.changelogURL(tag: tag)) { data, _, _ in
+                    let notes = data.flatMap { String(data: $0, encoding: .utf8) }.map { Self.notes(for: version, in: $0) } ?? ""
+                    DispatchQueue.main.async {
+                        self.handle(Release(version: version, page: page, notes: notes), userAsked: userAsked)
+                    }
+                }.resume()
             }
         }.resume()
     }
@@ -80,14 +108,29 @@ final class UpdateChecker {
         onAvailable?(release, announce)
     }
 
-    /// The release GitHub calls latest; drafts and pre-releases are never it.
-    static func release(from data: Data) -> Release? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let page = (json["html_url"] as? String).flatMap(URL.init(string:))
-        else { return nil }
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        return Release(version: version, page: page, notes: json["body"] as? String ?? "")
+    /// The tag of a release page, `…/releases/tag/v1.2.0`; nil for anything else, such as the
+    /// releases list GitHub sends to when there is no release.
+    static func tag(fromReleasePage url: URL) -> String? {
+        let parts = url.pathComponents
+        guard parts.count >= 2, parts[parts.count - 2] == "tag" else { return nil }
+        return parts.last
+    }
+
+    /// A version's section of the changelog, its wrapped lines joined back up.
+    static func notes(for version: String, in changelog: String) -> String {
+        var lines: [String] = []
+        var inside = false
+        for line in changelog.components(separatedBy: "\n") {
+            if line.hasPrefix("## ") {
+                if inside { break }
+                inside = line.dropFirst(3).hasPrefix(version + " ") || line.dropFirst(3) == version
+                continue
+            }
+            if inside { lines.append(line) }
+        }
+        return lines.joined(separator: "\n")
+            .replacingOccurrences(of: "\n  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Compares dotted version numbers part by part; a missing part counts as 0.

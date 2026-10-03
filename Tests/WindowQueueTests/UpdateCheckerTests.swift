@@ -11,13 +11,28 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertFalse(UpdateChecker.isVersion("1.0.0", newerThan: "1.0.1"))
     }
 
-    func testReadsGitHubsLatestRelease() throws {
-        let json = #"{"tag_name": "v1.2.0", "html_url": "https://github.com/mikolajpochec/wq/releases/tag/v1.2.0", "body": "Notes"}"#
-        let release = try XCTUnwrap(UpdateChecker.release(from: Data(json.utf8)))
-        XCTAssertEqual(release.version, "1.2.0")
-        XCTAssertEqual(release.page.absoluteString, "https://github.com/mikolajpochec/wq/releases/tag/v1.2.0")
-        XCTAssertEqual(release.notes, "Notes")
-        XCTAssertNil(UpdateChecker.release(from: Data(#"{"message": "Not Found"}"#.utf8)))
+    func testReadsTheTagFromTheReleasePage() {
+        XCTAssertEqual(UpdateChecker.tag(fromReleasePage: URL(string: "https://github.com/mikolajpochec/wq/releases/tag/v1.2.0")!), "v1.2.0")
+        XCTAssertNil(UpdateChecker.tag(fromReleasePage: URL(string: "https://github.com/mikolajpochec/wq/releases")!))
+    }
+
+    func testTakesAVersionsNotesFromTheChangelog() {
+        let changelog = """
+        # Changelog
+
+        ## 1.2.0 — 2026-11-01
+
+        - **New:** something, written over
+          two lines.
+        - Another.
+
+        ## 1.1.0 — 2026-10-03
+
+        - Older.
+        """
+        XCTAssertEqual(UpdateChecker.notes(for: "1.2.0", in: changelog), "- **New:** something, written over two lines.\n- Another.")
+        XCTAssertEqual(UpdateChecker.notes(for: "1.1.0", in: changelog), "- Older.")
+        XCTAssertEqual(UpdateChecker.notes(for: "1.1", in: changelog), "", "not a prefix match")
     }
 
     func testUpdateChecksAreOnForEveryone() throws {
