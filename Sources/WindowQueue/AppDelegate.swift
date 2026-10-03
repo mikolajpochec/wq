@@ -194,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actionPanel.stripFrameProvider = { [weak strip] in strip?.contentFrame() }
         actionPanel.onPick = { [weak self] action in self?.pick(action) }
         groupPanel.onHover = { [weak self] window in
-            guard let self else { return }
+            guard self != nil else { return }
             if let window {
                 toast.show(window, pinned: true)
             } else {
@@ -218,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hovering a group names it; opening it is a click, so the pointer can cross the strip
         // without strips unfolding under it.
         strip.onGroupHover = { [weak self] hovered in
-            guard let self else { return }
+            guard self != nil else { return }
             guard let hovered else {
                 toast.endHold()
                 return
@@ -739,7 +739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        guard let last = windows.last, var target else {
+        guard let last = windows.last, let target else {
             finishTiling(windows, layout: layout)
             return
         }
@@ -874,7 +874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func withReachableElements(_ windows: [ManagedWindow],
                                        then: @escaping ([ManagedWindow]) -> Void) {
         let snapshot = windows
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found: [CGWindowID: AXUIElement] = [:]
             let ready = snapshot.map { window -> ManagedWindow in
                 var copy = window
@@ -883,7 +883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let element = copy.element { found[window.id] = element }
                 return copy
             }
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.async {
                 if !found.isEmpty {
                     Diagnostics.note("tiling: found elements for \(found.count) window(s) the queue had none for")
                     self?.model.adoptElements(found)
@@ -2350,6 +2350,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Refresh windows", action: #selector(refreshWindows), keyEquivalent: "r")
             .target = self
         menu.addItem(.separator())
+        menu.addItem(withTitle: "About WindowQueue", action: #selector(showAbout), keyEquivalent: "")
+            .target = self
         menu.addItem(withTitle: "Quit WindowQueue", action: #selector(quit), keyEquivalent: "q")
             .target = self
         item.menu = menu
@@ -2396,6 +2398,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.tour = tour
         }
         tour?.present()
+    }
+
+    /// The standard panel: icon, version and copyright come from Info.plist. Living in the menu bar,
+    /// the app has no main menu to hold it, and the panel would open under the app in front.
+    @objc private func showAbout() {
+        let credits = NSAttributedString(
+            string: "A keyboard-driven window queue for macOS.\nFree software under the GNU GPL, version 3.",
+            attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                         .foregroundColor: NSColor.secondaryLabelColor,
+                         .paragraphStyle: { let p = NSMutableParagraphStyle(); p.alignment = .center; return p }()]
+        )
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+        NSApp.windows.filter { $0.isVisible && $0.className.contains("About") }.forEach { $0.orderFrontRegardless() }
     }
 
     @objc private func grantAccessibility() {

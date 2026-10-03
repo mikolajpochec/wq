@@ -154,7 +154,7 @@ final class WindowSpaceMover {
             _ = element.setAttribute(kAXFocusedAttribute, value: kCFBooleanTrue)
             _ = AXPrivate.application(window.pid).setAttribute(kAXFocusedWindowAttribute, value: element)
         }
-        app.activate(options: [.activateIgnoringOtherApps])
+        app.activate()
 
         for _ in 0..<10 {
             usleep(60_000)

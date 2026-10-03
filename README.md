@@ -82,6 +82,39 @@ always-on-top strip showing that list, and workspace switching by number.
 Order is **stable**: a new window is inserted directly after the currently selected one, cycling
 never reorders, and only the move shortcuts change the order.
 
+## Install
+
+Requires macOS 14 or later, on Apple silicon or Intel.
+
+1. Download `WindowQueue-<version>.dmg` from the releases page, open it and drag **WindowQueue**
+   into **Applications**.
+2. Open it from Applications. A welcome tour walks through the basics on a pretend desktop and asks
+   for **Accessibility** access, which WindowQueue needs to move and focus other apps' windows.
+   It lives in the menu bar; the tour can be reopened from there or from Settings.
+
+Until releases are notarized, macOS refuses the first launch of a downloaded copy ("Apple could not
+verify…"). Choose **Done**, then **System Settings › Privacy & Security › Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/WindowQueue.app` once. An update signed this way also
+makes macOS forget the Accessibility grant: remove WindowQueue from the list and allow it again.
+
+## Release
+
+```sh
+make release         # tests, then dist/WindowQueue-<version>.dmg and .zip
+```
+
+The app is universal (arm64 + x86_64) and signed with the hardened runtime. With a
+**Developer ID Application** certificate in the keychain it is signed with that (or set
+`SIGN_ID=...`), and notarized and stapled once a notarytool profile exists:
+
+```sh
+xcrun notarytool store-credentials windowqueue --apple-id <apple-id> --team-id <team-id>
+```
+
+Without one it is signed ad hoc. The version comes from `CFBundleShortVersionString` in
+`Resources/Info.plist`; bump it and `CHANGELOG.md` together. `make icon` redraws the app icon from
+`Scripts/make-icon.swift`.
+
 ## Build and run
 
 ```sh
@@ -104,8 +137,9 @@ the Accessibility grant each time. `make cert` creates a self-signed one if you 
 ## Accessibility permission
 
 WindowQueue drives other applications' windows through the Accessibility API, so it must be granted
-**System Settings › Privacy & Security › Accessibility**. It prompts on first launch and waits,
-polling once a second, until access is granted.
+**System Settings › Privacy & Security › Accessibility**. The welcome tour asks for it on first
+launch, and the menu bar menu offers it for as long as it is missing; the shortcuts stay off until
+it is granted.
 
 If the app stops seeing windows after a rebuild, its code signature identity changed. Reset the grant
 with `tccutil reset Accessibility com.mpochec.windowqueue` and relaunch to get a fresh prompt.
@@ -241,6 +275,12 @@ Sources/WindowQueue/
   UI/                     strip panel and view, title toast, settings, shortcut recorder
   Settings/               Preferences (UserDefaults) and KeyCombo
 Scripts/
+  release.sh                  universal, signed (and notarized) DMG and zip in dist/
+  make-icon.swift             draws Resources/AppIcon.icns
   make-signing-cert.sh        self-signed code-signing identity
   enable-desktop-shortcuts.sh registers ⌃5 … ⌃9 "Switch to Desktop N"
 ```
+
+## License
+
+WindowQueue is free software, released under the [GNU General Public License v3.0](LICENSE).
