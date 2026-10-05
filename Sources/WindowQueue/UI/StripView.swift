@@ -170,8 +170,7 @@ struct StripView: View {
         // so does the whole strip while the user is working inside a group. Only the content loses
         // its colour: a colour filter over the glass flattens it into a dull grey slab.
         .saturation(screen.isActive ? 1 : 0)
-        .glassBackground(RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous),
-                         opacity: prefs.stripOpacity)
+        .dockGlassBackground(cornerRadius: StripMetrics.corner(prefs: prefs), opacity: prefs.stripOpacity)
         .opacity(screen.isActive ? (model.openGroupID == nil ? 1 : 0.55) : prefs.inactiveStripOpacity)
         .animation(prefs.animation(.groupStrip, .easeOut(duration: 0.13)), value: model.openGroupID)
         .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.14)), value: screen.isActive)
