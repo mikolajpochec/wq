@@ -49,7 +49,7 @@ struct TilingMenuView: View {
         }
         .padding(8)
         .frame(width: 220)
-        .glassBackground(RoundedRectangle(cornerRadius: 12, style: .continuous),
+        .glassBackground(RoundedRectangle(cornerRadius: 14, style: .continuous),
                          border: state.isFocused ? Color.orange : nil,
                          borderWidth: state.isFocused ? 2 : 1)
     }

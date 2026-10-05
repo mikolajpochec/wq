@@ -58,7 +58,7 @@ struct ActionPanelView: View {
             }
         }
         .padding(6)
-        .glassBackground(RoundedRectangle(cornerRadius: 12, style: .continuous), opacity: prefs.stripOpacity)
+        .glassBackground(RoundedRectangle(cornerRadius: 14, style: .continuous), opacity: prefs.stripOpacity)
     }
 
     private func tile(_ action: AimAction) -> some View {

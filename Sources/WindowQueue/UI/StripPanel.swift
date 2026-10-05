@@ -17,7 +17,9 @@ final class OverlayPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = true
+        // Liquid Glass draws its own soft shadow; the window's, traced from the content's alpha,
+        // only adds a dark rim around it.
+        if #available(macOS 26, *) { hasShadow = false } else { hasShadow = true }
         hidesOnDeactivate = false
         isMovable = false
         animationBehavior = .none

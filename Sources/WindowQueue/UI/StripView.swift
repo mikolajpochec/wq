@@ -166,11 +166,12 @@ struct StripView: View {
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the strip's own background.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
+        // On a monitor that is not the selected one the strip stays readable but steps back, and
+        // so does the whole strip while the user is working inside a group. Only the content loses
+        // its colour: a colour filter over the glass flattens it into a dull grey slab.
+        .saturation(screen.isActive ? 1 : 0)
         .glassBackground(RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous),
                          opacity: prefs.stripOpacity)
-        // On a monitor that is not the selected one the strip stays readable but steps back, and
-        // so does the whole strip while the user is working inside a group.
-        .saturation(screen.isActive ? 1 : 0)
         .opacity(screen.isActive ? (model.openGroupID == nil ? 1 : 0.55) : prefs.inactiveStripOpacity)
         .animation(prefs.animation(.groupStrip, .easeOut(duration: 0.13)), value: model.openGroupID)
         .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.14)), value: screen.isActive)
@@ -742,8 +743,10 @@ enum StripMetrics {
     static let padding: CGFloat = 6
     /// Corners follow the size of what they round: the strip's own, a row's highlight, the
     /// workspace badge, the empty slot. A fixed radius looks wrong the moment the icons change size.
-    static func corner(prefs: Preferences) -> CGFloat { thickness(prefs: prefs) * 0.28 }
-    static func rowCorner(prefs: Preferences) -> CGFloat { rowHeight(prefs: prefs) * 0.24 }
+    /// A row's highlight is concentric with the strip: its radius is the strip's less the padding
+    /// between them, as Liquid Glass nests shapes.
+    static func corner(prefs: Preferences) -> CGFloat { thickness(prefs: prefs) * 0.34 }
+    static func rowCorner(prefs: Preferences) -> CGFloat { max(corner(prefs: prefs) - padding, 4) }
     static func badgeCorner(prefs: Preferences) -> CGFloat { prefs.iconSize * 0.27 }
     static func iconCorner(prefs: Preferences) -> CGFloat { prefs.iconSize * 0.23 }
     static func groupCorner(prefs: Preferences) -> CGFloat { (rowHeight(prefs: prefs) + 4) * 0.3 }
