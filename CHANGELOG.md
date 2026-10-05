@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0 (2026-10-05)
+
+- On macOS 26 and later the strip, group strip, action panel, title popup, search and tiling menu sit on the system's Liquid Glass. The strip and group strip use the Dock's thicker glass, lit along the top and bending what's behind them at the edge; menus and popups use the standard glass. Earlier macOS keeps the translucent look it had.
+- The highlights inside the panels follow the rounder corners of the panel they sit in.
+
 ## 1.2.0 (2026-10-03)
 
 - New setting, Settings › General › Queue › **Wrap around at the ends of the queue** (on by default). Turned off, cycling with ⌥[ / ⌥] and moving the aim stop at the first and last window instead of coming round to the other end.
