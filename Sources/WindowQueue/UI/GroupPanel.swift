@@ -86,16 +86,10 @@ struct GroupPanelView: View {
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the panel's background, exactly as on the main strip.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
-        .background(
-            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
-                .fill(.ultraThinMaterial)
-                .opacity(prefs.stripOpacity)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
-                .strokeBorder(state.isPeek ? Color.primary.opacity(0.12) : Color.accentColor.opacity(0.55),
-                              lineWidth: state.isPeek ? 1 : 1.5)
-        )
+        .glassBackground(RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous),
+                         opacity: prefs.stripOpacity,
+                         border: state.isPeek ? nil : Color.accentColor.opacity(0.55),
+                         borderWidth: state.isPeek ? 1 : 1.5)
         .overlay(alignment: .topTrailing) { if state.isLocked { lockMark } }
         // Grown from the screen edge, the way the main strip grows while aiming.
         .scaleEffect(state.scale, anchor: scaleAnchor)

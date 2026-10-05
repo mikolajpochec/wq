@@ -166,15 +166,8 @@ struct StripView: View {
                height: side.isVertical ? nil : StripMetrics.thickness(prefs: prefs))
         // Behind the icons but above the strip's own background.
         .background(alignment: side.isVertical ? .top : .leading) { aimedRunHighlight }
-        .background(
-            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
-                .fill(.ultraThinMaterial)
-                .opacity(prefs.stripOpacity)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-        )
+        .glassBackground(RoundedRectangle(cornerRadius: StripMetrics.corner(prefs: prefs), style: .continuous),
+                         opacity: prefs.stripOpacity)
         // On a monitor that is not the selected one the strip stays readable but steps back, and
         // so does the whole strip while the user is working inside a group.
         .saturation(screen.isActive ? 1 : 0)

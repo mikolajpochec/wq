@@ -77,13 +77,7 @@ struct SearchView: View {
                 results
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-        )
+        .glassBackground(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .frame(width: Self.width)
     }
 

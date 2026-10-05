@@ -49,15 +49,9 @@ struct TilingMenuView: View {
         }
         .padding(8)
         .frame(width: 220)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(state.isFocused ? Color.orange : Color.primary.opacity(0.12),
-                              lineWidth: state.isFocused ? 2 : 1)
-        )
+        .glassBackground(RoundedRectangle(cornerRadius: 12, style: .continuous),
+                         border: state.isFocused ? Color.orange : nil,
+                         borderWidth: state.isFocused ? 2 : 1)
     }
 
     private func highlight(for index: Int) -> Color {
