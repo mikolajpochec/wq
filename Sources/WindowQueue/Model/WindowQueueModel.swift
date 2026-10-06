@@ -227,6 +227,12 @@ final class WindowQueueModel: ObservableObject {
         return true
     }
 
+    /// Steps out of the open group without moving the selection: the main strip comes back, with
+    /// the group's tile holding the selection, until a window is picked again.
+    func closeOpenGroup() {
+        openGroupID = nil
+    }
+
     /// Steps back out to the strip, with the aim on the group as a whole again.
     @discardableResult
     func leaveAimedGroup() -> Bool {
@@ -759,8 +765,12 @@ final class WindowQueueModel: ObservableObject {
         // Unlike a pick the user makes in the queue, this can be the app shuffling focus as it
         // opens a window, so where that window is to go stands.
         let anchor = arrivalAnchor
+        let open = openGroupID
         select(id: id, announce: false)
         arrivalAnchor = anchor
+        // Focus reported again for the window that already had it is no reason to reopen a group
+        // the user stepped out of.
+        if from == id { openGroupID = open }
         if from != id { lastFocusFollow = (from, window.pid, Date()) }
         onFocusFollowed?(id)
     }

@@ -24,6 +24,8 @@ final class GroupPanelState: ObservableObject {
     @Published var showsTiledNumbers = false
     /// Cycling is locked to this group; the strip wears a padlock.
     @Published var isLocked = false
+    /// Standing in for the main strip, it leads with a way back to it where the workspace badge is.
+    @Published var showsBack = false
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -32,6 +34,7 @@ struct GroupPanelView: View {
     @ObservedObject var state: GroupPanelState
     @ObservedObject var store: PreferencesStore
     var pick: (ManagedWindow) -> Void
+    var back: () -> Void = {}
 
     private var prefs: Preferences { store.prefs }
     private var side: StripSide { prefs.stripSide }
@@ -74,6 +77,7 @@ struct GroupPanelView: View {
 
     var body: some View {
         stack {
+            if state.showsBack { backTile }
             ForEach(entries) { entry in
                 switch entry {
                 case .window(let window): row(for: window)
@@ -163,6 +167,24 @@ struct GroupPanelView: View {
         .gesture(DragGesture(minimumDistance: 0).onEnded { _ in
             if let front = ordered.first { pick(front) }
         })
+    }
+
+    /// Back to the main strip, in the workspace badge's place and shape: in place of the strip, the
+    /// group's strip would otherwise leave no way out but the keyboard.
+    private var backTile: some View {
+        Image(systemName: "arrow.uturn.backward")
+            .font(.system(size: prefs.iconSize * 0.45, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: prefs.iconSize, height: prefs.iconSize)
+            .background(
+                RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
+                    .fill(Color.primary.opacity(0.12))
+            )
+            .padding(4)
+            .contentShape(Rectangle())
+            .help("Back to the strip")
+            // The panel is never key, so a zero-distance drag is what registers a click in it.
+            .gesture(DragGesture(minimumDistance: 0).onEnded { _ in back() })
     }
 
     /// Tells that the cycle shortcuts go round this group only.
@@ -355,6 +377,8 @@ final class GroupPanelController {
     var onPick: ((ManagedWindow) -> Void)?
     /// The pointer came to rest on a window in the panel, or left it.
     var onHover: ((ManagedWindow?) -> Void)?
+    /// The back tile was clicked: the user wants the main strip again.
+    var onBack: (() -> Void)?
     /// A window in the panel was middle-clicked, which closes it as it does in the strip.
     var onClose: ((ManagedWindow) -> Void)?
 
@@ -389,13 +413,15 @@ final class GroupPanelController {
         state.tiledNumbers = tiledNumbers
         state.showsTiledNumbers = showsTiledNumbers
         state.isLocked = locked
+        state.showsBack = placement == .replacing
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
         let moved = panel?.isVisible == true && self.placement != placement
         self.placement = placement
 
-        let view = GroupPanelView(state: state, store: store) { [weak self] window in
+        var view = GroupPanelView(state: state, store: store) { [weak self] window in
             self?.onPick?(window)
         }
+        view.back = { [weak self] in self?.onBack?() }
         let hosting = self.hosting ?? GroupHostingView(rootView: view)
         hosting.rootView = view
         if self.hosting == nil {
@@ -421,7 +447,7 @@ final class GroupPanelController {
         // and the panel would keep the wrong size and place until the next change.
         let scale = max(1, store.prefs.aimingScale)
         let thickness = StripMetrics.thickness(prefs: store.prefs)
-        let along = contentLength(rows: rowCount(of: windows, covered: coveredIDs))
+        let along = contentLength(rows: rowCount(of: windows, covered: coveredIDs) + leadingRows)
         let size = store.prefs.stripSide.isVertical
             ? NSSize(width: thickness * scale, height: along * state.scale)
             : NSSize(width: along * state.scale, height: thickness * scale)
@@ -545,7 +571,7 @@ final class GroupPanelController {
         }
         let offset = along - StripMetrics.padding
         guard offset >= 0 else { return nil }
-        let index = Int(offset / (row + StripMetrics.spacing))
+        let index = Int(offset / (row + StripMetrics.spacing)) - leadingRows
         // Windows folded into the cascade are not rows of their own.
         // The fullscreen window shares the cascade's tile, so it is not a row of its own either.
         let folded = state.coveredIDs.isEmpty ? [] : state.coveredIDs.union([state.maximizedID].compactMap { $0 })
@@ -561,6 +587,9 @@ final class GroupPanelController {
         let content = contentLength(rows: rowCount(of: windows, covered: covered))
         return content * (aiming ? max(1, store.prefs.aimingScale) : 1) + Self.gap
     }
+
+    /// Rows ahead of the windows: the back tile, while standing in for the main strip.
+    private var leadingRows: Int { state.showsBack ? 1 : 0 }
 
     /// Rows the group's strip draws: covered windows share the cascade tile, so they count as one.
     private func rowCount(of windows: [ManagedWindow], covered: Set<CGWindowID>) -> Int {
@@ -592,7 +621,7 @@ final class GroupPanelController {
         // direction, so the rows scale with it.
         let scale = state.scale
         let row = StripMetrics.rowHeight(prefs: prefs) * scale
-        let offset = (StripMetrics.padding + CGFloat(index)
+        let offset = (StripMetrics.padding + CGFloat(index + leadingRows)
                       * (StripMetrics.rowHeight(prefs: prefs) + StripMetrics.spacing)) * scale
         let thickness = StripMetrics.thickness(prefs: prefs) * scale
         let frame = panel.frame

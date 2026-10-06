@@ -222,6 +222,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         groupPanel.onClose = { [weak self] window in self?.close(window) }
+        groupPanel.onBack = { [weak self] in
+            guard let self else { return }
+            // While aiming, back out of the group the aim is in, as the key away from the screen does.
+            if model.aimInsideGroupID != nil {
+                model.leaveAimedGroup()
+                aimChanged()
+            } else {
+                model.closeOpenGroup()
+            }
+        }
         groupPanel.onPick = { [weak self] window in
             self?.model.select(id: window.id, announce: false)
             self?.focus(window, warpCursor: false)
