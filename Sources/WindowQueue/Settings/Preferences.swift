@@ -447,6 +447,9 @@ struct Preferences: Codable, Equatable {
     /// Tiling and maximizing fit each window to the sizes it accepts — its minimum and maximum, a
     /// fixed size or aspect ratio (the iOS Simulator) — and share the rest out among the others.
     var respectWindowSizeLimits: Bool = true
+    /// A tiled window too big for its place, even with the others at their smallest, is kept
+    /// behind a placeholder saying so instead of overlapping its neighbours.
+    var tilePlaceholders: Bool = true
 
     /// Windows the user has minimised are still queue members but drawn dimmed.
     var includeMinimized: Bool = true
@@ -558,6 +561,7 @@ struct Preferences: Codable, Equatable {
         tileInnerGap = value(.tileInnerGap, defaults.tileInnerGap)
         tileOnSeparateWorkspace = value(.tileOnSeparateWorkspace, defaults.tileOnSeparateWorkspace)
         respectWindowSizeLimits = value(.respectWindowSizeLimits, defaults.respectWindowSizeLimits)
+        tilePlaceholders = value(.tilePlaceholders, defaults.tilePlaceholders)
         includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)

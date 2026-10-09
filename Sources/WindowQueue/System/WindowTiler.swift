@@ -101,12 +101,14 @@ enum WindowTiler {
         var limits = members.map {
             respectsSizeLimits ? WindowSizeLimits.limits(of: $0.window, element: $0.element) : .none
         }
+        let holds = respectsSizeLimits && showsPlaceholders && members.count > 1
 
-        func frames() -> [CGRect] {
+        func plan() -> TileSolver.Plan {
             guard limits.allSatisfy(\.isNone) else {
-                return TileSolver.frames(units: members.map(\.unit), limits: limits, in: bounds, inset: gaps.inner / 2)
+                return TileSolver.plan(units: members.map(\.unit), limits: limits, in: bounds,
+                                       inset: gaps.inner / 2, holdOversized: holds)
             }
-            return members.map { member in
+            let frames = members.map { member in
                 let unit = member.unit
                 let cell = CGRect(x: (area.minX + unit.minX * area.width).rounded(),
                                   y: (top + unit.minY * area.height).rounded(),
@@ -114,23 +116,34 @@ enum WindowTiler {
                                   height: (unit.height * area.height).rounded())
                 return cell.insetBy(dx: gaps.inner / 2, dy: gaps.inner / 2)
             }
+            return TileSolver.Plan(rooms: frames, frames: frames)
         }
 
-        var planned = frames()
-        var refused: [Int] = []
-        for (index, member) in members.enumerated() {
-            if member.window.isMinimized {
-                member.element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
-            }
-            let landed = setFrame(planned[index], of: member.element, window: member.window)
-            if respectsSizeLimits, let landed, !landed.size.approximatelyEquals(planned[index].size),
-               WindowSizeLimits.canProbe(member.window) {
-                refused.append(index)
-            }
-        }
+        var planned = plan()
         // A window that would not take its size shows what it takes instead, and the others make
-        // room for that.
-        if !refused.isEmpty {
+        // room for that. Making room can squeeze a neighbour below its own limits in turn, so the
+        // layout is made again while that teaches something new, a few times at most.
+        for pass in 0..<3 {
+            var refused: [Int] = []
+            var learnt = false
+            for (index, member) in members.enumerated() {
+                if pass == 0, member.window.isMinimized {
+                    member.element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
+                }
+                let asked = planned.frames[index].size
+                guard let landed = setFrame(planned.frames[index], of: member.element, window: member.window),
+                      respectsSizeLimits, !landed.size.approximatelyEquals(asked)
+                else { continue }
+                if WindowSizeLimits.canProbe(member.window) {
+                    refused.append(index)
+                } else if WindowSizeLimits.isReadable(member.window),
+                          WindowSizeLimits.learn(member.window, asked: asked, landed: landed.size) {
+                    // Probed moments ago, and refused again all the same: what it took instead says more.
+                    limits[index] = WindowSizeLimits.limits(of: member.window, element: member.element)
+                    learnt = true
+                }
+            }
+            guard !refused.isEmpty || learnt else { break }
             for index in refused {
                 let member = members[index]
                 withoutAnimation(pid: member.window.pid) {
@@ -138,11 +151,26 @@ enum WindowTiler {
                 }
                 limits[index] = WindowSizeLimits.limits(of: member.window, element: member.element)
             }
-            planned = frames()
-            for (index, member) in members.enumerated() {
-                setFrame(planned[index], of: member.element, window: member.window)
+            planned = plan()
+            if pass == 2 {
+                for (index, member) in members.enumerated() {
+                    setFrame(planned.frames[index], of: member.element, window: member.window)
+                }
             }
         }
+        // Those that still do not fit, however small the others go, are held out: a placeholder
+        // takes their place in the layout.
+        TilePlaceholders.shared.set(members.indices.map { index in
+            let room = planned.rooms[index]
+            let held = planned.held.contains(index)
+            if held {
+                Diagnostics.note("tiling: \(members[index].window.appName) id=\(members[index].window.id) "
+                    + "does not fit \(room.size), placeholder stands in")
+            }
+            return (window: members[index].window, limits: limits[index],
+                    room: held ? NSRect(x: room.minX, y: primaryHeight - room.maxY,
+                                        width: room.width, height: room.height) : nil)
+        })
         let placed = members.map(\.window)
         Diagnostics.note("tiled \(placed.count)/\(windows.count) windows as \(layout.name)")
         return placed
@@ -151,6 +179,14 @@ enum WindowTiler {
     /// Fit windows to the sizes they accept — minimum, maximum, fixed size, aspect ratio — instead
     /// of giving each its cell regardless. `Preferences.respectWindowSizeLimits`.
     static var respectsSizeLimits = true
+
+    /// Put a placeholder in the place of a window too big for it, rather than let it overlap its
+    /// neighbours. `Preferences.tilePlaceholders`.
+    static var showsPlaceholders = true
+
+    /// A window settled, a while after it was placed, at another size than it was asked for, and
+    /// that told something new about its limits: the layout it is in wants making again.
+    static var onLateRefusal: ((CGWindowID) -> Void)?
 
     /// The frame request each window is currently following. A window told to go somewhere else —
     /// maximized and then restored, say — must not have the older request put back underneath it.
@@ -175,7 +211,7 @@ enum WindowTiler {
 
     @discardableResult
     private static func apply(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow,
-                              request: Int, check: Int) -> CGRect? {
+                              request: Int, check: Int, refusal: CGSize? = nil) -> CGRect? {
         var size = frame.size
         var origin = frame.origin
         guard let sizeValue = AXValueCreate(.cgSize, &size),
@@ -197,7 +233,8 @@ enum WindowTiler {
             landed = currentFrame(of: element)
         }
 
-        scheduleCheck(frame, of: element, window: window, request: request, check: check, seen: nil)
+        scheduleCheck(frame, of: element, window: window, request: request, check: check, seen: nil,
+                      refusal: refusal)
         return landed
     }
 
@@ -227,26 +264,39 @@ enum WindowTiler {
             && abs(frame.width - target.width) <= 2 && abs(frame.height - target.height) <= 2
     }
 
-    /// - Parameter seen: where the window was at the previous check, so a frame still on its way
-    ///   is left to arrive instead of being fought mid-flight.
+    /// - Parameters:
+    ///   - seen: where the window was at the previous check, so a frame still on its way is left
+    ///     to arrive instead of being fought mid-flight.
+    ///   - refusal: the size the window settled at instead the last time it was set again.
     private static func scheduleCheck(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow,
-                                      request: Int, check: Int, seen: CGRect?) {
+                                      request: Int, check: Int, seen: CGRect?, refusal: CGSize? = nil) {
         guard checkDelays.indices.contains(check) else { return }
         let wait = checkDelays[check] - (check == 0 ? 0 : checkDelays[check - 1])
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             // A newer frame request has taken this window over.
             guard currentRequest[window.id] == request, let current = currentFrame(of: element) else { return }
             if matches(current, frame) {
-                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1, seen: current)
+                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1,
+                              seen: current, refusal: refusal)
                 return
             }
             guard let seen, matches(current, seen) else {
                 // Still moving: look again before deciding it went wrong.
-                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1, seen: current)
+                scheduleCheck(frame, of: element, window: window, request: request, check: check + 1,
+                              seen: current, refusal: refusal)
+                return
+            }
+            // Twice at the same wrong size, set again in between: that is the size it takes. An app
+            // that resizes late cannot be probed, so this is where its limits are learnt.
+            if respectsSizeLimits, let refusal, current.size.approximatelyEquals(refusal),
+               NSEvent.pressedMouseButtons == 0,
+               WindowSizeLimits.learn(window, asked: frame.size, landed: current.size) {
+                onLateRefusal?(window.id)
                 return
             }
             Diagnostics.note("tiling: \(window.appName) id=\(window.id) settled at \(current), setting \(frame) again")
-            apply(frame, of: element, window: window, request: request, check: check + 1)
+            let size = current.size.approximatelyEquals(frame.size) ? nil : current.size
+            apply(frame, of: element, window: window, request: request, check: check + 1, refusal: size)
         }
     }
 

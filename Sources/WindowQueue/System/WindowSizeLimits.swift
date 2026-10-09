@@ -46,6 +46,25 @@ struct SizeLimits: Equatable {
         return low...Swift.max(low, high)
     }
 
+    /// These limits, tightened by what a window showed by landing at `landed` when asked for
+    /// `asked`: bigger than asked is as small as it goes, smaller as big.
+    func learning(asked: CGSize, landed: CGSize) -> SizeLimits {
+        var limits = self
+        if landed.width > asked.width + 2 {
+            limits.min.width = Swift.max(limits.min.width, landed.width)
+        } else if landed.width < asked.width - 2 {
+            limits.max.width = Swift.min(limits.max.width, landed.width)
+        }
+        if landed.height > asked.height + 2 {
+            limits.min.height = Swift.max(limits.min.height, landed.height)
+        } else if landed.height < asked.height - 2 {
+            limits.max.height = Swift.min(limits.max.height, landed.height)
+        }
+        limits.max.width = Swift.max(limits.max.width, limits.min.width)
+        limits.max.height = Swift.max(limits.max.height, limits.min.height)
+        return limits
+    }
+
     private func clamp(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {
         Swift.min(Swift.max(value, low), high)
     }
@@ -114,6 +133,12 @@ enum WindowSizeLimits {
         return known[window.id] ?? .none
     }
 
+    /// Whether the window answered when probed, or was never probed: where it lands straight
+    /// after a frame is set is where it stays.
+    static func isReadable(_ window: ManagedWindow) -> Bool {
+        !unreadable.contains(window.id)
+    }
+
     static func canProbe(_ window: ManagedWindow) -> Bool {
         guard !unreadable.contains(window.id) else { return false }
         return probedAt[window.id].map { Date().timeIntervalSince($0) > 60 } ?? true
@@ -151,6 +176,21 @@ enum WindowSizeLimits {
         return limits
     }
 
+    /// Takes in a size the window settled at instead of the one it was asked for, when probing it
+    /// is not possible: an app that resizes late, or one probed moments ago.
+    ///
+    /// - Returns: whether that told anything new.
+    @discardableResult
+    static func learn(_ window: ManagedWindow, asked: CGSize, landed: CGSize) -> Bool {
+        let before = known[window.id] ?? .none
+        let limits = before.learning(asked: asked, landed: landed)
+        guard limits != before else { return false }
+        known[window.id] = limits
+        Diagnostics.note("size limits: \(window.appName) id=\(window.id) settled at \(landed) for \(asked): "
+            + "min=\(limits.min) max=\(limits.max)")
+        return true
+    }
+
     private static func size(of element: AXUIElement) -> CGSize? {
         guard let value = element.attribute(kAXSizeAttribute, as: AXValue.self) else { return nil }
         var size = CGSize.zero
@@ -176,6 +216,68 @@ enum TileSolver {
     ///   - inset: room each cell leaves on every side, the half gap between windows.
     /// - Returns: each window's frame.
     static func frames(units: [CGRect], limits: [SizeLimits], in area: CGRect, inset: CGFloat) -> [CGRect] {
+        zip(rooms(units: units, limits: limits, in: area, inset: inset), limits).map { room, limits in
+            centred(limits.fitted(in: room.size), in: room)
+        }
+    }
+
+    /// A layout where some windows may be held out of it.
+    struct Plan: Equatable {
+        /// The room each window gets, gaps taken off.
+        var rooms: [CGRect]
+        var frames: [CGRect]
+        /// The windows that cannot be made to fit their room.
+        var held: Set<Int> = []
+    }
+
+    /// How far past its room a window may reach before it counts as not fitting.
+    static let overreach: CGFloat = 12
+
+    /// Lays out as `frames` does, but first lets the others give up all the room they can; a window
+    /// that still cannot fit is then held out of the layout, the furthest from fitting first. The rest share the area as if it took
+    /// any size at all, and it is centred over the room it is left, kept inside the area, for a
+    /// placeholder to stand in for it there.
+    ///
+    /// One window always stays in: with all of them too big there is nothing to make room for.
+    static func plan(units: [CGRect], limits: [SizeLimits], in area: CGRect, inset: CGFloat,
+                     holdOversized: Bool) -> Plan {
+        var held = Set<Int>()
+        while true {
+            let effective = limits.indices.map { held.contains($0) ? SizeLimits.none : limits[$0] }
+            let rooms = self.rooms(units: units, limits: effective, in: area, inset: inset)
+            let sizes = zip(rooms, limits).map { $1.fitted(in: $0.size) }
+            // One at a time, the one reaching furthest past its room first: with that one out of
+            // the way, the others may well fit.
+            let reach = { (i: Int) in max(sizes[i].width - rooms[i].width, sizes[i].height - rooms[i].height) }
+            let worst = rooms.indices.filter { !held.contains($0) && reach($0) > overreach }.max { reach($0) < reach($1) }
+            if holdOversized, let worst, held.count + 1 < units.count {
+                held.insert(worst)
+                continue
+            }
+            let frames = rooms.indices.map { i -> CGRect in
+                var frame = centred(sizes[i], in: rooms[i])
+                if held.contains(i) {
+                    let bounds = area.insetBy(dx: inset, dy: inset)
+                    if frame.width <= bounds.width {
+                        frame.origin.x = min(max(frame.minX, bounds.minX), bounds.maxX - frame.width)
+                    }
+                    if frame.height <= bounds.height {
+                        frame.origin.y = min(max(frame.minY, bounds.minY), bounds.maxY - frame.height)
+                    }
+                }
+                return frame
+            }
+            return Plan(rooms: rooms, frames: frames, held: held)
+        }
+    }
+
+    private static func centred(_ size: CGSize, in room: CGRect) -> CGRect {
+        CGRect(x: (room.midX - size.width / 2).rounded(), y: (room.midY - size.height / 2).rounded(),
+               width: size.width, height: size.height)
+    }
+
+    /// Each window's room: its cell, shared out by the limits, less `inset` on every side.
+    static func rooms(units: [CGRect], limits: [SizeLimits], in area: CGRect, inset: CGFloat) -> [CGRect] {
         let cells: [CGRect]
         if let root = node(Array(units.indices), units) {
             var solved = [CGRect](repeating: .zero, count: units.count)
@@ -187,12 +289,7 @@ enum TileSolver {
                        width: $0.width * area.width, height: $0.height * area.height)
             }
         }
-        return zip(cells, limits).map { cell, limits in
-            let room = cell.insetBy(dx: inset, dy: inset)
-            let size = limits.fitted(in: room.size)
-            return CGRect(x: (room.midX - size.width / 2).rounded(), y: (room.midY - size.height / 2).rounded(),
-                          width: size.width, height: size.height)
-        }
+        return cells.map { $0.insetBy(dx: inset, dy: inset) }
     }
 
     private static func node(_ indices: [Int], _ units: [CGRect]) -> Node? {

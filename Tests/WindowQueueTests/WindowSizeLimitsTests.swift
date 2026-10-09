@@ -91,4 +91,44 @@ final class WindowSizeLimitsTests: XCTestCase {
         XCTAssertEqual(sizes[1], 400, accuracy: 0.01)
         XCTAssertEqual(sizes[2], 400, accuracy: 0.01)
     }
+
+    private let halves = [CGRect(x: 0, y: 0, width: 0.5, height: 1), CGRect(x: 0.5, y: 0, width: 0.5, height: 1)]
+
+    func testNeighbourShrinksBeforeAnyoneIsHeld() {
+        let area = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let limits = [SizeLimits(min: CGSize(width: 700, height: 300)), .none]
+        let plan = TileSolver.plan(units: halves, limits: limits, in: area, inset: 0, holdOversized: true)
+        XCTAssertTrue(plan.held.isEmpty)
+        XCTAssertEqual(plan.frames[0].width, 700)
+        XCTAssertEqual(plan.frames[1].width, 300)
+    }
+
+    func testWindowTooBigEvenForAShrunkNeighbourIsHeld() {
+        let area = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let limits = [SizeLimits(min: CGSize(width: 700, height: 300)), SizeLimits(min: CGSize(width: 500, height: 300))]
+        let plan = TileSolver.plan(units: halves, limits: limits, in: area, inset: 0, holdOversized: true)
+        XCTAssertEqual(plan.held, [0])
+        // The other gets its full share; the held one keeps its minimum, over its room, inside the area.
+        XCTAssertEqual(plan.rooms[1].width, 500)
+        XCTAssertEqual(plan.frames[1].width, 500)
+        XCTAssertEqual(plan.frames[0].size, CGSize(width: 700, height: 800))
+        XCTAssertEqual(plan.frames[0].minX, 0)
+        XCTAssertEqual(plan.rooms[0].width, 500)
+    }
+
+    func testOneWindowAlwaysStaysIn() {
+        let area = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let big = SizeLimits.fixed(CGSize(width: 900, height: 700))
+        let plan = TileSolver.plan(units: halves, limits: [big, big], in: area, inset: 0, holdOversized: true)
+        XCTAssertEqual(plan.held.count, 1)
+        let none = TileSolver.plan(units: halves, limits: [big, big], in: area, inset: 0, holdOversized: false)
+        XCTAssertTrue(none.held.isEmpty)
+    }
+
+    func testLearnsMinimumAndMaximumFromALanding() {
+        let limits = SizeLimits.none.learning(asked: CGSize(width: 400, height: 900), landed: CGSize(width: 600, height: 700))
+        XCTAssertEqual(limits.min, CGSize(width: 600, height: 0))
+        XCTAssertEqual(limits.max, CGSize(width: CGFloat.infinity, height: 700))
+        XCTAssertEqual(limits.learning(asked: CGSize(width: 601, height: 699), landed: CGSize(width: 600, height: 700)), limits)
+    }
 }

@@ -158,6 +158,11 @@ struct SettingsView: View {
                     Toggle("Respect window size limits", isOn: $store.prefs.respectWindowSizeLimits)
                     caption("Windows with a minimum or maximum size, a fixed size or a fixed aspect ratio, like the iOS Simulator, are sized to fit and centred in their place, and the other windows take the room they leave. A window's limits are learnt the first time it refuses a size, which makes it flicker once.")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Placeholders for windows too big to tile", isOn: $store.prefs.tilePlaceholders)
+                        .disabled(!store.prefs.respectWindowSizeLimits)
+                    caption("When a window cannot be made small enough for its place, even with the others as small as they go, a placeholder takes the place and says why. The window waits behind it; click the placeholder, or focus the window, to bring it out.")
+                }
             }
 
             Section("Fullscreen windows") {

@@ -358,6 +358,7 @@ final class WindowEnumerator {
     /// shadow windows every application also owns.
     private func serverWindows() -> [ServerWindow] {
         let raw = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         let candidates: [(id: CGWindowID, pid: pid_t, frame: CGRect, title: String)] = raw.compactMap { info in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   let id = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
@@ -366,7 +367,10 @@ final class WindowEnumerator {
                   let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   frame.width >= 120, frame.height >= 80
             else { return nil }
-            return (id, pid, frame, (info[kCGWindowName as String] as? String) ?? "")
+            let title = (info[kCGWindowName as String] as? String) ?? ""
+            // A placeholder standing in for a tiled window is not one to queue.
+            if pid == ownPID, title == TilePlaceholders.title { return nil }
+            return (id, pid, frame, title)
         }
 
         // A real window is placed on a Space *and* ordered into the WindowServer's display list.

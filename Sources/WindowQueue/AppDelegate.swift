@@ -103,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.modifierTaps.modifiers = prefs.superModifier.eventFlags
                 self.syncHotkeys(prefs)
                 WindowTiler.respectsSizeLimits = prefs.respectWindowSizeLimits
+                WindowTiler.showsPlaceholders = prefs.tilePlaceholders
                 LoginItem.apply(enabled: prefs.launchAtLogin)
                 // `@Published` fires before the new value lands; read it on the next turn.
                 DispatchQueue.main.async { self.dockReservation.update() }
@@ -138,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] id in self?.raiseLayoutOnceFocused(id) }
             .store(in: &cancellables)
         model.onFocusFollowed = { [weak self] id in self?.raiseLayoutOnceFocused(id) }
+        setUpTilePlaceholders()
         model.onWindowsArrived = { [weak self] windows in
             DispatchQueue.main.async { self?.placeLaunched(windows) }
         }
@@ -1817,6 +1819,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Waits for the focus to actually land — a jump to another workspace, or an app slow to
     /// answer, takes a moment, and windows raised before that are raised on a desktop not in view
     /// or buried again by the focus arriving after them.
+    /// Placeholders stand in for tiled windows too big for their place; clicking one shows the
+    /// window, and a window that changes its mind about its size late has its layout made again.
+    private func setUpTilePlaceholders() {
+        let placeholders = TilePlaceholders.shared
+        placeholders.onReveal = { [weak self] id in
+            guard let self, let window = self.model.windows.first(where: { $0.id == id }) else { return }
+            self.model.select(id: id, announce: false)
+            self.focus(window, warpCursor: false)
+        }
+        placeholders.isTiled = { [weak self] id in self?.model.tiledGroup(of: id) != nil }
+        placeholders.isFocused = { [weak self] id in
+            guard let self, self.model.selectedID == id,
+                  let window = self.model.windows.first(where: { $0.id == id }) else { return false }
+            return NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+        }
+        WindowTiler.onLateRefusal = { [weak self] id in
+            guard let self, let group = self.model.tiledGroup(of: id) else { return }
+            self.relayout([group.id])
+        }
+    }
+
     private func raiseLayoutOnceFocused(_ id: CGWindowID?) {
         layoutRaiseRequest &+= 1
         guard let id, model.tiledGroup(of: id) != nil else { return }
@@ -1841,8 +1864,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Only the ones on the workspace in view: raising a window that lives elsewhere would drag
         // its workspace, or the window itself, into what the user is looking at.
+        // A window a placeholder stands in for stays behind it, unless it is the one focused.
+        let held = TilePlaceholders.shared.heldIDs.subtracting([id])
         let members = model.tiledWindowsInQueueOrder(group).filter {
-            !$0.isMinimized && ($0.id == id || ($0.spaceID != nil && $0.spaceID == window.spaceID))
+            !$0.isMinimized && !held.contains($0.id)
+                && ($0.id == id || ($0.spaceID != nil && $0.spaceID == window.spaceID))
         }
         guard members.count > 1, !WindowTiler.coveredWindowIDs(among: Set(members.map(\.id)),
                                                                 ownPIDs: Set(members.map(\.pid)),
@@ -1856,6 +1882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.note("raise layout of \(window.appName) id=\(id) (\(members.count) windows)")
         WindowTiler.raise(members.filter { $0.id != id })
         (window.element ?? WindowSpaceMover.element(for: window))?.perform(kAXRaiseAction)
+        TilePlaceholders.shared.cover(Array(held.filter(group.ids.contains)))
         retry(0.25, raises + 1)
     }
 
@@ -2366,6 +2393,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   let window = model.windows.first(where: { $0.id == id }) else { return }
             model.select(id: id, announce: true)
             focus(window)
+        case "tile":
+            // `tile <id> <id> …`: lays these windows out as aiming would, in the first layout offered.
+            let windows = words.dropFirst().compactMap { CGWindowID($0) }
+                .compactMap { id in model.windows.first { $0.id == id } }
+            guard let layout = TileLayout.options(for: windows.count).first(where: { $0.kind == "Columns" }) else { return }
+            placeTiling(windows, layout: layout)
         case "refresh":
             enumerator?.refresh()
         case "dump":
