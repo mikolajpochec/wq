@@ -1551,8 +1551,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let replacing = placement == .replacing && windows.count > 1
         strip?.isReplacedByGroup = replacing
+        let exits = prefs.showGroupExitHint && model.aimingID == nil
+            ? model.groupExitDirections : (false, false)
         strip?.companionLength = placement == .beside
-            ? groupPanel.length(for: windows, covered: covered, aiming: aiming) : 0
+            ? groupPanel.length(for: windows, covered: covered, aiming: aiming, exits: exits) : 0
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
                         aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
@@ -1560,8 +1562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         tiledNumbers: tiledNumbers(for: windows),
                         showsTiledNumbers: model.tiledGroups.count > 1,
                         locked: model.lockedGroupID == group.id,
-                        exits: prefs.showGroupExitHint && model.aimingID == nil
-                            ? model.groupExitDirections : (false, false),
+                        exits: exits,
                         aiming: aiming, placement: placement)
     }
 

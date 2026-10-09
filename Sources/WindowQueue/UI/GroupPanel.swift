@@ -27,9 +27,15 @@ final class GroupPanelState: ObservableObject {
     /// Standing in for the main strip, it leads with a way back to it where the workspace badge is.
     @Published var showsBack = false
     /// The next cycle step forwards or backwards from the selection leaves the group, which the
-    /// selected window's tile marks on that side.
+    /// strip shows as an exit standing where the next window would be on that side.
     @Published var exitsForward = false
     @Published var exitsBackward = false
+
+    /// Rows ahead of the windows: the back tile, while standing in for the main strip, and the exit
+    /// a step back out of the group leads to.
+    var leadingRows: Int { (showsBack ? 1 : 0) + (exitsBackward ? 1 : 0) }
+    /// Rows after the windows: the exit a step on out of the group leads to.
+    var trailingRows: Int { exitsForward ? 1 : 0 }
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -82,12 +88,14 @@ struct GroupPanelView: View {
     var body: some View {
         stack {
             if state.showsBack { backTile }
+            if state.exitsBackward { exitTile(forward: false) }
             ForEach(entries) { entry in
                 switch entry {
                 case .window(let window): row(for: window)
                 case .cascade(let windows): cascade(windows)
                 }
             }
+            if state.exitsForward { exitTile(forward: true) }
         }
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
@@ -202,22 +210,21 @@ struct GroupPanelView: View {
             .help("Cycling is locked to this group")
     }
 
-    /// The corner of a tile a cycle step that way leaves by: the end of the tile facing along the
-    /// strip, on the side away from the tiled mark.
-    private func exitAlignment(forward: Bool) -> Alignment {
-        side.isVertical ? (forward ? .bottomTrailing : .topTrailing) : (forward ? .bottomTrailing : .bottomLeading)
-    }
-
-    /// Tells that the next step this way leaves the group: an exit sign in that corner of the tile.
-    private func exitMark(forward: Bool) -> some View {
+    /// Where the next step this way leads: out of the group, drawn as the next window's place
+    /// holding an exit sign instead of an icon.
+    private func exitTile(forward: Bool) -> some View {
         Image(systemName: "rectangle.portrait.and.arrow.forward")
-            .font(.system(size: max(7, prefs.iconSize * 0.26), weight: .bold))
-            .foregroundStyle(.white)
-            // Walking back along a horizontal strip leaves to the left, and the sign points there.
+            .font(.system(size: prefs.iconSize * 0.45, weight: .semibold))
+            .foregroundStyle(.secondary)
+            // Backwards along a horizontal strip leaves to the left, and the sign points there. On a
+            // vertical strip it stays upright: turned, it reads as a share button.
             .scaleEffect(x: !forward && !side.isVertical ? -1 : 1)
-            .padding(3)
-            .background(Circle().fill(Color.accentColor.opacity(0.95)))
-            .offset(x: forward || side.isVertical ? 4 : -4, y: forward || !side.isVertical ? 4 : -4)
+            .frame(width: prefs.iconSize, height: prefs.iconSize)
+            .background(
+                RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            )
+            .padding(4)
             .allowsHitTesting(false)
             .help(forward ? "The next step leaves the group" : "The previous step leaves the group")
     }
@@ -283,8 +290,8 @@ struct GroupPanelView: View {
             let step = thickness + StripMetrics.spacing
             ZStack(alignment: side.isVertical ? .top : .leading) {
                 ForEach(aimedRuns, id: \.lowerBound) { run in
-                    // The back tile, when shown, takes the first row ahead of the windows.
-                    let start = StripMetrics.padding + CGFloat(run.lowerBound + (state.showsBack ? 1 : 0)) * step
+                    // The back tile and a backward exit, when shown, take rows ahead of the windows.
+                    let start = StripMetrics.padding + CGFloat(run.lowerBound + state.leadingRows) * step
                     let length = CGFloat(run.count) * thickness + CGFloat(run.count - 1) * StripMetrics.spacing
                     RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                         .fill(Color.orange.opacity(0.28))
@@ -324,12 +331,6 @@ struct GroupPanelView: View {
         )
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
-        }
-        .overlay(alignment: exitAlignment(forward: true)) {
-            if window.id == state.selectedID, state.exitsForward { exitMark(forward: true) }
-        }
-        .overlay(alignment: exitAlignment(forward: false)) {
-            if window.id == state.selectedID, state.exitsBackward { exitMark(forward: false) }
         }
         .contentShape(Rectangle())
         .help(window.displayTitle)
@@ -481,7 +482,8 @@ final class GroupPanelController {
         // and the panel would keep the wrong size and place until the next change.
         let scale = max(1, store.prefs.aimingScale)
         let thickness = StripMetrics.thickness(prefs: store.prefs)
-        let along = contentLength(rows: rowCount(of: windows, covered: coveredIDs) + leadingRows)
+        let along = contentLength(rows: rowCount(of: windows, covered: coveredIDs) + leadingRows
+                                  + state.trailingRows)
         let size = store.prefs.stripSide.isVertical
             ? NSSize(width: thickness * scale, height: along * state.scale)
             : NSSize(width: along * state.scale, height: thickness * scale)
@@ -616,14 +618,16 @@ final class GroupPanelController {
     /// How much room the group's strip takes along the strip's own direction, gap included, so the
     /// main strip can make space for it and the pair can be centred as one.
     /// - Parameter aiming: while aiming the strip is drawn larger, and takes more room with it.
-    func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = [], aiming: Bool = false) -> CGFloat {
+    /// - Parameter exits: the exit tiles shown at either end, which take a window's room each.
+    func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = [], aiming: Bool = false,
+                exits: (forward: Bool, backward: Bool) = (false, false)) -> CGFloat {
         guard windows.count > 1 else { return 0 }
-        let content = contentLength(rows: rowCount(of: windows, covered: covered))
+        let extra = (exits.forward ? 1 : 0) + (exits.backward ? 1 : 0)
+        let content = contentLength(rows: rowCount(of: windows, covered: covered) + extra)
         return content * (aiming ? max(1, store.prefs.aimingScale) : 1) + Self.gap
     }
 
-    /// Rows ahead of the windows: the back tile, while standing in for the main strip.
-    private var leadingRows: Int { state.showsBack ? 1 : 0 }
+    private var leadingRows: Int { state.leadingRows }
 
     /// Rows the group's strip draws: covered windows share the cascade tile, so they count as one.
     private func rowCount(of windows: [ManagedWindow], covered: Set<CGWindowID>) -> Int {
