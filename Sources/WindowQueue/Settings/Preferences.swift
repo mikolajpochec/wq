@@ -78,6 +78,24 @@ enum GroupStripPlacement: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// When a group's strip shows the exits a cycle step leaves the group by, as a door in the place
+/// of the window before its first one and after its last one.
+enum GroupExitDoors: String, Codable, CaseIterable, Identifiable {
+    /// Both doors stay in the strip, and the one the next step goes through lights up.
+    case always
+    /// A door appears only on the group's first or last window, on the side the step leaves by.
+    case atEnds
+    case off
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .always: return "Always"
+        case .atEnds: return "At the ends"
+        case .off: return "Off"
+        }
+    }
+}
+
 /// The animations that can be switched off one by one, each covering one part of the interface.
 enum AnimationKind: String, Codable, CaseIterable, Identifiable {
     /// Windows arriving, leaving and moving in the strip, the selection, and a dropped icon settling.
@@ -444,9 +462,9 @@ struct Preferences: Codable, Equatable {
     /// of the same application. The row keeps its size; the icon gives up the room.
     var showWindowLabels: Bool = true
 
-    /// A small exit badge on the selected window in a group's strip when the next cycle step that
-    /// way would leave the group, so stepping out of it comes as no surprise.
-    var showGroupExitHint: Bool = true
+    /// Doors at the ends of a group's strip, where a cycle step leaves the group, so stepping out
+    /// of it comes as no surprise.
+    var groupExitDoors: GroupExitDoors = .always
 
     /// Which finder the launcher shortcut opens — its key in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
@@ -544,7 +562,7 @@ struct Preferences: Codable, Equatable {
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
-        showGroupExitHint = value(.showGroupExitHint, defaults.showGroupExitHint)
+        groupExitDoors = value(.groupExitDoors, defaults.groupExitDoors)
         launcher = value(.launcher, defaults.launcher)
         raycastCommand = value(.raycastCommand, defaults.raycastCommand)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)

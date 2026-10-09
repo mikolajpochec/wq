@@ -178,10 +178,6 @@ struct SettingsView: View {
                     Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
                     caption("Tells apart several windows of the same application. The icon shrinks to make room, so the strip stays the same size.")
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Mark the way out of a group", isOn: $store.prefs.showGroupExitHint)
-                    caption("On the first or last window of a group, a small exit badge on the side the next cycle step leaves the group by.")
-                }
             }
 
             Section("Window titles") {
@@ -430,6 +426,16 @@ struct SettingsView: View {
         }
     }
 
+    private var groupExitDoorsExplanation: String {
+        switch store.prefs.groupExitDoors {
+        case .always:
+            return "A group's strip has a door at each end, where cycling past its first or last window leaves the group. The door the next step goes through lights up, and clicking either one leaves the group (in place of the back button, when the group strip replaces the main one)."
+        case .atEnds:
+            return "On a group's first or last window, a door appears in the next window's place: the next step leaves the group. Click it to leave the group."
+        case .off: return "Cycling leaves a group without a sign in its strip."
+        }
+    }
+
     private var reservationExplanation: String {
         let gap = RectangleIntegration.reservedWidth(for: store.prefs)
         let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free — in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
@@ -527,6 +533,11 @@ struct SettingsView: View {
                 sliderRow("Icon size", value: $store.prefs.iconSize, in: 16...48, step: 2, format: Self.points)
                 sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
                 Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
+                Picker("Group exit doors", selection: $store.prefs.groupExitDoors) {
+                    ForEach(GroupExitDoors.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                caption(groupExitDoorsExplanation)
             }
 
             Section("Scrolling") {

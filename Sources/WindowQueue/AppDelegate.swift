@@ -1551,10 +1551,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let replacing = placement == .replacing && windows.count > 1
         strip?.isReplacedByGroup = replacing
-        let exits = prefs.showGroupExitHint && model.aimingID == nil
-            ? model.groupExitDirections : (false, false)
+        // The step out lights its door, except while aiming, which moves the aim instead.
+        let exits = model.aimingID == nil ? model.groupExitDirections : (false, false)
+        let doors: (forward: Bool, backward: Bool)
+        switch prefs.groupExitDoors {
+        // Locked, cycling goes round the group and no step leaves it.
+        case .always: doors = model.lockedGroupID == group.id ? (false, false) : (true, true)
+        case .atEnds: doors = exits
+        case .off: doors = (false, false)
+        }
         strip?.companionLength = placement == .beside
-            ? groupPanel.length(for: windows, covered: covered, aiming: aiming, exits: exits) : 0
+            ? groupPanel.length(for: windows, covered: covered, aiming: aiming, doors: doors) : 0
         groupPanel.show(number: group.id, windows: windows, selected: model.selectedID,
                         peek: model.openGroup == nil,
                         aimingID: model.aimingID, aimedIDs: model.aimedIDs, coveredIDs: covered,
@@ -1562,7 +1569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         tiledNumbers: tiledNumbers(for: windows),
                         showsTiledNumbers: model.tiledGroups.count > 1,
                         locked: model.lockedGroupID == group.id,
-                        exits: exits,
+                        exits: exits, doors: doors,
                         aiming: aiming, placement: placement)
     }
 

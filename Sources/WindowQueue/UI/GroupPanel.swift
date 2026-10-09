@@ -26,16 +26,20 @@ final class GroupPanelState: ObservableObject {
     @Published var isLocked = false
     /// Standing in for the main strip, it leads with a way back to it where the workspace badge is.
     @Published var showsBack = false
-    /// The next cycle step forwards or backwards from the selection leaves the group, which the
-    /// strip shows as an exit standing where the next window would be on that side.
+    /// Doors out of the group, standing where the window before its first one and after its last
+    /// one would be.
+    @Published var showsForwardDoor = false
+    @Published var showsBackwardDoor = false
+    /// The next cycle step forwards or backwards from the selection leaves the group: its door
+    /// lights up.
     @Published var exitsForward = false
     @Published var exitsBackward = false
 
-    /// Rows ahead of the windows: the back tile, while standing in for the main strip, and the exit
-    /// a step back out of the group leads to.
-    var leadingRows: Int { (showsBack ? 1 : 0) + (exitsBackward ? 1 : 0) }
-    /// Rows after the windows: the exit a step on out of the group leads to.
-    var trailingRows: Int { exitsForward ? 1 : 0 }
+    /// Rows ahead of the windows: the back tile, while standing in for the main strip, and the door
+    /// a step back out of the group goes through.
+    var leadingRows: Int { (showsBack ? 1 : 0) + (showsBackwardDoor ? 1 : 0) }
+    /// Rows after the windows: the door a step on out of the group goes through.
+    var trailingRows: Int { showsForwardDoor ? 1 : 0 }
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -88,14 +92,14 @@ struct GroupPanelView: View {
     var body: some View {
         stack {
             if state.showsBack { backTile }
-            if state.exitsBackward { exitTile(forward: false) }
+            if state.showsBackwardDoor { exitTile(forward: false) }
             ForEach(entries) { entry in
                 switch entry {
                 case .window(let window): row(for: window)
                 case .cascade(let windows): cascade(windows)
                 }
             }
-            if state.exitsForward { exitTile(forward: true) }
+            if state.showsForwardDoor { exitTile(forward: true) }
         }
         .padding(StripMetrics.padding)
         .frame(width: side.isVertical ? StripMetrics.thickness(prefs: prefs) : nil,
@@ -210,23 +214,30 @@ struct GroupPanelView: View {
             .help("Cycling is locked to this group")
     }
 
-    /// Where the next step this way leads: out of the group, drawn as the next window's place
-    /// holding an exit sign instead of an icon.
+    /// The way out of the group past its end: a window's place holding an exit sign instead of an
+    /// icon, lit when the next step goes through it. Clicked, it leaves the group as the back tile
+    /// does, which is why the doors stand in for that tile.
     private func exitTile(forward: Bool) -> some View {
-        Image(systemName: "rectangle.portrait.and.arrow.forward")
+        let lit = forward ? state.exitsForward : state.exitsBackward
+        return Image(systemName: "rectangle.portrait.and.arrow.forward")
             .font(.system(size: prefs.iconSize * 0.45, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(lit ? Color.accentColor : Color.secondary.opacity(0.6))
             // Backwards along a horizontal strip leaves to the left, and the sign points there. On a
             // vertical strip it stays upright: turned, it reads as a share button.
             .scaleEffect(x: !forward && !side.isVertical ? -1 : 1)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
             .background(
                 RoundedRectangle(cornerRadius: StripMetrics.badgeCorner(prefs: prefs), style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .strokeBorder(lit ? Color.accentColor : Color.secondary.opacity(0.35),
+                                  style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             )
             .padding(4)
-            .allowsHitTesting(false)
-            .help(forward ? "The next step leaves the group" : "The previous step leaves the group")
+            .contentShape(Rectangle())
+            .help(lit ? (forward ? "The next step leaves the group" : "The previous step leaves the group")
+                  : (forward ? "Past the last window, cycling leaves the group"
+                             : "Before the first window, cycling leaves the group"))
+            // The panel is never key, so a zero-distance drag is what registers a click in it.
+            .gesture(DragGesture(minimumDistance: 0).onEnded { _ in back() })
     }
 
     /// Marks a window still held in a layout, exactly as the main strip marks one.
@@ -430,6 +441,7 @@ final class GroupPanelController {
               coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
               tiledNumbers: [CGWindowID: Int] = [:], showsTiledNumbers: Bool = false,
               locked: Bool = false, exits: (forward: Bool, backward: Bool) = (false, false),
+              doors: (forward: Bool, backward: Bool) = (false, false),
               aiming: Bool = false, placement: Placement = .beside) {
         guard windows.count > 1 else {
             hide()
@@ -448,7 +460,12 @@ final class GroupPanelController {
         state.isLocked = locked
         state.exitsForward = exits.forward
         state.exitsBackward = exits.backward
+        state.showsForwardDoor = doors.forward
+        state.showsBackwardDoor = doors.backward
+        // Doors kept at both ends are a way out already, so the back tile gives way to them. Doors
+        // that come and go with the selection would take the way back with them.
         state.showsBack = placement == .replacing
+            && !(store.prefs.groupExitDoors == .always && (doors.forward || doors.backward))
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
         let moved = panel?.isVisible == true && self.placement != placement
         self.placement = placement
@@ -618,11 +635,11 @@ final class GroupPanelController {
     /// How much room the group's strip takes along the strip's own direction, gap included, so the
     /// main strip can make space for it and the pair can be centred as one.
     /// - Parameter aiming: while aiming the strip is drawn larger, and takes more room with it.
-    /// - Parameter exits: the exit tiles shown at either end, which take a window's room each.
+    /// - Parameter doors: the exit doors shown at either end, which take a window's room each.
     func length(for windows: [ManagedWindow], covered: Set<CGWindowID> = [], aiming: Bool = false,
-                exits: (forward: Bool, backward: Bool) = (false, false)) -> CGFloat {
+                doors: (forward: Bool, backward: Bool) = (false, false)) -> CGFloat {
         guard windows.count > 1 else { return 0 }
-        let extra = (exits.forward ? 1 : 0) + (exits.backward ? 1 : 0)
+        let extra = (doors.forward ? 1 : 0) + (doors.backward ? 1 : 0)
         let content = contentLength(rows: rowCount(of: windows, covered: covered) + extra)
         return content * (aiming ? max(1, store.prefs.aimingScale) : 1) + Self.gap
     }
