@@ -1560,6 +1560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         tiledNumbers: tiledNumbers(for: windows),
                         showsTiledNumbers: model.tiledGroups.count > 1,
                         locked: model.lockedGroupID == group.id,
+                        exits: prefs.showGroupExitHint && model.aimingID == nil
+                            ? model.groupExitDirections : (false, false),
                         aiming: aiming, placement: placement)
     }
 

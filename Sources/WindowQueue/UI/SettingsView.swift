@@ -178,6 +178,10 @@ struct SettingsView: View {
                     Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
                     caption("Tells apart several windows of the same application. The icon shrinks to make room, so the strip stays the same size.")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Mark the way out of a group", isOn: $store.prefs.showGroupExitHint)
+                    caption("On the first or last window of a group, a small exit badge on the side the next cycle step leaves the group by.")
+                }
             }
 
             Section("Window titles") {

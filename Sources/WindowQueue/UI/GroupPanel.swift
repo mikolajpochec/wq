@@ -26,6 +26,10 @@ final class GroupPanelState: ObservableObject {
     @Published var isLocked = false
     /// Standing in for the main strip, it leads with a way back to it where the workspace badge is.
     @Published var showsBack = false
+    /// The next cycle step forwards or backwards from the selection leaves the group, which the
+    /// selected window's tile marks on that side.
+    @Published var exitsForward = false
+    @Published var exitsBackward = false
 }
 
 /// The contents of a group, drawn as a second strip beside the first one: the same icons, the same
@@ -198,6 +202,26 @@ struct GroupPanelView: View {
             .help("Cycling is locked to this group")
     }
 
+    /// The corner of a tile a cycle step that way leaves by: the end of the tile facing along the
+    /// strip, on the side away from the tiled mark.
+    private func exitAlignment(forward: Bool) -> Alignment {
+        side.isVertical ? (forward ? .bottomTrailing : .topTrailing) : (forward ? .bottomTrailing : .bottomLeading)
+    }
+
+    /// Tells that the next step this way leaves the group: an exit sign in that corner of the tile.
+    private func exitMark(forward: Bool) -> some View {
+        Image(systemName: "rectangle.portrait.and.arrow.forward")
+            .font(.system(size: max(7, prefs.iconSize * 0.26), weight: .bold))
+            .foregroundStyle(.white)
+            // Walking back along a horizontal strip leaves to the left, and the sign points there.
+            .scaleEffect(x: !forward && !side.isVertical ? -1 : 1)
+            .padding(3)
+            .background(Circle().fill(Color.accentColor.opacity(0.95)))
+            .offset(x: forward || side.isVertical ? 4 : -4, y: forward || !side.isVertical ? 4 : -4)
+            .allowsHitTesting(false)
+            .help(forward ? "The next step leaves the group" : "The previous step leaves the group")
+    }
+
     /// Marks a window still held in a layout, exactly as the main strip marks one.
     private func tiledMark(_ number: Int) -> some View {
         let size = max(7, prefs.iconSize * 0.3)
@@ -301,6 +325,12 @@ struct GroupPanelView: View {
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
         }
+        .overlay(alignment: exitAlignment(forward: true)) {
+            if window.id == state.selectedID, state.exitsForward { exitMark(forward: true) }
+        }
+        .overlay(alignment: exitAlignment(forward: false)) {
+            if window.id == state.selectedID, state.exitsBackward { exitMark(forward: false) }
+        }
         .contentShape(Rectangle())
         .help(window.displayTitle)
         // The panel is never key, so a zero-distance drag is what registers a click in it.
@@ -398,7 +428,8 @@ final class GroupPanelController {
               aimingID: CGWindowID? = nil, aimedIDs: Set<CGWindowID> = [],
               coveredIDs: Set<CGWindowID> = [], maximizedID: CGWindowID? = nil,
               tiledNumbers: [CGWindowID: Int] = [:], showsTiledNumbers: Bool = false,
-              locked: Bool = false, aiming: Bool = false, placement: Placement = .beside) {
+              locked: Bool = false, exits: (forward: Bool, backward: Bool) = (false, false),
+              aiming: Bool = false, placement: Placement = .beside) {
         guard windows.count > 1 else {
             hide()
             return
@@ -414,6 +445,8 @@ final class GroupPanelController {
         state.tiledNumbers = tiledNumbers
         state.showsTiledNumbers = showsTiledNumbers
         state.isLocked = locked
+        state.exitsForward = exits.forward
+        state.exitsBackward = exits.backward
         state.showsBack = placement == .replacing
         state.scale = aiming ? max(1, store.prefs.aimingScale) : 1
         let moved = panel?.isVisible == true && self.placement != placement

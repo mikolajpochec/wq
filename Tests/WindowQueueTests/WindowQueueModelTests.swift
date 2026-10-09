@@ -643,6 +643,26 @@ extension WindowQueueModelTests {
         XCTAssertEqual(model.cycle(by: 1)?.id, 4)
     }
 
+    func testGroupExitDirectionsMarkTheStepThatLeavesTheGroup() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10),
+                               window(4, space: 10), window(5, space: 10)])
+        model.makeGroup([2, 3, 4])
+        model.select(id: 1, announce: false)
+        XCTAssertFalse(model.groupExitDirections.forward, "outside a group there is none to leave")
+
+        model.select(id: 2, announce: false)
+        XCTAssertFalse(model.groupExitDirections.forward)
+        XCTAssertTrue(model.groupExitDirections.backward, "the first window leaves the group backwards")
+        model.select(id: 3, announce: false)
+        XCTAssertFalse(model.groupExitDirections.forward || model.groupExitDirections.backward)
+        model.select(id: 4, announce: false)
+        XCTAssertTrue(model.groupExitDirections.forward, "the last window leaves the group forwards")
+        XCTAssertFalse(model.groupExitDirections.backward)
+
+        model.toggleGroupLock()
+        XCTAssertFalse(model.groupExitDirections.forward, "locked, cycling never leaves the group")
+    }
+
     func testAGroupIsReachableWhenOneOfItsWindowsIsOutOfTheWalk() {
         // The group's last window lives on another workspace, which the queue is not showing; the
         // group still has to be reachable walking up, at whichever of its windows is there.

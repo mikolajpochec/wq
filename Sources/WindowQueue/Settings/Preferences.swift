@@ -444,6 +444,10 @@ struct Preferences: Codable, Equatable {
     /// of the same application. The row keeps its size; the icon gives up the room.
     var showWindowLabels: Bool = true
 
+    /// A small exit badge on the selected window in a group's strip when the next cycle step that
+    /// way would leave the group, so stepping out of it comes as no surprise.
+    var showGroupExitHint: Bool = true
+
     /// Which finder the launcher shortcut opens — its key in aiming mode, or its own shortcut.
     var launcher: LauncherApp = .spotlight
 
@@ -540,6 +544,7 @@ struct Preferences: Codable, Equatable {
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)
+        showGroupExitHint = value(.showGroupExitHint, defaults.showGroupExitHint)
         launcher = value(.launcher, defaults.launcher)
         raycastCommand = value(.raycastCommand, defaults.raycastCommand)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)

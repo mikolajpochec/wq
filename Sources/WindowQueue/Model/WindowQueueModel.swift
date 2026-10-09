@@ -972,6 +972,21 @@ final class WindowQueueModel: ObservableObject {
         return window
     }
 
+    /// Whether one cycle step from the selection, each way, would leave the open group it is in:
+    /// what the group's strip marks so the step out is no surprise. Neither while the selection is
+    /// outside an open group, or cycling is locked to it.
+    var groupExitDirections: (forward: Bool, backward: Bool) {
+        guard let open = openGroup, lockedGroupID != open.id,
+              let selectedID, open.ids.contains(selectedID) else { return (false, false) }
+        func leaves(_ delta: Int) -> Bool {
+            let visible = cyclableWindows(backwards: delta < 0)
+            guard let current = visible.firstIndex(where: { $0.id == selectedID }) else { return false }
+            let next = step(from: current, by: delta, count: visible.count)
+            return next != current && !open.ids.contains(visible[next].id)
+        }
+        return (leaves(1), leaves(-1))
+    }
+
     /// Where a step of `delta` from `index` lands among `count` places: round the ends, or held
     /// at them with wrapping off.
     func step(from index: Int, by delta: Int, count: Int) -> Int {
