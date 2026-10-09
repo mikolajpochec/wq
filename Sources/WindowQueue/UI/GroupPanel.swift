@@ -259,7 +259,8 @@ struct GroupPanelView: View {
             let step = thickness + StripMetrics.spacing
             ZStack(alignment: side.isVertical ? .top : .leading) {
                 ForEach(aimedRuns, id: \.lowerBound) { run in
-                    let start = StripMetrics.padding + CGFloat(run.lowerBound) * step
+                    // The back tile, when shown, takes the first row ahead of the windows.
+                    let start = StripMetrics.padding + CGFloat(run.lowerBound + (state.showsBack ? 1 : 0)) * step
                     let length = CGFloat(run.count) * thickness + CGFloat(run.count - 1) * StripMetrics.spacing
                     RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                         .fill(Color.orange.opacity(0.28))
