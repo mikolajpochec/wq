@@ -8,6 +8,15 @@
   <a href="https://github.com/mikolajpochec/wq/releases/latest"><b>Download</b></a> · macOS 14+ · Apple silicon and Intel · Free and open source
 </p>
 
+<p align="center">
+  <a href="https://github.com/mikolajpochec/wq/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mikolajpochec/wq?style=flat-square&color=f05138"></a>
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-24292f?style=flat-square&logo=apple">
+  <img alt="Swift" src="https://img.shields.io/badge/Swift-native-f05138?style=flat-square&logo=swift&logoColor=white">
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-24292f?style=flat-square"></a>
+</p>
+
+<p align="center"><img src="docs/assets/queue.gif" width="720" alt="Cycling through windows and moving one in the queue"></p>
+
 ---
 
 ### One queue for every window
@@ -15,8 +24,6 @@ All your windows in one ordered list, shown in a strip on the side of the screen
 it, and carry a window earlier or later.
 
 <img src="docs/assets/keys-queue.svg" alt="⌥[ / ⌥] previous / next window; ⌥⇧[ / ⌥⇧] move the window earlier / later">
-
-<img src="docs/assets/queue.gif" width="600" alt="Cycling through windows and moving one in the queue">
 
 ### Aiming mode
 Tap <kbd>⌥</kbd> on its own to aim at windows without focusing them. Add <kbd>⇧</kbd> to aim at
