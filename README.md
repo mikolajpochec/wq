@@ -15,8 +15,6 @@
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-24292f?style=flat-square"></a>
 </p>
 
-<p align="center"><img src="docs/assets/queue.gif" width="720" alt="Cycling through windows and moving one in the queue"></p>
-
 ---
 
 ### One queue for every window
@@ -24,6 +22,8 @@ All your windows in one ordered list, shown in a strip on the side of the screen
 it, and carry a window earlier or later.
 
 <img src="docs/assets/keys-queue.svg" alt="⌥[ / ⌥] previous / next window; ⌥⇧[ / ⌥⇧] move the window earlier / later">
+
+<img src="docs/assets/queue.gif" width="600" alt="Cycling through windows and moving one in the queue">
 
 ### Aiming mode
 Tap <kbd>⌥</kbd> on its own to aim at windows without focusing them. Add <kbd>⇧</kbd> to aim at
