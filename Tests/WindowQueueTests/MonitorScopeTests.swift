@@ -82,6 +82,25 @@ final class MonitorScopeTests: XCTestCase {
         XCTAssertEqual(model.slotPlacement(onMonitor: 1), nil)
     }
 
+    func testMonitorScopeCanAlsoKeepToTheWorkspaceOnShow() {
+        let model = makeModel([
+            window(1, space: 10, frame: CGRect(x: -900, y: 0, width: 400, height: 400)),
+            window(2, space: 30, frame: CGRect(x: 100, y: 0, width: 400, height: 400)),
+            window(3, space: 20, frame: CGRect(x: -500, y: 0, width: 400, height: 400)),
+        ])
+        model.monitors[0].shownSpaceID = 20
+        model.monitors[1].shownSpaceID = 30
+        model.scope = .monitor
+        model.queuePerMonitor = true
+        model.currentSpaceID = 10
+        model.currentMonitorID = 1
+        XCTAssertEqual(model.visibleWindows.map(\.id), [1, 3])
+        model.monitorScopeByWorkspace = true
+        XCTAssertEqual(model.visibleWindows.map(\.id), [1], "first the monitor, then its workspace")
+        model.currentMonitorID = 2
+        XCTAssertEqual(model.stripWindows(onMonitor: 1).map(\.id), [3], "another strip keeps to its shown desktop")
+    }
+
     func testWindowOnTwoMonitorsBelongsToTheOneHoldingMostOfIt() {
         let model = makeModel([window(1, space: nil, frame: CGRect(x: 900, y: 0, width: 400, height: 400))])
         XCTAssertEqual(model.monitorID(of: model.windows[0]), 3)

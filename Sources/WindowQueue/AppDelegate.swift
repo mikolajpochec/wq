@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpStatusItem()
 
         model.scope = store.prefs.effectiveScope
+        model.monitorScopeByWorkspace = store.prefs.monitorScopeByWorkspace
         model.queuePerMonitor = store.prefs.multiMonitorMode
         model.autoSortByWorkspace = store.prefs.autoSortByWorkspace
         model.onManualReorder = { [weak self] in
@@ -97,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 if prefs.checkForUpdates { self.updates.start() } else { self.updates.stop() }
                 self.model.scope = prefs.effectiveScope
+                self.model.monitorScopeByWorkspace = prefs.monitorScopeByWorkspace
                 self.model.queuePerMonitor = prefs.multiMonitorMode
                 self.model.autoSortByWorkspace = prefs.autoSortByWorkspace
                 self.model.wrapsAround = prefs.cycleWrapsAround

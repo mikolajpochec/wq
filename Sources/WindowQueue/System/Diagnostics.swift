@@ -67,7 +67,7 @@ enum Diagnostics {
         lines.append("AX trusted: \(AXIsProcessTrusted())  window numbers: \(AXPrivate.supportsWindowNumbers)")
         lines.append("Spaces API: \(SpacesBridge.shared.isAvailable)  desktops: \(SpacesBridge.shared.spaceCount)")
         lines.append("current space id: \(model.currentSpaceID.map(String.init) ?? "nil") index: \(model.currentSpaceIndex.map(String.init) ?? "nil")")
-        lines.append("scope: \(model.scope.rawValue)  queued: \(model.windows.count)  visible: \(model.visibleWindows.count)")
+        lines.append("scope: \(model.scope.rawValue)\(model.scope == .monitor && model.monitorScopeByWorkspace ? "+workspace" : "")  queued: \(model.windows.count)  visible: \(model.visibleWindows.count)")
 
         lines.append("--- queue ---")
         for (index, window) in model.windows.enumerated() {

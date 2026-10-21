@@ -21,6 +21,8 @@ final class WindowQueueModel: ObservableObject {
     /// group is a single place in the strip and aiming at it aims at all of its windows.
     @Published private(set) var aimInsideGroupID: Int?
     @Published var scope: QueueScope = .global
+    /// The monitor scope also keeps to the desktop each monitor has on show.
+    @Published var monitorScopeByWorkspace = false
     /// Keeps the queue grouped by workspace as windows come and go.
     @Published var autoSortByWorkspace = true
     /// Cycling and the aim come round from one end of the queue to the other; off, they stop there.
@@ -150,23 +152,32 @@ final class WindowQueueModel: ObservableObject {
     private var visibleIndices: [Int] {
         let viewed = monitorOverride ?? currentMonitorID
         let isCurrent = monitorOverride == nil
-        if scope == .monitor {
-            guard monitors.count > 1, let viewed else { return Array(windows.indices) }
-            // A window whose display cannot be told (minimized, nothing read yet) stays in the
-            // queue of the monitor being worked on.
-            return windows.indices.filter { monitorID(of: windows[$0]).map { $0 == viewed } ?? isCurrent }
-        }
         // Another monitor's strip shows the desktop that monitor has on show.
         let shown = isCurrent ? currentSpaceID
             : monitors.first { $0.id == viewed }?.shownSpaceID ?? currentSpaceID
+        if scope == .monitor {
+            var indices = Array(windows.indices)
+            if monitors.count > 1, let viewed {
+                // A window whose display cannot be told (minimized, nothing read yet) stays in the
+                // queue of the monitor being worked on.
+                indices = indices.filter { monitorID(of: windows[$0]).map { $0 == viewed } ?? isCurrent }
+            }
+            guard monitorScopeByWorkspace, let current = shown else { return indices }
+            return keepingToSpace(current, indices)
+        }
         guard scope == .currentSpace, let current = shown else {
             return Array(windows.indices)
         }
-        let filtered = windows.indices.filter { windows[$0].spaceID == current }
+        return keepingToSpace(current, Array(windows.indices))
+    }
+
+    /// The indices whose window is on `space`.
+    private func keepingToSpace(_ space: UInt64, _ indices: [Int]) -> [Int] {
+        let filtered = indices.filter { windows[$0].spaceID == space }
         // A workspace we cannot resolve — a fullscreen space, or one not read yet — should not blank
         // the strip out entirely. A desktop that is simply empty shows nothing but its empty slot.
-        guard filtered.isEmpty, !spaceOrder.contains(current) else { return filtered }
-        return Array(windows.indices)
+        guard filtered.isEmpty, !spaceOrder.contains(space) else { return filtered }
+        return indices
     }
 
     var aimedWindow: ManagedWindow? {

@@ -381,6 +381,9 @@ struct Preferences: Codable, Equatable {
     /// another monitor are taken. Off, all strips show the focused monitor's queue, the per-monitor
     /// scope reads as global and those shortcuts are left free.
     var multiMonitorMode: Bool = true
+    /// With the per-monitor scope, each monitor's queue is narrowed further to the desktop that
+    /// monitor has on show: first the monitor, then the workspace.
+    var monitorScopeByWorkspace: Bool = false
     var superModifier: SuperModifier = .option
     var spaceSwitchMethod: SpaceSwitchMethod = .privateAPI
     /// Ask Rectangle to keep its tiled windows clear of the strip.
@@ -525,6 +528,7 @@ struct Preferences: Codable, Equatable {
         let defaults = Preferences()
         scope = value(.scope, defaults.scope)
         multiMonitorMode = value(.multiMonitorMode, defaults.multiMonitorMode)
+        monitorScopeByWorkspace = value(.monitorScopeByWorkspace, defaults.monitorScopeByWorkspace)
         superModifier = value(.superModifier, defaults.superModifier)
         spaceSwitchMethod = value(.spaceSwitchMethod, defaults.spaceSwitchMethod)
         reserveScreenSpace = value(.reserveScreenSpace, defaults.reserveScreenSpace)

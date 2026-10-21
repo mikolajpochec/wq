@@ -118,6 +118,12 @@ struct SettingsView: View {
                         Text($0.title).tag($0)
                     }
                 }
+                if store.prefs.effectiveScope == .monitor {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Also keep to the workspace on show", isOn: $store.prefs.monitorScopeByWorkspace)
+                        caption("Each monitor's queue holds only the windows on the desktop that monitor has on show: first by monitor, then by workspace.")
+                    }
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
                     caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and — with Shift — take the window there with you.")
