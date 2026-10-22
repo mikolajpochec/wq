@@ -55,7 +55,7 @@ final class FocusFollowsMouse {
               !window.isMinimized
         else { return }
 
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let frontmost = RunningApps.frontmostPID
         guard !(window.id == model.selectedID && window.pid == frontmost) else { return }
 
         Diagnostics.note("hover focus \(window.appName) id=\(window.id)")

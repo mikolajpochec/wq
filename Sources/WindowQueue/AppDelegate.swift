@@ -240,6 +240,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.model.select(id: window.id, announce: false)
             self?.focus(window, warpCursor: false)
         }
+        // Dragging a window along the group's strip reorders the group, and a tiled group is laid
+        // out again in the new order, as the move shortcuts do.
+        groupPanel.onMove = { [weak self] window, place in
+            self?.model.move(window.id, toPlaceInGroup: place)
+        }
+        groupPanel.onDragTarget = { [weak self] window, place in
+            guard let self else { return }
+            let order = window.flatMap { self.model.queueAfterMoving($0.id, toPlaceInGroup: place) }
+            self.previewTilePlacement(of: window, in: order ?? self.model.windows)
+        }
         strip.onDragTarget = { [weak self] window, target in
             self?.previewTilePlacement(of: window, at: target)
         }
@@ -1491,7 +1501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// While a tiled window's icon is dragged along the strip, shows the cell it would take if it
     /// were dropped there: the group is laid out in queue order, so the drop decides the place.
     private func previewTilePlacement(of window: ManagedWindow?, at target: Int) {
-        guard let window, let group = model.tiledGroup(of: window.id) else {
+        guard let window else {
             tilePreview.hide()
             return
         }
@@ -1500,7 +1510,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let origin = order.firstIndex(where: { $0.id == window.id }) else { return }
         let moved = order.remove(at: origin)
         order.insert(moved, at: min(max(target, 0), order.count))
+        previewTilePlacement(of: window, in: order)
+    }
 
+    /// The same, for a queue in the order the drop would leave it.
+    private func previewTilePlacement(of window: ManagedWindow?, in order: [ManagedWindow]) {
+        guard let window, let group = model.tiledGroup(of: window.id) else {
+            tilePreview.hide()
+            return
+        }
         let ids = Set(group.ids)
         let members = order.filter { ids.contains($0.id) }
         guard let place = members.firstIndex(where: { $0.id == window.id }),
@@ -1834,7 +1852,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         placeholders.isFocused = { [weak self] id in
             guard let self, self.model.selectedID == id,
                   let window = self.model.windows.first(where: { $0.id == id }) else { return false }
-            return NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            return RunningApps.frontmostPID == window.pid
         }
         WindowTiler.onLateRefusal = { [weak self] id in
             guard let self, let group = self.model.tiledGroup(of: id) else { return }
@@ -1861,7 +1879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let spaces = SpacesBridge.shared.allSpaces(forWindow: id)
         let spaceInView = spaces.isEmpty || spaces.contains { SpacesBridge.shared.isShowing($0) }
         guard spaceInView, SpaceSwitcher.destination == nil,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+              RunningApps.frontmostPID == window.pid
         else { return retry(0.1, raises) }
 
         // Only the ones on the workspace in view: raising a window that lives elsewhere would drag
@@ -2310,7 +2328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// window on top there, or — with none — the pointer to the middle of that screen.
     private func goToShownSpace(_ space: UInt64, index: Int) {
         let windows = model.windows.filter { $0.spaceID == space && !$0.isMinimized }
-        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let frontPID = RunningApps.frontmostPID
         if let selected = model.selectedWindow, selected.spaceID == space, selected.pid == frontPID {
             Diagnostics.note("workspace \(index): already there")
             return

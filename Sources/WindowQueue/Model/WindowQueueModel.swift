@@ -701,6 +701,31 @@ final class WindowQueueModel: ObservableObject {
         return low...high
     }
 
+    /// The queue as it would be with `id` moved to place `target` among its group's windows. The
+    /// group's windows trade the places they hold in the queue and nothing else moves, so the
+    /// group keeps its spot in the strip. Nil when the window is in no group or would not move.
+    func queueAfterMoving(_ id: CGWindowID, toPlaceInGroup target: Int) -> [ManagedWindow]? {
+        guard let group = group(of: id) else { return nil }
+        let ids = Set(group.ids)
+        let slots = windows.indices.filter { ids.contains(windows[$0].id) }
+        var members = slots.map { windows[$0] }
+        guard let origin = members.firstIndex(where: { $0.id == id }) else { return nil }
+        let destination = min(max(target, 0), members.count - 1)
+        guard destination != origin else { return nil }
+        members.insert(members.remove(at: origin), at: destination)
+        var order = windows
+        for (slot, member) in zip(slots, members) { order[slot] = member }
+        return order
+    }
+
+    /// Moves a window to another place among its group's windows: what dragging it along the
+    /// group's strip does. A tiled group is laid out in queue order, so this also rearranges it.
+    func move(_ id: CGWindowID, toPlaceInGroup target: Int) {
+        guard let order = queueAfterMoving(id, toPlaceInGroup: target) else { return }
+        noteManualReorder()
+        windows = order
+    }
+
     // MARK: - Reconciliation
 
     /// Keeps accessibility elements found for windows the enumeration could not reach, so the next

@@ -70,8 +70,8 @@ final class WindowEnumerator {
         center.addObserver(self, selector: #selector(appActivated(_:)),
                            name: NSWorkspace.didActivateApplicationNotification, object: nil)
 
-        for app in candidateApplications() {
-            registerObserver(for: app.processIdentifier)
+        for (pid, _) in candidateApplications() {
+            registerObserver(for: pid)
         }
 
         timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
@@ -93,9 +93,15 @@ final class WindowEnumerator {
     /// settings window is a real window the user wants to reach — including WindowQueue's own. The
     /// strip and the title popup are never picked up, because they sit above the normal window
     /// level and the enumeration only considers layer 0.
-    private func candidateApplications() -> [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular || $0.activationPolicy == .accessory
+    ///
+    /// Paired with each app's real process id (`RunningApps.pid(of:)`): the iOS Simulator in Xcode 27
+    /// is listed with -1, and its windows would otherwise never match an app.
+    private func candidateApplications() -> [(pid: pid_t, app: NSRunningApplication)] {
+        NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular || app.activationPolicy == .accessory,
+                  let pid = RunningApps.pid(of: app)
+            else { return nil }
+            return (pid, app)
         }
     }
 
@@ -118,9 +124,15 @@ final class WindowEnumerator {
         let currentSpaceID = model.currentSpaceID
 
         // Snapshot what the main thread owns, then do the slow accessibility work off it.
-        let names = Dictionary(candidateApplications().map {
-            ($0.processIdentifier,
-             AppInfo(name: $0.localizedName ?? "Unknown", bundleID: $0.bundleIdentifier))
+        let candidates = candidateApplications()
+        // An app missed at launch (its process id was not known yet) gets its observer here, and
+        // one whose quit went unnoticed (it was known only by -1 then) loses it.
+        for (pid, _) in candidates { registerObserver(for: pid) }
+        for pid in observers.keys where NSRunningApplication(processIdentifier: pid) == nil {
+            unregisterObserver(for: pid)
+        }
+        let names = Dictionary(candidates.map {
+            ($0.pid, AppInfo(name: $0.app.localizedName ?? "Unknown", bundleID: $0.app.bundleIdentifier))
         }, uniquingKeysWith: { first, _ in first })
         let needsAccessibility = names.keys.filter { !accessibilityEnabledPIDs.contains($0) }
         accessibilityEnabledPIDs.formUnion(needsAccessibility)
@@ -518,7 +530,7 @@ final class WindowEnumerator {
     private func adoptFocusIfFrontmost(_ id: CGWindowID, element: AXUIElement) {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success else { return }
-        let isFront = { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
+        let isFront = { RunningApps.frontmostPID == pid }
         if isFront() {
             adoptExternalFocus(id, element: element)
             return
@@ -578,11 +590,11 @@ final class WindowEnumerator {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.activationPolicy == .regular
         else { return }
-        registerObserver(for: app.processIdentifier)
         scheduleRefresh()
+        guard let pid = RunningApps.pid(of: app) else { return }
+        registerObserver(for: pid)
         // An app that has only just launched accepts the registration but never delivers: its
         // accessibility side is not up yet. Register again once it has had time to start.
-        let pid = app.processIdentifier
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self, !app.isTerminated else { return }
             self.unregisterObserver(for: pid)
@@ -597,20 +609,23 @@ final class WindowEnumerator {
     @objc private func appTerminated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else { return }
-        accessibilityEnabledPIDs.remove(app.processIdentifier)
-        accessibilityEscalatedPIDs.remove(app.processIdentifier)
-        unregisterObserver(for: app.processIdentifier)
         scheduleRefresh()
+        let pid = app.processIdentifier
+        guard pid > 0 else { return }
+        accessibilityEnabledPIDs.remove(pid)
+        accessibilityEscalatedPIDs.remove(pid)
+        unregisterObserver(for: pid)
     }
 
     @objc private func appActivated(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              let pid = RunningApps.pid(of: app)
         else { return }
-        registerObserver(for: app.processIdentifier)
-        let appElement = AXPrivate.application(app.processIdentifier)
+        registerObserver(for: pid)
+        let appElement = AXPrivate.application(pid)
         // Some applications only honour the request while they are frontmost; the next refresh
         // asks again, off the main thread.
-        accessibilityEnabledPIDs.remove(app.processIdentifier)
+        accessibilityEnabledPIDs.remove(pid)
         // Asked off the main thread: activation comes with every Space switch, while the app is
         // still busy drawing it, and waiting on its answer here holds up the strip's redraw.
         focusQueue.async { [weak self] in

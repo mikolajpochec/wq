@@ -44,7 +44,7 @@ enum WindowCloser {
             // closes whichever window has the keyboard, so only when that is known to be this one,
             // or the app has no other window it could be.
             if attempt == maxAttempts - 1,
-               NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid {
+               RunningApps.frontmostPID == window.pid {
                 let focused = appElement.attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                     .flatMap(AXPrivate.windowID(of:))
                 if focused == window.id || (focused == nil && siblingCount <= 1) {

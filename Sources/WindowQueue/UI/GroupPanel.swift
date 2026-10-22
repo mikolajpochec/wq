@@ -49,6 +49,15 @@ struct GroupPanelView: View {
     @ObservedObject var store: PreferencesStore
     var pick: (ManagedWindow) -> Void
     var back: () -> Void = {}
+    /// A window was dragged to another place among the group's windows (an index into
+    /// `state.windows`).
+    var move: (ManagedWindow, Int) -> Void = { _, _ in }
+    /// Where the window being dragged would land if dropped now, nil once it is not carried.
+    var dragTarget: (ManagedWindow?, Int) -> Void = { _, _ in }
+
+    /// The window being carried along the strip, and how far it has come.
+    @State private var draggingID: CGWindowID?
+    @State private var dragOffset: CGFloat = 0
 
     private var prefs: Preferences { store.prefs }
     private var side: StripSide { prefs.stripSide }
@@ -345,8 +354,82 @@ struct GroupPanelView: View {
         }
         .contentShape(Rectangle())
         .help(window.displayTitle)
-        // The panel is never key, so a zero-distance drag is what registers a click in it.
-        .gesture(DragGesture(minimumDistance: 0).onEnded { _ in pick(window) })
+        .offset(x: side.isVertical ? 0 : shift(of: window), y: side.isVertical ? shift(of: window) : 0)
+        .zIndex(window.id == draggingID ? 1 : 0)
+        // The panel is never key, so a zero-distance drag is what registers a click in it. Moved
+        // further, it carries the window to another place in the group. Measured in the window's
+        // coordinates, since the row itself travels with the pointer.
+        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in dragChanged(window, by: along(value.translation)) }
+            .onEnded { value in dragEnded(window, by: along(value.translation)) })
+    }
+
+    // MARK: - Dragging
+
+    /// How far the pointer has to travel before a press counts as a drag, as on the main strip.
+    private static let dragThreshold: CGFloat = 4
+
+    private var step: CGFloat { StripMetrics.rowHeight(prefs: prefs) + StripMetrics.spacing }
+
+    /// The windows drawn as rows of their own, in order. The cascade, when there is one, comes
+    /// after them all and does not take part in dragging.
+    private var rowWindows: [ManagedWindow] {
+        entries.compactMap { entry in
+            if case .window(let window) = entry { return window }
+            return nil
+        }
+    }
+
+    private func along(_ translation: CGSize) -> CGFloat {
+        side.isVertical ? translation.height : translation.width
+    }
+
+    /// The rows the carried window started and would land at.
+    private var dragRows: (origin: Int, target: Int)? {
+        let rows = rowWindows
+        guard let draggingID, let origin = rows.firstIndex(where: { $0.id == draggingID }) else { return nil }
+        let target = min(max(origin + Int((dragOffset / step).rounded()), 0), rows.count - 1)
+        return (origin, target)
+    }
+
+    /// How far a row is drawn from its place: the carried one follows the pointer, and those it
+    /// passes step aside into the room it left.
+    private func shift(of window: ManagedWindow) -> CGFloat {
+        guard let rows = dragRows else { return 0 }
+        if window.id == draggingID { return dragOffset }
+        guard let index = rowWindows.firstIndex(where: { $0.id == window.id }) else { return 0 }
+        if rows.origin < index, index <= rows.target { return -step }
+        if rows.target <= index, index < rows.origin { return step }
+        return 0
+    }
+
+    /// The place in `state.windows` the carried window would take.
+    private func targetPlace() -> Int? {
+        guard let rows = dragRows else { return nil }
+        let landing = rowWindows[rows.target]
+        return state.windows.firstIndex(where: { $0.id == landing.id })
+    }
+
+    private func dragChanged(_ window: ManagedWindow, by offset: CGFloat) {
+        guard draggingID != nil || abs(offset) >= Self.dragThreshold else { return }
+        withAnimation(prefs.animation(.stripLayout, .easeOut(duration: 0.11))) {
+            draggingID = window.id
+            dragOffset = offset
+        }
+        if let place = targetPlace() { dragTarget(window, place) }
+    }
+
+    private func dragEnded(_ window: ManagedWindow, by offset: CGFloat) {
+        guard draggingID == window.id else {
+            pick(window)
+            return
+        }
+        dragOffset = offset
+        let place = targetPlace()
+        draggingID = nil
+        dragOffset = 0
+        dragTarget(nil, 0)
+        if let place { move(window, place) }
     }
 }
 
@@ -422,6 +505,11 @@ final class GroupPanelController {
     var onHover: ((ManagedWindow?) -> Void)?
     /// The back tile was clicked: the user wants the main strip again.
     var onBack: (() -> Void)?
+    /// A window was dragged to another place among the group's windows, given as an index into
+    /// the windows shown.
+    var onMove: ((ManagedWindow, Int) -> Void)?
+    /// While a window is dragged along the panel: where it would land, nil when the drag is over.
+    var onDragTarget: ((ManagedWindow?, Int) -> Void)?
     /// A window in the panel was middle-clicked, which closes it as it does in the strip.
     var onClose: ((ManagedWindow) -> Void)?
 
@@ -474,6 +562,8 @@ final class GroupPanelController {
             self?.onPick?(window)
         }
         view.back = { [weak self] in self?.onBack?() }
+        view.move = { [weak self] window, place in self?.onMove?(window, place) }
+        view.dragTarget = { [weak self] window, place in self?.onDragTarget?(window, place) }
         let hosting = self.hosting ?? GroupHostingView(rootView: view)
         hosting.rootView = view
         if self.hosting == nil {

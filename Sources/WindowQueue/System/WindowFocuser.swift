@@ -125,8 +125,8 @@ enum WindowFocuser {
         var target = ProcessSerialNumber()
         guard processForPID(window.pid, &target) == 0 else { return false }
 
-        if let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier == window.pid,
-           let focused = AXPrivate.application(front.processIdentifier)
+        if RunningApps.frontmostPID == window.pid,
+           let focused = AXPrivate.application(window.pid)
                .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                .flatMap(AXPrivate.windowID(of:)),
            focused != window.id {
@@ -150,10 +150,11 @@ enum WindowFocuser {
         if Diagnostics.isEnabled {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let front = NSWorkspace.shared.frontmostApplication
-                let focused = front.flatMap {
-                    AXPrivate.application($0.processIdentifier).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
+                let frontPID = RunningApps.frontmostPID
+                let focused = frontPID.flatMap {
+                    AXPrivate.application($0).attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                 }.flatMap(AXPrivate.windowID(of:))
-                let landed = front?.processIdentifier == window.pid && focused == window.id
+                let landed = frontPID == window.pid && focused == window.id
                 Diagnostics.note("  hover result: \(landed ? "ok" : "MISSED") front=\(front?.localizedName ?? "nil") focused=\(focused.map(String.init) ?? "nil") wanted=\(window.id)")
             }
         }
@@ -177,7 +178,7 @@ enum WindowFocuser {
     /// Whether the window really has the keyboard: its application is in front and it is the one
     /// that application says is focused.
     static func isFocused(_ window: ManagedWindow) -> Bool {
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid else { return false }
+        guard RunningApps.frontmostPID == window.pid else { return false }
         let focused = AXPrivate.application(window.pid)
             .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
             .flatMap(AXPrivate.windowID(of:))
@@ -296,13 +297,13 @@ enum WindowFocuser {
 
             if Diagnostics.isEnabled {
                 let listed = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self)?.count ?? -1
-                let front = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+                let front = RunningApps.frontmostPID ?? -1
                 Diagnostics.note("  verify #\(attempt) target=\(window.id) focused=\(focusedID.map(String.init) ?? "nil") axWindows=\(listed) front=\(front)")
             }
             // The app's own focused window is not enough: an activation requested for an earlier
             // window in a quick run of presses can land after ours and put a different app in
             // front, while this app still reports our window as its focused one.
-            let isFrontmostApp = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            let isFrontmostApp = RunningApps.frontmostPID == window.pid
             if focusedID == window.id, isFrontmostApp {
                 confirm(window, workspaceIndex: workspaceIndex, token: token)
                 return
@@ -313,7 +314,7 @@ enum WindowFocuser {
             // try. Once the app is frontmost and has had its chance to change Space, treat that as
             // done rather than looping until the attempt budget runs out and fighting the user.
             let listedCount = appElement.attribute(kAXWindowsAttribute, as: [AXUIElement].self)?.count ?? 0
-            let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            let isFrontmost = RunningApps.frontmostPID == window.pid
             if focusedID == nil, listedCount == 0, isFrontmost, attempt >= forceSpaceSwitchAttempt {
                 finish(token: token, window: window)
                 return
@@ -349,7 +350,7 @@ enum WindowFocuser {
     private static func confirm(_ window: ManagedWindow, workspaceIndex: Int?, token: UInt64) {
         DispatchQueue.main.asyncAfter(deadline: .now() + confirmDelay) {
             guard token == generation else { return }
-            let isFrontmostApp = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            let isFrontmostApp = RunningApps.frontmostPID == window.pid
             let focusedID = AXPrivate.application(window.pid)
                 .attribute(kAXFocusedWindowAttribute, as: AXUIElement.self)
                 .flatMap { AXPrivate.windowID(of: $0) }
@@ -377,7 +378,7 @@ enum WindowFocuser {
     /// the cost for a window that cannot be reached this way.
     private static func cycleWindows(of window: ManagedWindow, appElement: AXUIElement) {
         guard cyclePressBudget > 0,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+              RunningApps.frontmostPID == window.pid
         else { return }
         cyclePressBudget -= 1
 
