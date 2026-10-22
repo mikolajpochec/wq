@@ -174,7 +174,7 @@ struct SettingsView: View {
             Section("Fullscreen windows") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Focus on the fullscreen window", isOn: $store.prefs.focusMaximizedWindow)
-                    caption("Sending a window fullscreen moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was. Plain maximizing leaves the queue alone.")
+                    caption("Sending a window fullscreen moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was. A window in a group takes over only its group: cycling skips the group's other windows but can still leave the group. Plain maximizing leaves the queue alone.")
                 }
                 if store.prefs.focusMaximizedWindow {
                     VStack(alignment: .leading, spacing: 4) {

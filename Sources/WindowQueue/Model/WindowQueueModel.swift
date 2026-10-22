@@ -612,8 +612,13 @@ final class WindowQueueModel: ObservableObject {
         placeBeforeMaximize = (after: index > 0 ? windows[index - 1].id : nil,
                                before: index + 1 < windows.count ? windows[index + 1].id : nil)
         maximizedID = id
+        // In a group it takes over only the group: it goes to the head of the group's windows, so
+        // the group keeps its place on the strip.
+        let covering = group(of: id).map { Set($0.ids) }
         guard let space = windows[index].spaceID,
-              let first = windows.firstIndex(where: { $0.spaceID == space })
+              let first = windows.firstIndex(where: {
+                  $0.spaceID == space && (covering?.contains($0.id) ?? true)
+              })
         else { return }
         let window = windows.remove(at: index)
         windows.insert(window, at: min(first, windows.count))
@@ -648,12 +653,16 @@ final class WindowQueueModel: ObservableObject {
         if autoSortByWorkspace { sortByWorkspace() }
     }
 
-    /// Whether a window is one of those the maximized window is covering.
+    /// Whether a window is one of those the maximized window is covering: the rest of its
+    /// workspace, or for a window in a group only the rest of that group, so cycling can still
+    /// step out of the group to the workspace's other windows.
     func isCovered(_ window: ManagedWindow) -> Bool {
         guard let maximizedID, window.id != maximizedID,
-              let maximized = windows.first(where: { $0.id == maximizedID })
+              let maximized = windows.first(where: { $0.id == maximizedID }),
+              window.spaceID != nil, window.spaceID == maximized.spaceID
         else { return false }
-        return window.spaceID != nil && window.spaceID == maximized.spaceID
+        guard let group = group(of: maximizedID) else { return true }
+        return group.ids.contains(window.id)
     }
 
     /// Windows cycling can reach: everything, less the ones a maximized window is covering.
@@ -1010,7 +1019,8 @@ final class WindowQueueModel: ObservableObject {
 
     /// The maximized window and the windows it covers, which move through the queue as one.
     var maximizedGroupIDs: [CGWindowID] {
-        guard let maximizedID else { return [] }
+        // In a group, the windows it covers are the group's, which already moves as one.
+        guard let maximizedID, group(of: maximizedID) == nil else { return [] }
         let group = visibleWindows.filter { $0.id == maximizedID || isCovered($0) }
         return group.count > 1 ? group.map(\.id) : []
     }
