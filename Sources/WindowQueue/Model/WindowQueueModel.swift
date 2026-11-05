@@ -612,9 +612,9 @@ final class WindowQueueModel: ObservableObject {
         placeBeforeMaximize = (after: index > 0 ? windows[index - 1].id : nil,
                                before: index + 1 < windows.count ? windows[index + 1].id : nil)
         maximizedID = id
-        // In a group it takes over only the group: it goes to the head of the group's windows, so
-        // the group keeps its place on the strip.
-        let covering = group(of: id).map { Set($0.ids) }
+        // In a group or a tiled layout it takes over only that: it goes to the head of its mates,
+        // so the group or the layout keeps its place on the strip.
+        let covering = coveredMates(of: id)
         guard let space = windows[index].spaceID,
               let first = windows.firstIndex(where: {
                   $0.spaceID == space && (covering?.contains($0.id) ?? true)
@@ -661,8 +661,16 @@ final class WindowQueueModel: ObservableObject {
               let maximized = windows.first(where: { $0.id == maximizedID }),
               window.spaceID != nil, window.spaceID == maximized.spaceID
         else { return false }
-        guard let group = group(of: maximizedID) else { return true }
-        return group.ids.contains(window.id)
+        guard let mates = coveredMates(of: maximizedID) else { return true }
+        return mates.contains(window.id)
+    }
+
+    /// The only windows a maximized one covers when it belongs to a group or a tiled layout: the
+    /// rest of that group or layout. Nil for a window on its own, which covers its whole workspace.
+    private func coveredMates(of id: CGWindowID) -> Set<CGWindowID>? {
+        if let group = group(of: id) { return Set(group.ids) }
+        if let tiled = tiledGroup(of: id) { return Set(tiled.ids) }
+        return nil
     }
 
     /// Windows cycling can reach: everything, less the ones a maximized window is covering.

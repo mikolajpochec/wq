@@ -432,6 +432,27 @@ extension WindowQueueModelTests {
         XCTAssertEqual(ids(model), [1, 2, 3, 4, 5])
     }
 
+    func testFullscreenInATiledLayoutCoversOnlyThatLayout() {
+        let model = makeModel([window(1, space: 10), window(2, space: 10), window(3, space: 10),
+                               window(4, space: 10), window(5, space: 10)])
+        model.setTiled([2, 3, 4], layout: "Columns")
+        model.select(id: 3, announce: false)
+        model.beginFocus(on: 3)
+        XCTAssertEqual(ids(model), [1, 3, 2, 4, 5], "it heads the layout, which keeps its place")
+        XCTAssertTrue(model.isCovered(model.windows[2]))
+        XCTAssertTrue(model.isCovered(model.windows[3]))
+        XCTAssertFalse(model.isCovered(model.windows[0]), "windows outside the layout stay in reach")
+        XCTAssertFalse(model.isCovered(model.windows[4]))
+        XCTAssertEqual(model.tiledGroup(of: 3)?.ids, [2, 3, 4], "the layout survives fullscreen")
+
+        XCTAssertEqual(model.cycle(by: 1)?.id, 5)
+        XCTAssertEqual(model.cycle(by: -1)?.id, 3)
+        XCTAssertEqual(model.cycle(by: -1)?.id, 1)
+
+        model.endFocus()
+        XCTAssertEqual(ids(model), [1, 2, 3, 4, 5])
+    }
+
     func testClosingTheMaximizedWindowEndsTheFocus() {
         let model = makeModel([window(1, space: 10), window(2, space: 10)])
         model.beginFocus(on: 2)

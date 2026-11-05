@@ -557,6 +557,13 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5)
         )
+        // A fullscreen window in a layout cascades only its layout mates, and the tile still says
+        // it is that layout.
+        .overlay(alignment: .topLeading) {
+            if let maximized = model.maximizedID, let group = model.tiledGroup(of: maximized) {
+                tiledMark(group)
+            }
+        }
         .animation(prefs.animation(.stripLayout, .easeOut(duration: 0.11)), value: selected)
         .contentShape(Rectangle())
         .help("\(covered) window\(covered == 1 ? "" : "s") behind the maximized one")
