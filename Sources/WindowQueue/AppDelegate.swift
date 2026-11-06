@@ -272,6 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        subtitle: "Click to open it in a strip of its own",
                        beside: hovered.row.id, pinned: true)
         }
+        // A strip peeking out in invisible mode carries its open group's strip along.
+        strip.onPeekChanged = { [weak self] in self?.syncGroupPanel() }
         model.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.syncGroupPanel() }
@@ -1547,7 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aimed = model.aimedGroup ?? model.aimInsideGroupID.flatMap { id in model.groups.first { $0.id == id } }
         // Invisible mode hides the strip outside aiming, and a group's strip on its own — with no
         // strip to carry on from — is not a thing to leave on screen.
-        let hiddenUntilAiming = store.prefs.invisibleStrip && model.aimingID == nil
+        let hiddenUntilAiming = store.prefs.invisibleStrip && model.aimingID == nil && strip?.peekDisplay == nil
         guard !hiddenUntilAiming, let group = model.openGroup ?? aimed else {
             groupPanel.hide()
             strip?.companionLength = 0

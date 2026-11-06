@@ -499,6 +499,12 @@ struct Preferences: Codable, Equatable {
     /// The strip is only on screen while aiming mode is open; the rest of the time the queue is
     /// there but out of sight, and a change is announced by the popup alone.
     var invisibleStrip: Bool = false
+    /// In invisible mode, resting the pointer at the strip's edge brings the strip back until the
+    /// pointer leaves it.
+    var peekInvisibleStrip: Bool = true
+    /// How long the pointer has to rest at the edge before the strip peeks out, so passing by does
+    /// not show it.
+    var stripPeekDelay: Double = 0.4
 
     /// Extra keys that only mean something in aiming mode, on top of the shortcuts it already
     /// answers to without their super key. Keyed by virtual key code.
@@ -574,6 +580,8 @@ struct Preferences: Codable, Equatable {
         launcher = value(.launcher, defaults.launcher)
         raycastCommand = value(.raycastCommand, defaults.raycastCommand)
         invisibleStrip = value(.invisibleStrip, defaults.invisibleStrip)
+        peekInvisibleStrip = value(.peekInvisibleStrip, defaults.peekInvisibleStrip)
+        stripPeekDelay = value(.stripPeekDelay, defaults.stripPeekDelay)
         aimBindings = value(.aimBindings, defaults.aimBindings)
         flashFocusedWindow = value(.flashFocusedWindow, defaults.flashFocusedWindow)
         flashFocusedWindowDuration = value(.flashFocusedWindowDuration, defaults.flashFocusedWindowDuration)

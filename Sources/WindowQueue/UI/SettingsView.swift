@@ -514,6 +514,11 @@ struct SettingsView: View {
                     Toggle("Invisible mode", isOn: $store.prefs.invisibleStrip)
                     caption("The strip is drawn only while aiming mode is open. The queue works as it always does; outside aiming, a change is announced by the name popup alone, and no screen space is reserved.")
                 }
+                Toggle("Peek when the pointer rests at the edge", isOn: $store.prefs.peekInvisibleStrip)
+                    .disabled(!store.prefs.invisibleStrip)
+                sliderRow("Peek after", value: $store.prefs.stripPeekDelay, in: 0.1...1.0, step: 0.05,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.invisibleStrip || !store.prefs.peekInvisibleStrip)
                 Picker("Show strip", selection: $store.prefs.stripDisplay) {
                     ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
                 }

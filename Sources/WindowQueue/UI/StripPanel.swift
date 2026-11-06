@@ -158,6 +158,22 @@ final class StripController {
     private var hoveredID: CGWindowID?
     /// Wheel travel not yet worth a whole step.
     private var scrollTravel: CGFloat = 0
+    /// Display the strip is peeking out on in invisible mode, while the pointer rests at it.
+    private(set) var peekDisplay: CGDirectDisplayID? {
+        didSet {
+            guard peekDisplay != oldValue else { return }
+            Diagnostics.note("strip peek \(peekDisplay.map { "on \($0)" } ?? "ended")")
+            sync()
+            onPeekChanged?()
+        }
+    }
+    /// Called when the strip starts or stops peeking, so whatever hides with it can follow.
+    var onPeekChanged: (() -> Void)?
+    /// Display the pointer is resting at, waiting out the hold before the strip peeks there.
+    private var peekCandidate: CGDirectDisplayID?
+    private var peekHold: Timer?
+    private var peekLeave: Timer?
+    private var peekMonitors: [Any] = []
     /// Room taken by the group's strip, so the two are centred and placed as one.
     var companionLength: CGFloat = 0 {
         didSet {
@@ -222,8 +238,120 @@ final class StripController {
         backdropTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.sampleBackdrops()
         }
+        // Invisible mode's peek watches the pointer everywhere, since the strip is not there to
+        // track it.
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
+            self?.updatePeek()
+        }) { peekMonitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
+            self?.updatePeek()
+            return event
+        }) { peekMonitors.append(local) }
         sync()
         sampleBackdrops()
+    }
+
+    // MARK: - Peeking in invisible mode
+
+    /// Shows the hidden strip once the pointer has rested at it for the hold time, and hides it
+    /// again once the pointer has left it.
+    private func updatePeek() {
+        let prefs = store.prefs
+        guard prefs.invisibleStrip, prefs.peekInvisibleStrip, prefs.stripDisplay != .hidden,
+              model.aimingID == nil else {
+            cancelPeekHold()
+            endPeek()
+            return
+        }
+        let point = NSEvent.mouseLocation
+
+        if let shown = peekDisplay {
+            let keeps = dragOffset != nil || strips[shown].map { strip in
+                strip.panel.isVisible && peekZone(on: strip.screen, strip: strip, keeping: true).contains(point)
+            } == true
+            if keeps {
+                peekLeave?.invalidate()
+                peekLeave = nil
+            } else if peekLeave == nil {
+                // A short grace, so overshooting the edge or cutting a corner does not fold it away.
+                peekLeave = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+                    self?.peekLeave = nil
+                    self?.endPeek()
+                }
+            }
+            return
+        }
+
+        guard let (id, _) = peekTarget(at: point) else {
+            cancelPeekHold()
+            return
+        }
+        // Moving along the edge keeps the hold going; it only starts over on leaving it.
+        guard peekCandidate != id else { return }
+        cancelPeekHold()
+        peekCandidate = id
+        peekHold = Timer.scheduledTimer(withTimeInterval: max(0.05, prefs.stripPeekDelay),
+                                        repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.peekHold = nil
+            self.peekCandidate = nil
+            // No event arrives while the pointer rests, so look where it is now.
+            guard self.store.prefs.invisibleStrip, self.model.aimingID == nil,
+                  self.peekTarget(at: NSEvent.mouseLocation)?.id == id else { return }
+            self.peekDisplay = id
+        }
+    }
+
+    /// The display whose hidden strip the pointer is at, if the strip would be shown there at all.
+    private func peekTarget(at point: NSPoint) -> (id: CGDirectDisplayID, screen: NSScreen)? {
+        let screens = NSScreen.screens
+        guard let screen = screens.first(where: { NSMouseInRect(point, $0.frame, false) }),
+              let id = Self.displayID(of: screen) else { return nil }
+        let active = NSScreen.main ?? screens.first
+        guard screen == active || store.prefs.stripDisplay == .highlightActiveScreen,
+              peekZone(on: screen, strip: strips[id], keeping: false).contains(point) else { return nil }
+        return (id, screen)
+    }
+
+    /// Where the pointer has to be for the strip to peek out: from the screen's edge to the strip's
+    /// inner side, along its content. Once shown it keeps a margin, so the pointer can move about it.
+    private func peekZone(on screen: NSScreen, strip: ScreenStrip?, keeping: Bool) -> NSRect {
+        let panel = panelFrame(on: screen)
+        let content = contentRect(inPanel: panel, strip: strip)
+        guard content.width > 0, content.height > 0 else { return .zero }
+        // A group's strip beside it counts as part of it.
+        let slack: CGFloat = keeping ? 24 + companionLength : 0
+        let reach: CGFloat = keeping ? 24 : 0
+        let edge = screen.frame
+        var zone = content
+        switch side {
+        case .left:
+            zone = NSRect(x: edge.minX, y: content.minY - slack,
+                          width: content.maxX - edge.minX + reach, height: content.height + slack * 2)
+        case .right:
+            zone = NSRect(x: content.minX - reach, y: content.minY - slack,
+                          width: edge.maxX - content.minX + reach, height: content.height + slack * 2)
+        case .top:
+            zone = NSRect(x: content.minX - slack, y: content.minY - reach,
+                          width: content.width + slack * 2, height: edge.maxY - content.minY + reach)
+        case .bottom:
+            zone = NSRect(x: content.minX - slack, y: edge.minY,
+                          width: content.width + slack * 2, height: content.maxY - edge.minY + reach)
+        }
+        return zone
+    }
+
+    private func cancelPeekHold() {
+        peekHold?.invalidate()
+        peekHold = nil
+        peekCandidate = nil
+    }
+
+    private func endPeek() {
+        peekLeave?.invalidate()
+        peekLeave = nil
+        peekDisplay = nil
     }
 
     /// Reads how light the screen is behind each strip's workspace number, so the number can
@@ -278,7 +406,8 @@ final class StripController {
         let delay = store.prefs.duration(.aimingMode, StripMetrics.foldDuration)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak strip] in
             guard let strip, strip.state.isUnfolded == false else { return }
-            guard self?.store.prefs.invisibleStrip == true, self?.model.aimingID == nil else { return }
+            guard self?.store.prefs.invisibleStrip == true, self?.model.aimingID == nil,
+                  self?.peekDisplay != strip.state.monitorID else { return }
             panel.orderOut(nil)
         }
     }
@@ -311,7 +440,7 @@ final class StripController {
             // A fullscreen window is the one case where floating above everything is unwelcome.
             let hiddenByFullscreen = prefs.hideInFullscreen && (space?.isFullscreen ?? false)
             // Invisible mode keeps the queue out of sight until aiming mode asks for it.
-            let hiddenUntilAiming = prefs.invisibleStrip && model.aimingID == nil
+            let hiddenUntilAiming = prefs.invisibleStrip && model.aimingID == nil && peekDisplay != id
             let wanted = (isActive || prefs.stripDisplay == .highlightActiveScreen) && !hiddenByFullscreen
 
             guard wanted, !hiddenUntilAiming else {
@@ -394,8 +523,15 @@ final class StripController {
     /// Empty areas of an `NSHostingView` do not hit-test, so clicks there fall through to the app
     /// underneath.
     private func layout(_ strip: ScreenStrip) {
+        let target = panelFrame(on: strip.screen)
+        guard target != strip.panel.frame else { return }
+        strip.panel.setFrame(target, display: true)
+    }
+
+    /// Where a screen's strip panel goes, whether or not it is on screen now.
+    private func panelFrame(on screen: NSScreen) -> NSRect {
         let prefs = store.prefs
-        let visible = DockReservation.unreservedFrame(of: strip.screen, prefs: prefs)
+        let visible = DockReservation.unreservedFrame(of: screen, prefs: prefs)
         let margin = store.prefs.stripMargin
         // Room for aiming mode to grow into: resizing the panel mid-animation would clip the
         // strip, so it is always as thick as the strip can ever get.
@@ -413,8 +549,7 @@ final class StripController {
         case .bottom:
             target = NSRect(x: visible.minX, y: visible.minY + margin, width: visible.width, height: thickness)
         }
-        guard target != strip.panel.frame else { return }
-        strip.panel.setFrame(target, display: true)
+        return target
     }
 
     /// The layout of one strip's content — in multi-monitor mode each monitor's queue is its own.
@@ -554,21 +689,23 @@ final class StripController {
     /// strip can be placed in line with it.
     func contentFrame() -> (frame: NSRect, side: StripSide)? {
         guard let strip = anchorStrip else { return nil }
-        let panel = strip.panel.frame
-        let prefs = store.prefs
+        return (contentRect(inPanel: strip.panel.frame, strip: strip), side)
+    }
+
+    /// Screen rect of a strip's content inside a panel at the given frame.
+    private func contentRect(inPanel panel: NSRect, strip: ScreenStrip?) -> NSRect {
         let start = contentStart(inPanelLength: mainLength(of: panel), on: strip)
         let length = contentLayout(of: strip).totalHeight
-        let thickness = StripMetrics.thickness(prefs: prefs)
-        switch prefs.stripSide {
+        let thickness = StripMetrics.thickness(prefs: store.prefs)
+        switch side {
         case .left:
-            return (NSRect(x: panel.minX, y: panel.maxY - start - length, width: thickness, height: length), .left)
+            return NSRect(x: panel.minX, y: panel.maxY - start - length, width: thickness, height: length)
         case .right:
-            return (NSRect(x: panel.maxX - thickness, y: panel.maxY - start - length,
-                           width: thickness, height: length), .right)
+            return NSRect(x: panel.maxX - thickness, y: panel.maxY - start - length, width: thickness, height: length)
         case .top:
-            return (NSRect(x: panel.minX + start, y: panel.maxY - thickness, width: length, height: thickness), .top)
+            return NSRect(x: panel.minX + start, y: panel.maxY - thickness, width: length, height: thickness)
         case .bottom:
-            return (NSRect(x: panel.minX + start, y: panel.minY, width: length, height: thickness), .bottom)
+            return NSRect(x: panel.minX + start, y: panel.minY, width: length, height: thickness)
         }
     }
 
