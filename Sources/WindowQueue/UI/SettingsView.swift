@@ -133,6 +133,10 @@ struct SettingsView: View {
                     caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Cycle with ⌥Tab", isOn: $store.prefs.altTabCycles)
+                    caption("⌥Tab selects the next window and ⌥⇧Tab the previous one, as well as their own shortcuts. Apps no longer get these keys while it is on.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
                     caption("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
                 }

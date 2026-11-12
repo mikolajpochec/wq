@@ -525,6 +525,10 @@ struct Preferences: Codable, Equatable {
     /// moving the aim. Off, the steps stop at the ends.
     var cycleWrapsAround: Bool = true
 
+    /// ⌥Tab and ⌥⇧Tab also select the next and previous window, alongside their own shortcuts,
+    /// for hands used to switching windows that way. Off by default: it takes the keys from apps.
+    var altTabCycles: Bool = false
+
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -594,6 +598,7 @@ struct Preferences: Codable, Equatable {
         onboardingCompleted = value(.onboardingCompleted, true)
         checkForUpdates = value(.checkForUpdates, defaults.checkForUpdates)
         cycleWrapsAround = value(.cycleWrapsAround, defaults.cycleWrapsAround)
+        altTabCycles = value(.altTabCycles, defaults.altTabCycles)
     }
 
     init() {}

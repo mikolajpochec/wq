@@ -68,22 +68,27 @@ final class HotkeyManager {
     func apply(_ prefs: Preferences) {
         // Without multi-monitor mode the monitor shortcuts leave their keys to other apps.
         guard !isSuspended else {
-            if appliedCombos != nil {
+            if appliedBindings != nil {
                 unregisterAll()
-                appliedCombos = nil
+                appliedBindings = nil
                 Diagnostics.note("hotkeys suspended")
             }
             return
         }
         let actions = HotkeyAction.allCases.filter { prefs.multiMonitorMode || !$0.isMonitorAction }
-        let wanted = Dictionary(uniqueKeysWithValues: actions.map { ($0, prefs.combo(for: $0)) })
-        guard wanted != appliedCombos else { return }
-        appliedCombos = wanted
+        var wanted = actions.map { Binding(action: $0, combo: prefs.combo(for: $0), isExtra: false) }
+        if prefs.altTabCycles {
+            // A shortcut the user set to the same keys keeps them.
+            let taken = Set(wanted.map(\.combo))
+            wanted += Self.altTabBindings.filter { !taken.contains($0.combo) }
+        }
+        guard wanted != appliedBindings else { return }
+        appliedBindings = wanted
         unregisterAll()
         failures = []
 
-        for action in actions {
-            let combo = prefs.combo(for: action)
+        for binding in wanted {
+            let (action, combo) = (binding.action, binding.combo)
             let id = nextHotkeyID
             nextHotkeyID += 1
 
@@ -95,14 +100,30 @@ final class HotkeyManager {
                 hotkeyRefs.append(ref)
                 actionsByID[id] = action
             } else {
-                failures.append(RegistrationFailure(id: action.rawValue, action: action, combo: combo))
+                // An extra binding failing says nothing about the action's own shortcut.
+                if !binding.isExtra {
+                    failures.append(RegistrationFailure(id: action.rawValue, action: action, combo: combo))
+                }
                 Diagnostics.note("hotkey \(action.rawValue) \(combo.displayString) not registered: \(status)")
             }
         }
-        Diagnostics.note("hotkeys registered: \(hotkeyRefs.count) of \(actions.count)")
+        Diagnostics.note("hotkeys registered: \(hotkeyRefs.count) of \(wanted.count)")
     }
 
-    private var appliedCombos: [HotkeyAction: KeyCombo]?
+    /// One registration: an action's own shortcut, or an extra one a setting adds.
+    struct Binding: Equatable {
+        let action: HotkeyAction
+        let combo: KeyCombo
+        let isExtra: Bool
+    }
+
+    /// ⌥Tab and ⌥⇧Tab cycling, with `Preferences.altTabCycles`.
+    static let altTabBindings = [
+        Binding(action: .cycleNext, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey)), isExtra: true),
+        Binding(action: .cyclePrevious, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey | shiftKey)), isExtra: true),
+    ]
+
+    private var appliedBindings: [Binding]?
 
     private func unregisterAll() {
         for ref in hotkeyRefs {
