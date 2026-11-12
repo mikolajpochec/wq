@@ -8,6 +8,13 @@
   <a href="https://github.com/mikolajpochec/wq/releases/latest"><b>Download</b></a> · macOS 14+ · Apple silicon and Intel · Free and open source
 </p>
 
+<p align="center">
+  <a href="https://github.com/mikolajpochec/wq/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mikolajpochec/wq?style=flat-square&color=f05138"></a>
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-24292f?style=flat-square&logo=apple">
+  <img alt="Swift" src="https://img.shields.io/badge/Swift-native-f05138?style=flat-square&logo=swift&logoColor=white">
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-24292f?style=flat-square"></a>
+</p>
+
 ---
 
 ### One queue for every window
