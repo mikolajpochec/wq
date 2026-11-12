@@ -67,6 +67,8 @@ final class HotkeyManager {
     /// character it types, ś for ⌥S. So nothing is touched unless a shortcut actually changed.
     func apply(_ prefs: Preferences) {
         // Without multi-monitor mode the monitor shortcuts leave their keys to other apps.
+        // The system switcher keeps ⌘Tab whenever WindowQueue's shortcuts are not live.
+        SystemCommandTab.setTakenOver(!isSuspended && prefs.tabCycling == .command)
         guard !isSuspended else {
             if appliedBindings != nil {
                 unregisterAll()
@@ -77,10 +79,10 @@ final class HotkeyManager {
         }
         let actions = HotkeyAction.allCases.filter { prefs.multiMonitorMode || !$0.isMonitorAction }
         var wanted = actions.map { Binding(action: $0, combo: prefs.combo(for: $0), isExtra: false) }
-        if prefs.altTabCycles {
+        if let modifier = Self.tabCyclingModifier(prefs.tabCycling) {
             // A shortcut the user set to the same keys keeps them.
             let taken = Set(wanted.map(\.combo))
-            wanted += Self.altTabBindings.filter { !taken.contains($0.combo) }
+            wanted += Self.tabBindings(modifier: modifier).filter { !taken.contains($0.combo) }
         }
         guard wanted != appliedBindings else { return }
         appliedBindings = wanted
@@ -117,11 +119,21 @@ final class HotkeyManager {
         let isExtra: Bool
     }
 
-    /// ⌥Tab and ⌥⇧Tab cycling, with `Preferences.altTabCycles`.
-    static let altTabBindings = [
-        Binding(action: .cycleNext, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey)), isExtra: true),
-        Binding(action: .cyclePrevious, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey | shiftKey)), isExtra: true),
-    ]
+    private static func tabCyclingModifier(_ cycling: TabCycling) -> Int? {
+        switch cycling {
+        case .off: return nil
+        case .option: return optionKey
+        case .command: return cmdKey
+        }
+    }
+
+    /// Tab and Shift-Tab with `modifier` cycling, with `Preferences.tabCycling`.
+    static func tabBindings(modifier: Int) -> [Binding] {
+        [
+            Binding(action: .cycleNext, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(modifier)), isExtra: true),
+            Binding(action: .cyclePrevious, combo: KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(modifier | shiftKey)), isExtra: true),
+        ]
+    }
 
     private var appliedBindings: [Binding]?
 

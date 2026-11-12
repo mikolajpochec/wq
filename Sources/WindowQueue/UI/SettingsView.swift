@@ -133,8 +133,11 @@ struct SettingsView: View {
                     caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Cycle with ⌥Tab", isOn: $store.prefs.altTabCycles)
-                    caption("⌥Tab selects the next window and ⌥⇧Tab the previous one, as well as their own shortcuts. Apps no longer get these keys while it is on.")
+                    Picker("Cycle with Tab", selection: $store.prefs.tabCycling) {
+                        ForEach(TabCycling.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    caption(tabCyclingExplanation)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
@@ -438,6 +441,14 @@ struct SettingsView: View {
         case .after: return "A group's windows open in a second strip \(after) the main one."
         case .replace: return "While you are inside a group, its windows take the main strip's place; the main strip comes back when you leave it."
         case .overGroup: return "A group's windows open in a strip laid over the main one, centred on the group's own entry."
+        }
+    }
+
+    private var tabCyclingExplanation: String {
+        switch store.prefs.tabCycling {
+        case .off: return "Only the cycle shortcuts step through the queue."
+        case .option: return "⌥Tab selects the next window and ⌥⇧Tab the previous one, as well as their own shortcuts. Apps no longer get these keys."
+        case .command: return "⌘Tab selects the next window and ⌘⇧Tab the previous one, in place of the macOS app switcher, which comes back when WindowQueue quits."
         }
     }
 

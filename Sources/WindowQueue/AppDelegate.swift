@@ -417,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         dockReservation.restore()
+        SystemCommandTab.setTakenOver(false)
     }
 
     /// Quitting through `kill` — as `make install` does — skips `applicationWillTerminate`, and the
@@ -427,6 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
             source.setEventHandler { [weak self] in
                 self?.dockReservation.restore()
+                SystemCommandTab.setTakenOver(false)
                 exit(0)
             }
             source.resume()

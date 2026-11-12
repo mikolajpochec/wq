@@ -80,6 +80,21 @@ enum GroupStripPlacement: String, Codable, CaseIterable, Identifiable {
 
 /// When a group's strip shows the exits a cycle step leaves the group by, as a door in the place
 /// of the window before its first one and after its last one.
+/// Which Tab combination cycles through the queue (`Preferences.tabCycling`).
+enum TabCycling: String, Codable, CaseIterable, Identifiable {
+    case off
+    case option
+    case command
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .option: return "⌥Tab"
+        case .command: return "⌘Tab"
+        }
+    }
+}
+
 enum GroupExitDoors: String, Codable, CaseIterable, Identifiable {
     /// Both doors stay in the strip, and the one the next step goes through lights up.
     case always
@@ -525,9 +540,10 @@ struct Preferences: Codable, Equatable {
     /// moving the aim. Off, the steps stop at the ends.
     var cycleWrapsAround: Bool = true
 
-    /// ⌥Tab and ⌥⇧Tab also select the next and previous window, alongside their own shortcuts,
-    /// for hands used to switching windows that way. Off by default: it takes the keys from apps.
-    var altTabCycles: Bool = false
+    /// Which Tab combination also selects the next and previous window (with Shift), alongside the
+    /// cycle shortcuts, for hands used to switching windows that way. ⌘Tab replaces the system app
+    /// switcher while it is on.
+    var tabCycling: TabCycling = .command
 
     /// Decoded field by field so that adding a setting never invalidates a stored blob.
     init(from decoder: Decoder) throws {
@@ -598,7 +614,7 @@ struct Preferences: Codable, Equatable {
         onboardingCompleted = value(.onboardingCompleted, true)
         checkForUpdates = value(.checkForUpdates, defaults.checkForUpdates)
         cycleWrapsAround = value(.cycleWrapsAround, defaults.cycleWrapsAround)
-        altTabCycles = value(.altTabCycles, defaults.altTabCycles)
+        tabCycling = value(.tabCycling, defaults.tabCycling)
     }
 
     init() {}
