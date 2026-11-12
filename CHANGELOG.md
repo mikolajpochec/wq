@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.1 (2026-11-12)
+
+- **⌘Tab cycles the queue:** ⌘Tab selects the next window and ⌘⇧Tab the previous one, in place of the macOS app switcher, which comes back when WindowQueue quits. Settings › General › Queue › **Cycle with Tab** switches it to ⌥Tab or off. A shortcut you set to the same keys keeps them.
+- **Peek in invisible mode:** with the strip hidden, resting the pointer at the strip's edge for a moment brings it back until the pointer leaves, so it can be used with the mouse. Passing by does not show it. Settings › Strip › Visibility › **Peek when the pointer rests at the edge** and **Peek after** (0.1–1 s, 0.4 s by default).
+- **Group exit doors:** a group's strip shows a door before its first window and after its last one; cycling past them leaves the group. The door the next step goes through lights up, and clicking a door leaves the group. Choose Always, At the ends or Off in Settings › Strip › Appearance › **Group exit doors**.
+- **Reorder a group by dragging:** drag a window along a group's strip to reorder the group. In a tiled group this rearranges the layout too, with the cell it will take outlined while dragging, so a tiled group's windows can now be moved with the mouse.
+- **Placeholders for windows too big to tile:** a window that cannot be made small enough for its place waits behind a placeholder showing its app, title and why it is not shown, instead of overlapping its neighbours. Click the placeholder, or focus the window, to bring it out. Settings › Tiling › **Placeholders for windows too big to tile**.
+- With the per-monitor queue scope, each monitor's queue can also keep to the workspace that monitor has on show. Settings › General › Queue › **Also keep to the workspace on show**.
+- Tiling learns the size limits of windows that settle at another size late or keep refusing, and lays the group out again so the others make room.
+- Sending a window in a group fullscreen takes over only that group: cycling skips the group's other windows but still steps out to the rest of the workspace, and the group keeps its place on the strip. In a tiled layout, fullscreen cascades only that layout's windows into the strip's stack tile, which keeps the layout's tile mark.
+- Fixed: the iOS Simulator (Device Hub in Xcode 27) never showed up in the queue. Its windows are now listed, focused and followed like any other app's.
+- Fixed: with the group strip replacing the main strip, aiming at several of the group's windows drew the orange highlight one place too early.
+
 ## 1.3.0 (2026-10-05)
 
 - On macOS 26 and later the strip, group strip, action panel, title popup, search and tiling menu sit on the system's Liquid Glass. The strip and group strip use the Dock's thicker glass, lit along the top and bending what's behind them at the edge; menus and popups use the standard glass. Earlier macOS keeps the translucent look it had.
