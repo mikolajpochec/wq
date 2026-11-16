@@ -204,6 +204,34 @@ final class TourSimTests: XCTestCase {
         XCTAssertTrue(older.onboardingCompleted)
     }
 
+    func testQuickMarkBindsAWindowToAKeyAndJumpsBack() {
+        let sim = sim([.safari, .notes, .terminal])
+        press(sim, kVK_ANSI_J, .option)
+        XCTAssertNil(sim.markPrompt, "nothing bound yet: no key is awaited")
+        press(sim, kVK_ANSI_B, .option)
+        XCTAssertNotNil(sim.markPrompt)
+        press(sim, kVK_ANSI_1)
+        XCTAssertNil(sim.markPrompt)
+        XCTAssertEqual(sim.marks[kVK_ANSI_1], SimWindow.safari.id)
+        XCTAssertTrue(sim.done.contains(.boundKey))
+
+        press(sim, kVK_ANSI_RightBracket, .option)
+        XCTAssertEqual(sim.selected, SimWindow.notes.id)
+        press(sim, kVK_ANSI_J, .option)
+        press(sim, kVK_ANSI_2)
+        XCTAssertEqual(sim.selected, SimWindow.notes.id, "a key with nothing on it goes nowhere")
+        XCTAssertFalse(sim.done.contains(.jumpedToKey))
+        press(sim, kVK_ANSI_J, .option)
+        press(sim, kVK_ANSI_1)
+        XCTAssertEqual(sim.selected, SimWindow.safari.id)
+        XCTAssertTrue(sim.done.contains(.jumpedToKey))
+
+        press(sim, kVK_ANSI_B, .option)
+        press(sim, kVK_Escape)
+        XCTAssertNil(sim.markPrompt)
+        XCTAssertNil(sim.marks[kVK_Escape], "esc cancels")
+    }
+
     func testSuperKeySymbol() {
         XCTAssertEqual(SuperModifier.option.symbol, "⌥")
         XCTAssertEqual(SuperModifier.controlOption.symbol, "⌃⌥")

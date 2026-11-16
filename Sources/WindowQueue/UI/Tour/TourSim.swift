@@ -42,6 +42,7 @@ enum TourEvent: Hashable {
     case searched, launched, doubleTapped, maximized, fullscreened, restored, decluttered
     case pictured, recorded, videoSaved, hidStrip, stripBack, peekedStrip, dragged, dropped
     case closed, closedWhileAiming
+    case boundKey, jumpedToKey
 }
 
 /// Where the pretend desktop starts: which windows, and on which workspace and monitor each is.
@@ -130,6 +131,10 @@ final class TourSim: ObservableObject {
     @Published private(set) var keys: Flash?
     /// A word from the app, the way it shows a toast.
     @Published private(set) var note: Flash?
+    /// A quick mark shortcut was pressed and the next key is awaited: what the prompt says.
+    @Published private(set) var markPrompt: Flash?
+    /// Quick marks: the window each key is bound to.
+    @Published private(set) var marks: [Int: Int] = [:]
     @Published private(set) var done: Set<TourEvent> = []
 
     private var layoutsUsed: Set<String> = []
@@ -138,6 +143,8 @@ final class TourSim: ObservableObject {
     private var aimingOpenedAt = Date.distantPast
     private var dragStart = 0
     private var launcherName = "Spotlight"
+    private enum MarkCapture { case bind(Int), jump }
+    private var markCapture: MarkCapture?
     var animated = true
 
     static let doubleTapInterval: TimeInterval = 0.4
@@ -183,6 +190,9 @@ final class TourSim: ObservableObject {
             pointer = nil
             keys = nil
             note = nil
+            markPrompt = nil
+            markCapture = nil
+            marks = [:]
             layoutsUsed = []
         }
     }
@@ -341,6 +351,12 @@ final class TourSim: ObservableObject {
         wrapsAround = prefs.cycleWrapsAround
         let flags = rawFlags.intersection([.command, .option, .control, .shift])
         let cgFlags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        if let capture = markCapture {
+            // The key after a quick mark shortcut is the mark's own, whatever else it would do.
+            showKeys(flags, keyCode)
+            change { markKey(keyCode, for: capture) }
+            return true
+        }
         if searchOpen {
             searchKey(keyCode, flags: flags, characters: characters)
             return true
@@ -380,6 +396,12 @@ final class TourSim: ObservableObject {
     /// second tap straight after the first runs `doubleTap`, as the real one does.
     func superTap(symbol: String, doubleTap: HotkeyAction? = nil) {
         flash(.keys, symbol)
+        if markCapture != nil {
+            change {
+                markPrompt = nil
+                markCapture = nil
+            }
+        }
         guard aiming else {
             if searchOpen { change { searchOpen = false } }
             beginAiming()
@@ -565,6 +587,8 @@ final class TourSim: ObservableObject {
             case .toggleRecording: toggleRecording()
             case .toggleInvisibleStrip: toggleStrip()
             case .closeWindow: closeTarget()
+            case .bindWindowKey, .bindAppKey: beginBind()
+            case .jumpToKey: beginJump()
             default:
                 if let index = action.spaceIndex {
                     goToSpace(index)
@@ -981,6 +1005,62 @@ final class TourSim: ObservableObject {
             selected = zOrder.last { $0 != target && monitor(of: $0) == monitor(of: target) && isOnShow($0) }
         }
         flash(.note, "\(window(target)?.name ?? "Window") closed")
+    }
+
+    // MARK: - Quick marks
+
+    static let markTimeout: TimeInterval = 5
+
+    private func beginBind() {
+        guard let target = takeTarget() else { return }
+        awaitMarkKey(.bind(target), prompt: "Press a key to bind \(window(target)?.name ?? "the window") · esc cancels")
+    }
+
+    private func beginJump() {
+        if aiming { endAiming() }
+        let bound = marks.filter { !closed.contains($0.value) }.sorted { $0.key < $1.key }
+        guard !bound.isEmpty else {
+            flash(.note, "No keys bound yet: bind a window to a key first")
+            return
+        }
+        let list = bound.map { "\(KeyCombo.keyName(for: UInt32($0.key))) \(window($0.value)?.name ?? "")" }
+        awaitMarkKey(.jump, prompt: "Jump to…  " + list.joined(separator: " · "))
+    }
+
+    /// Holds the prompt up until the mark's key comes, or for as long as the real one waits.
+    private func awaitMarkKey(_ capture: MarkCapture, prompt: String) {
+        flashCount += 1
+        let id = flashCount
+        markCapture = capture
+        markPrompt = Flash(id: id, text: prompt)
+        note = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.markTimeout) { [weak self] in
+            guard let self, self.markPrompt?.id == id else { return }
+            self.change {
+                self.markPrompt = nil
+                self.markCapture = nil
+            }
+        }
+    }
+
+    private func markKey(_ keyCode: Int, for capture: MarkCapture) {
+        markPrompt = nil
+        markCapture = nil
+        guard keyCode != kVK_Escape else { return }
+        let key = KeyCombo.keyName(for: UInt32(keyCode))
+        switch capture {
+        case .bind(let target):
+            marks[keyCode] = target
+            done.insert(.boundKey)
+            flash(.note, "\(key) → \(window(target)?.name ?? "Window")")
+        case .jump:
+            guard let target = marks[keyCode], !closed.contains(target) else {
+                flash(.note, "Nothing on \(key)")
+                return
+            }
+            select(target)
+            done.insert(.jumpedToKey)
+        }
     }
 
     // MARK: - Dragging icons

@@ -86,6 +86,8 @@ final class TourModel: ObservableObject {
         case click(Int)
         /// Typed into the search panel.
         case type(String)
+        /// A key on its own, as pressed after a quick mark shortcut.
+        case press(Int)
         /// The pretend pointer goes to an icon of the strip (nil hides it).
         case pointer(Int?)
         case lift(Int)
@@ -266,6 +268,14 @@ final class TourModel: ObservableObject {
                     setup: SimSetup(windows: [.safari, .notes, .terminal]),
                     preview: [.wait(0.8), .action(.toggleInvisibleStrip), .wait(1.4), .superTap, .wait(1.3), .key(.cancel),
                               .wait(1), .action(.toggleInvisibleStrip), .wait(1.3)]),
+            TourTip(id: "marks", symbol: "bookmark", title: "Bind a window to a key",
+                    goals: [.init(keys: "\(combo(.bindWindowKey)) 1", event: .boundKey), .init(keys: "\(combo(.jumpToKey)) 1", event: .jumpedToKey)],
+                    text: "\(combo(.bindWindowKey)), then any key, binds the window to that key; \(combo(.jumpToKey)), then the key, jumps back to it from anywhere. \(combo(.bindAppKey)) binds the whole app instead.",
+                    hint: "\(combo(.bindWindowKey)) then 1, go to another window, then \(combo(.jumpToKey)) then 1",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail]),
+                    preview: [.wait(0.8), .action(.bindWindowKey), .wait(1.2), .press(kVK_ANSI_1), .wait(1.3), .action(.cycleNext),
+                              .wait(0.7), .action(.cycleNext), .wait(1), .action(.jumpToKey), .wait(1.2), .press(kVK_ANSI_1),
+                              .wait(1.8)]),
             TourTip(id: "drag", symbol: "hand.draw", title: "Drag and drop",
                     goals: [.init(keys: "Drag an icon", event: .dropped)],
                     text: "Drag an icon along the strip to reorder the queue.",
@@ -390,6 +400,8 @@ final class TourModel: ObservableObject {
             sim.click(id)
         case .type(let text):
             sim.type(text)
+        case .press(let keyCode):
+            sim.press(keyCode: keyCode, flags: [], prefs: prefs)
         case .pointer(let id):
             sim.point(at: id)
         case .lift(let id):

@@ -62,7 +62,7 @@ struct SimDesktopView: View {
 
     private var flashes: some View {
         VStack {
-            if let note = sim.note {
+            if let note = sim.markPrompt ?? sim.note {
                 Text(note.text)
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 12)
