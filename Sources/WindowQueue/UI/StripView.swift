@@ -454,7 +454,7 @@ struct StripView: View {
                 .strokeBorder(holdsSelection ? selection : Color.primary.opacity(0.25),
                               style: StrokeStyle(lineWidth: 1.5, dash: isOpen ? [] : [4, 3]))
         )
-        .tintRing(holdsSelection ? nil : tint, prefs: prefs)
+        .tintGlow(holdsSelection ? nil : tint, prefs: prefs)
         .contentShape(Rectangle())
         .help("Group of \(windows.count) windows")
     }
@@ -615,7 +615,7 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
-        .tintRing(highlight == nil ? tint : nil, prefs: prefs)
+        .tintGlow(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let group = model.tiledGroup(of: window.id) { tiledMark(group) }
         }
@@ -818,15 +818,17 @@ private struct DiagonalStripes: Shape {
 }
 
 extension View {
-    /// A ring in the colour the user marked the window (or its group) with, just inside the row's
-    /// own highlight so both show.
+    /// A soft glow in the colour the user marked the window (or its group) with, behind the icon.
+    /// Deliberately unlike the selection's box, so a coloured window is never mistaken for the
+    /// selected one; the selected window shows its colour through that box instead.
     @ViewBuilder
-    func tintRing(_ tint: WindowTint?, prefs: Preferences) -> some View {
+    func tintGlow(_ tint: WindowTint?, prefs: Preferences) -> some View {
         if let tint {
-            overlay(
-                RoundedRectangle(cornerRadius: max(2, StripMetrics.rowCorner(prefs: prefs) - 2), style: .continuous)
-                    .strokeBorder(tint.color, lineWidth: 2.5)
-                    .padding(2)
+            background(
+                RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous)
+                    .fill(tint.color.opacity(0.7))
+                    .padding(6)
+                    .blur(radius: 6)
                     .allowsHitTesting(false)
             )
         } else {

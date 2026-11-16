@@ -352,7 +352,7 @@ struct GroupPanelView: View {
                 .strokeBorder(highlight ?? .clear,
                               lineWidth: window.id == state.aimingID ? 2.5 : 1.5)
         )
-        .tintRing(highlight == nil ? tint : nil, prefs: prefs)
+        .tintGlow(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
         }
