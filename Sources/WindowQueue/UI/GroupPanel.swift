@@ -342,6 +342,8 @@ struct GroupPanelView: View {
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
             .windowLabel(window, prefs: prefs)
+        // Above the row's fill, and kept under the aim's box, as on the main strip.
+        .tintGlow(highlight == nil || aimed ? tint : nil, prefs: prefs, inset: aimed ? -4 : 1)
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
@@ -352,7 +354,6 @@ struct GroupPanelView: View {
                 .strokeBorder(highlight ?? .clear,
                               lineWidth: window.id == state.aimingID ? 2.5 : 1.5)
         )
-        .tintGlow(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
         }

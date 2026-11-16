@@ -606,6 +606,10 @@ struct StripView: View {
                 // Behind the maximized window, and out of the way until it is restored.
                 .saturation(covered ? 0.2 : 1)
         }
+        // Behind the icon but above the row's own fill, so the aim's orange box doesn't drown it.
+        // The aim's box says nothing about the colour, so the glow stays with it; only the
+        // selection's box, drawn in the colour itself, replaces the glow.
+        .tintGlow(highlight == nil || isAimed ? tint : nil, prefs: prefs, inset: isAimed ? -4 : 1)
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
@@ -615,7 +619,6 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
-        .tintGlow(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let group = model.tiledGroup(of: window.id) { tiledMark(group) }
         }
@@ -822,12 +825,12 @@ extension View {
     /// Deliberately unlike the selection's box, so a coloured window is never mistaken for the
     /// selected one; the selected window shows its colour through that box instead.
     @ViewBuilder
-    func tintGlow(_ tint: WindowTint?, prefs: Preferences) -> some View {
+    func tintGlow(_ tint: WindowTint?, prefs: Preferences, inset: CGFloat = 6) -> some View {
         if let tint {
             background(
                 RoundedRectangle(cornerRadius: StripMetrics.iconCorner(prefs: prefs), style: .continuous)
                     .fill(tint.color.opacity(0.7))
-                    .padding(6)
+                    .padding(inset)
                     .blur(radius: 6)
                     .allowsHitTesting(false)
             )

@@ -1623,6 +1623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let current: WindowTint?? = owned.count == 1 ? .some(owned.first!) : nil
         addColourItems(to: menu, current: current, numbered: true) { tint in
             for id in ids { marks.setTint(tint, for: id) }
+            self.confirmColour(tint, of: windows)
         }
         // A group shared by every target can be coloured as a whole.
         let groups = Set(ids.map { model.group(of: $0)?.id })
@@ -1633,6 +1634,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             submenu.autoenablesItems = false
             addColourItems(to: submenu, current: .some(marks.groupTint(groupID)), numbered: false) { tint in
                 marks.setTint(tint, forGroup: groupID)
+                self.toastAfterMenu(title: tint.map { "Group \(groupID): \($0.title)" } ?? "Group \(groupID): no colour",
+                                    subtitle: "Every window in the group")
             }
             item.submenu = submenu
             if let tint = marks.groupTint(groupID) { item.image = tint.swatch }
@@ -1721,8 +1724,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             next = all.first
         }
         for window in windows { marks.setTint(next, for: window.id) }
-        toast?.showCentred(title: next.map { "Colour: \($0.title)" } ?? "No colour",
-                           subtitle: windows.count == 1 ? first.displayTitle : "\(windows.count) windows")
+        confirmColour(next, of: windows)
+    }
+
+    /// Says what was just coloured: an aimed or selected window shows its colour only faintly
+    /// (or under the aim's own outline), so without this a change can pass unnoticed.
+    private func confirmColour(_ tint: WindowTint?, of windows: [ManagedWindow]) {
+        guard let first = windows.first else { return }
+        toastAfterMenu(title: tint.map { "Colour: \($0.title)" } ?? "No colour",
+                       subtitle: windows.count == 1 ? first.displayTitle : "\(windows.count) windows")
+    }
+
+    /// A popup once any open menu has closed and aiming has put its own popup back.
+    private func toastAfterMenu(title: String, subtitle: String) {
+        DispatchQueue.main.async { [weak self] in self?.toast?.showCentred(title: title, subtitle: subtitle) }
     }
 
     /// Asks for a window's name in a small alert, then hands the keyboard back to the window.
@@ -2822,6 +2837,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard words.count >= 3, let id = CGWindowID(words[1]) else { return }
             WindowMarks.shared.setTint(WindowTint(rawValue: String(words[2])), for: id)
             WindowMarks.shared.setName(words.dropFirst(3).joined(separator: " "), for: id)
+        case "marks":
+            let marks = WindowMarks.shared
+            Diagnostics.note("marks tints=\(marks.windowTints.mapValues(\.rawValue)) groups=\(marks.groupTints.mapValues(\.rawValue)) names=\(marks.names)")
         case "markgroup":
             // `markgroup <group number> <colour|none>`.
             guard words.count >= 3, let group = Int(words[1]) else { return }
