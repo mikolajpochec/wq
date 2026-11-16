@@ -231,6 +231,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case screenshotWindow
     case goToEmptySpace
     case moveToEmptySpace
+    case bindWindowKey, bindAppKey, jumpToKey
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
@@ -266,6 +267,9 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .screenshotWindow: return "Take a picture of the window alone"
         case .goToEmptySpace: return "Go to the nearest empty workspace"
         case .moveToEmptySpace: return "Move window to the nearest empty workspace"
+        case .bindWindowKey: return "Bind the window to a key (then press the key)"
+        case .bindAppKey: return "Bind the app to a key (then press the key)"
+        case .jumpToKey: return "Jump to a bound window or app (then press its key)"
         case .focusNextMonitor: return "Toggle monitor"
         case .moveToNextMonitor: return "Move window to the next monitor"
         default:
@@ -318,13 +322,13 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
          .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .toggleGroupLock, .closeWindow, .search,
          .openLauncher, .openRaycastCommand, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
-         .goToEmptySpace, .moveToEmptySpace]
+         .goToEmptySpace, .moveToEmptySpace, .bindWindowKey, .bindAppKey, .jumpToKey]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
     /// picked out first.
     static var doubleTapActions: [HotkeyAction] {
-        [.openLauncher, .openRaycastCommand, .showOverview, .search, .goToEmptySpace, .toggleInvisibleStrip, .toggleRecording,
+        [.openLauncher, .openRaycastCommand, .showOverview, .search, .jumpToKey, .goToEmptySpace, .toggleInvisibleStrip, .toggleRecording,
          .screenshotWindow, .toggleMaximize,
          .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .closeWindow, .sortByWorkspace,
          .moveToStart, .moveToEnd]
@@ -367,6 +371,10 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         // Next to the numbered workspaces: the one with nothing on it.
         case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
         case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
+        // Bind with B, the app with Shift too; J jumps.
+        case .bindWindowKey: return KeyCombo(keyCode: kVK_ANSI_B, modifiers: superMask)
+        case .bindAppKey: return KeyCombo(keyCode: kVK_ANSI_B, modifiers: superMask | shift)
+        case .jumpToKey: return KeyCombo(keyCode: kVK_ANSI_J, modifiers: superMask)
         // Monitors take Control on top of the workspace keys: super-Control-N goes to monitor N and
         // super-Control-Space on to the next one; with Shift they take the window along.
         case .focusNextMonitor: return KeyCombo(keyCode: kVK_Space, modifiers: superMask | UInt32(controlKey))

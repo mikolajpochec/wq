@@ -28,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enumerator: WindowEnumerator?
     private var strip: StripController?
     private var toast: ToastController?
+    private let quickMarks = QuickMarkStore()
+    /// Waits for the key after a bind or jump shortcut.
+    private let quickMarkGrabber = KeyboardGrabber()
     private lazy var tilingMenu = TilingMenuController(store: store)
     private lazy var groupPanel = GroupPanelController(store: store)
     private let tilePreview = TilePreviewOverlay()
@@ -138,7 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.$selectedID
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] id in self?.raiseLayoutOnceFocused(id) }
+            .sink { [weak self] id in
+                self?.raiseLayoutOnceFocused(id)
+                if let id { self?.quickMarks.noteFocus(id) }
+            }
             .store(in: &cancellables)
         model.onFocusFollowed = { [weak self] id in self?.raiseLayoutOnceFocused(id) }
         setUpTilePlaceholders()
@@ -1311,6 +1317,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleGroupLock:
                 toggleGroupLock()
                 return
+            // Binding while aiming binds the window aimed at.
+            case .bindWindowKey, .bindAppKey:
+                let window = aimedWindow
+                endAiming(commit: false)
+                beginQuickMark(action == .bindWindowKey ? .window : .app, window: window)
+                return
             // Showing or hiding the strip is about the strip, not about the aimed window: the mode
             // stays open, with the strip appearing or folding away under the aim.
             case .toggleInvisibleStrip:
@@ -1421,9 +1433,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleRecording(model.selectedWindow)
         case .screenshotWindow:
             screenshot(model.selectedWindow)
+        case .bindWindowKey:
+            beginQuickMark(.window, window: model.selectedWindow)
+        case .bindAppKey:
+            beginQuickMark(.app, window: model.selectedWindow)
+        case .jumpToKey:
+            beginQuickJump()
         default:
             break
         }
+    }
+
+    // MARK: - Quick marks
+
+    /// Bind shortcut pressed: the next key binds the window (or its app) to that key.
+    private func beginQuickMark(_ kind: QuickMark.Kind, window: ManagedWindow?) {
+        guard let window else {
+            toast?.showCentred(title: "Nothing to bind", subtitle: "Select a window first")
+            return
+        }
+        let what = kind == .window ? "“\(window.displayTitle)”" : window.appName
+        let bound = quickMarks.keys(for: window).map { KeyCombo.keyName(for: UInt32($0)) }
+        toast?.showCentred(title: "Press a key to bind \(what)",
+                           subtitle: bound.isEmpty ? "Esc cancels" : "Already on \(bound.joined(separator: " ")) · Esc cancels")
+        captureQuickMarkKey { [weak self] keyCode in
+            guard let self else { return }
+            let mark = QuickMark(kind: kind, window: window)
+            self.quickMarks.set(mark, keyCode: keyCode)
+            Diagnostics.note("quick mark \(kind.rawValue) \(window.appName) id=\(window.id) key=\(keyCode)")
+            self.toast?.showCentred(title: "\(KeyCombo.keyName(for: UInt32(keyCode))) → \(mark.title)",
+                                    subtitle: kind == .window ? "Window bound" : "App bound")
+        }
+    }
+
+    /// Jump shortcut pressed: the next key goes to what it is bound to.
+    private func beginQuickJump() {
+        guard !quickMarks.marks.isEmpty else {
+            toast?.showCentred(title: "No keys bound yet",
+                               subtitle: "\(store.prefs.combo(for: .bindWindowKey).displayString) binds a window, \(store.prefs.combo(for: .bindAppKey).displayString) an app")
+            return
+        }
+        let list = quickMarks.marks.sorted { $0.key < $1.key }
+            .map { "\(KeyCombo.keyName(for: UInt32($0.key))) \($0.value.title)" }
+        toast?.showCentred(title: "Jump to…", subtitle: list.joined(separator: " · "))
+        captureQuickMarkKey { [weak self] keyCode in self?.jumpToQuickMark(keyCode: keyCode) }
+    }
+
+    private func jumpToQuickMark(keyCode: Int) {
+        guard let mark = quickMarks.marks[keyCode] else {
+            toast?.showCentred(title: "Nothing on \(KeyCombo.keyName(for: UInt32(keyCode)))",
+                               subtitle: "\(store.prefs.combo(for: .bindWindowKey).displayString) binds a window to a key")
+            return
+        }
+        switch mark.target(in: model.windows, recent: quickMarks.recent, current: model.selectedID) {
+        case .window(let id):
+            guard let window = model.windows.first(where: { $0.id == id }) else { return }
+            Diagnostics.note("quick jump key=\(keyCode) -> \(window.appName) id=\(id)")
+            model.select(id: id, announce: true)
+            focus(window)
+        case .launch(let bundleID):
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { fallthrough }
+            Diagnostics.note("quick jump key=\(keyCode) launches \(bundleID)")
+            noteLaunch()
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        case .gone:
+            toast?.showCentred(title: "“\(mark.title)” is gone", subtitle: "Bind the key again to reuse it")
+        }
+    }
+
+    /// Hands the next key press to `done`, swallowing it; Escape (or a while with nothing) cancels.
+    private func captureQuickMarkKey(_ done: @escaping (Int) -> Void) {
+        let grabber = quickMarkGrabber
+        grabber.end()
+        grabber.idleTimeout = 5
+        grabber.onDismiss = { [weak self] in
+            grabber.end()
+            self?.toast?.hideNow()
+        }
+        grabber.onKeyDown = { [weak self] event in
+            let keyCode = event.keyCode
+            // A key still repeating from the shortcut itself is not the answer.
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return true }
+            DispatchQueue.main.async {
+                grabber.end()
+                if keyCode == QuickMarkStore.escapeKeyCode {
+                    self?.toast?.hideNow()
+                } else if QuickMarkStore.isMarkable(keyCode: keyCode) {
+                    done(keyCode)
+                } else {
+                    self?.toast?.showCentred(title: "That key cannot be bound", subtitle: "Pick a letter, digit or symbol")
+                }
+            }
+            return true
+        }
+        grabber.begin()
     }
 
     /// Scrolling moves the selection immediately but defers focusing: spinning through the queue
