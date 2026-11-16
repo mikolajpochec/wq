@@ -231,6 +231,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case screenshotWindow
     case goToEmptySpace
     case moveToEmptySpace
+    case labelWindow
     case bindWindowKey, bindAppKey, jumpToKey
     case space1, space2, space3, space4, space5, space6, space7, space8, space9
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
@@ -267,6 +268,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .screenshotWindow: return "Take a picture of the window alone"
         case .goToEmptySpace: return "Go to the nearest empty workspace"
         case .moveToEmptySpace: return "Move window to the nearest empty workspace"
+        case .labelWindow: return "Name or colour the window (or its group)"
         case .bindWindowKey: return "Bind the window to a key (then press the key)"
         case .bindAppKey: return "Bind the app to a key (then press the key)"
         case .jumpToKey: return "Jump to a bound window or app (then press its key)"
@@ -322,7 +324,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         [.cyclePrevious, .cycleNext, .moveLeft, .moveRight, .moveToStart, .moveToEnd, .sortByWorkspace,
          .toggleMaximize, .maximizeWindow, .minimizeWindow, .declutter, .toggleGroup, .toggleGroupLock, .closeWindow, .search,
          .openLauncher, .openRaycastCommand, .showOverview, .toggleInvisibleStrip, .toggleRecording, .screenshotWindow,
-         .goToEmptySpace, .moveToEmptySpace, .bindWindowKey, .bindAppKey, .jumpToKey]
+         .goToEmptySpace, .moveToEmptySpace, .labelWindow, .bindWindowKey, .bindAppKey, .jumpToKey]
     }
 
     /// What a double tap of the super key can be bound to: anything that makes sense with no window
@@ -371,6 +373,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         // Next to the numbered workspaces: the one with nothing on it.
         case .goToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask)
         case .moveToEmptySpace: return KeyCombo(keyCode: kVK_ANSI_0, modifiers: superMask | shift)
+        // T for tag: a name and a colour.
+        case .labelWindow: return KeyCombo(keyCode: kVK_ANSI_T, modifiers: superMask)
         // Bind with B, the app with Shift too; J jumps.
         case .bindWindowKey: return KeyCombo(keyCode: kVK_ANSI_B, modifiers: superMask)
         case .bindAppKey: return KeyCombo(keyCode: kVK_ANSI_B, modifiers: superMask | shift)

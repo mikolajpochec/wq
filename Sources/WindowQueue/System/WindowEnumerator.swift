@@ -382,6 +382,8 @@ final class WindowEnumerator {
             let title = (info[kCGWindowName as String] as? String) ?? ""
             // A placeholder standing in for a tiled window is not one to queue.
             if pid == ownPID, title == TilePlaceholders.title { return nil }
+            // Nor is the border drawn round a coloured window.
+            if pid == ownPID, WindowBorderController.ownWindowNumbers.contains(id) { return nil }
             return (id, pid, frame, title)
         }
 

@@ -22,7 +22,7 @@ final class SearchState: ObservableObject {
 
         return windows
             .compactMap { window -> (ManagedWindow, Int)? in
-                let haystack = "\(window.appName) \(window.title)"
+                let haystack = "\(WindowMarks.shared.name(for: window.id) ?? "") \(window.appName) \(window.title)"
                 guard let score = FuzzyMatch.score(query, in: haystack) else { return nil }
                 return (window, score)
             }

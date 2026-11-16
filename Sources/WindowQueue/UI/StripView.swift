@@ -16,6 +16,7 @@ struct StripView: View {
     @ObservedObject var store: PreferencesStore
     @ObservedObject var screen: StripScreenState
     @ObservedObject var capture = ScreenCapture.shared
+    @ObservedObject var marks = WindowMarks.shared
     var onSelect: (ManagedWindow) -> Void
     /// Called with the window being held and how far it has been dragged, and with nil when the
     /// hold ends, so the popup can stay up and follow the icon.
@@ -451,6 +452,7 @@ struct StripView: View {
                 .strokeBorder(holdsSelection ? Color.accentColor : Color.primary.opacity(0.25),
                               style: StrokeStyle(lineWidth: 1.5, dash: isOpen ? [] : [4, 3]))
         )
+        .tintRing(marks.groupTint(id), prefs: prefs)
         .contentShape(Rectangle())
         .help("Group of \(windows.count) windows")
     }
@@ -608,6 +610,7 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
+        .tintRing(marks.tint(for: window.id), prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let group = model.tiledGroup(of: window.id) { tiledMark(group) }
         }
@@ -810,6 +813,22 @@ private struct DiagonalStripes: Shape {
 }
 
 extension View {
+    /// A ring in the colour the user marked the window (or its group) with, just inside the row's
+    /// own highlight so both show.
+    @ViewBuilder
+    func tintRing(_ tint: WindowTint?, prefs: Preferences) -> some View {
+        if let tint {
+            overlay(
+                RoundedRectangle(cornerRadius: max(2, StripMetrics.rowCorner(prefs: prefs) - 2), style: .continuous)
+                    .strokeBorder(tint.color, lineWidth: 2.5)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            )
+        } else {
+            self
+        }
+    }
+
     /// A line of the window's title across the foot of an icon, when labels are on — shared by the
     /// main strip and the group's strip so both show the same thing.
     @ViewBuilder
@@ -843,6 +862,7 @@ enum WindowLabel {
     /// What the label says: the window's own title, which is what tells two windows of the same
     /// application apart, falling back to the application's name.
     static func text(for window: ManagedWindow) -> String {
+        if let name = WindowMarks.shared.name(for: window.id) { return name }
         let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return window.appName }
         // Titles often start with a marker or a bullet the app draws itself; it says nothing here.

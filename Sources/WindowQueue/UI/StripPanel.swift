@@ -39,6 +39,8 @@ private final class HoverHostingView<Content: View>: NSHostingView<Content> {
     var onScroll: ((CGFloat, Bool) -> Void)?
     /// Middle click at a position in this view's coordinates.
     var onMiddleClick: ((NSPoint) -> Void)?
+    /// Right (or control-) click at a position in this view's coordinates.
+    var onRightClick: ((NSPoint) -> Void)?
 
     private var pointerTracking: NSTrackingArea?
 
@@ -83,6 +85,11 @@ private final class HoverHostingView<Content: View>: NSHostingView<Content> {
             return
         }
         onMiddleClick?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let onRightClick else { return super.rightMouseDown(with: event) }
+        onRightClick(convert(event.locationInWindow, from: nil))
     }
 }
 
@@ -138,6 +145,8 @@ final class StripController {
     /// The pointer is over a group's entry, with the group and the window whose row it is, or over
     /// it no longer.
     var onGroupHover: (((group: WindowQueueModel.WindowGroup, row: ManagedWindow)?) -> Void)?
+    /// A window's row was right-clicked: the window, and the view and point to open a menu at.
+    var onContextMenu: ((ManagedWindow, NSView, NSPoint) -> Void)?
     /// The window being dragged along the strip and where it would land, or nil once dropped.
     var onDragTarget: ((ManagedWindow?, Int) -> Void)?
     /// The current-workspace badge was clicked.
@@ -514,6 +523,10 @@ final class StripController {
         hosting.onMiddleClick = { [weak self, weak strip] point in
             guard let self, let strip, let window = self.window(at: point, in: strip) else { return }
             self.onClose(window)
+        }
+        hosting.onRightClick = { [weak self, weak strip, weak hosting] point in
+            guard let self, let strip, let hosting, let window = self.window(at: point, in: strip) else { return }
+            self.onContextMenu?(window, hosting, point)
         }
         return strip
     }

@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quickMarkGrabber = KeyboardGrabber()
     private lazy var tilingMenu = TilingMenuController(store: store)
     private lazy var groupPanel = GroupPanelController(store: store)
+    /// Borders and name tags round the windows the user has coloured or named.
+    private let windowBorders = WindowBorderController()
     private let tilePreview = TilePreviewOverlay()
     /// A group the pointer is resting on, shown without stepping into it.
     private let spaceMover = WindowSpaceMover()
@@ -238,6 +240,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         groupPanel.onClose = { [weak self] window in self?.close(window) }
+        strip.onContextMenu = { [weak self] window, view, point in
+            self?.showMarkMenu(for: window, in: view, at: point)
+        }
+        groupPanel.onContextMenu = { [weak self] window, view, point in
+            self?.showMarkMenu(for: window, in: view, at: point)
+        }
+        model.$groups
+            .receive(on: RunLoop.main)
+            .sink { groups in WindowMarks.shared.syncGroups(groups) }
+            .store(in: &cancellables)
+        model.$windows
+            .receive(on: RunLoop.main)
+            .sink { windows in WindowMarks.shared.prune(keeping: Set(windows.map(\.id))) }
+            .store(in: &cancellables)
         groupPanel.onBack = { [weak self] in
             guard let self else { return }
             // While aiming, back out of the group the aim is in, as the key away from the screen does.
@@ -1323,6 +1339,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleGroupLock:
                 toggleGroupLock()
                 return
+            // Naming or colouring while aiming labels the window aimed at.
+            case .labelWindow:
+                let window = aimedWindow
+                endAiming(commit: false)
+                if let window { showMarkMenu(for: window) }
+                return
             // Binding while aiming binds the window aimed at.
             case .bindWindowKey, .bindAppKey:
                 let window = aimedWindow
@@ -1417,6 +1439,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleGroup()
         case .toggleGroupLock:
             toggleGroupLock()
+        case .labelWindow:
+            if let window = model.selectedWindow { showMarkMenu(for: window) }
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -1533,6 +1557,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         grabber.begin()
+    }
+
+    // MARK: - Window names and colours
+
+    /// The menu that names and colours a window and its group, at a point in a strip's view, or by
+    /// the window's row on the strip when opened from the keyboard.
+    private func showMarkMenu(for window: ManagedWindow, in view: NSView? = nil, at point: NSPoint? = nil) {
+        let marks = WindowMarks.shared
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let header = NSMenuItem(title: window.displayTitle, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        var renaming = false
+        menu.addItem(MarkMenuItem(title: marks.name(for: window.id) == nil ? "Name Window…" : "Rename Window…") { [weak self] in
+            renaming = true
+            // After the menu has closed, so the alert is not run from inside its tracking loop.
+            DispatchQueue.main.async { self?.promptForName(of: window) }
+        })
+        if marks.name(for: window.id) != nil {
+            menu.addItem(MarkMenuItem(title: "Remove Name") { marks.setName(nil, for: window.id) })
+        }
+        menu.addItem(colourItem(title: "Window Colour", current: marks.windowTints[window.id]) { tint in
+            marks.setTint(tint, for: window.id)
+        })
+        if let group = model.group(of: window.id) {
+            menu.addItem(.separator())
+            menu.addItem(colourItem(title: "Group \(group.id) Colour", current: marks.groupTint(group.id)) { tint in
+                marks.setTint(tint, forGroup: group.id)
+            })
+        }
+
+        Diagnostics.note("mark menu for \(window.id)\(view == nil ? " (keyboard)" : "")")
+        if let view, let point {
+            menu.popUp(positioning: nil, at: point, in: view)
+            return
+        }
+        // From the keyboard: beside the window's icon, or mid-screen when the strip is hidden.
+        let anchor = groupPanel.rowFrame(for: window.id)?.frame ?? strip?.rowFrame(for: window.id)
+        let screenPoint: NSPoint
+        if let anchor {
+            screenPoint = NSPoint(x: anchor.maxX, y: anchor.maxY)
+        } else {
+            let frame = NSScreen.main?.visibleFrame ?? .zero
+            screenPoint = NSPoint(x: frame.midX, y: frame.midY)
+        }
+        // A menu opened from the keyboard takes keys only while WindowQueue is active; whatever was
+        // in front gets the keyboard back once it closes.
+        let previous = NSWorkspace.shared.frontmostApplication
+        NSApp.activate()
+        menu.popUp(positioning: nil, at: screenPoint, in: nil)
+        if !renaming, let previous, previous.processIdentifier != getpid() { previous.activate() }
+    }
+
+    private func colourItem(title: String, current: WindowTint?,
+                            set: @escaping (WindowTint?) -> Void) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let none = MarkMenuItem(title: "None") { set(nil) }
+        none.state = current == nil ? .on : .off
+        submenu.addItem(none)
+        submenu.addItem(.separator())
+        for tint in WindowTint.allCases {
+            let entry = MarkMenuItem(title: tint.title) { set(tint) }
+            entry.image = tint.swatch
+            entry.state = current == tint ? .on : .off
+            submenu.addItem(entry)
+        }
+        item.submenu = submenu
+        if let current { item.image = current.swatch }
+        return item
+    }
+
+    /// Asks for a window's name in a small alert, then hands the keyboard back to the window.
+    private func promptForName(of window: ManagedWindow) {
+        let marks = WindowMarks.shared
+        let alert = NSAlert()
+        alert.messageText = "Name this window"
+        alert.informativeText = "\(window.appName): \(window.title.isEmpty ? "untitled" : window.title)\nShown on the strip and on the window. Leave empty to remove."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = marks.name(for: window.id) ?? ""
+        field.placeholderString = window.title.isEmpty ? window.appName : window.title
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        alert.window.level = .floating
+        let saved = alert.runModal() == .alertFirstButtonReturn
+        if saved {
+            marks.setName(field.stringValue, for: window.id)
+            Diagnostics.note("window \(window.id) named \(marks.name(for: window.id) ?? "(none)")")
+        }
+        focus(window, warpCursor: false)
     }
 
     /// Steps the focus through the queue. While a workspace jump is still sliding, the desktop on
@@ -2586,6 +2705,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .compactMap { id in model.windows.first { $0.id == id } }
             guard let layout = TileLayout.options(for: windows.count).first(where: { $0.kind == "Columns" }) else { return }
             placeTiling(windows, layout: layout)
+        case "mark":
+            // `mark <id> <colour|none> [name…]`: colours and names a window as the menu would.
+            guard words.count >= 3, let id = CGWindowID(words[1]) else { return }
+            WindowMarks.shared.setTint(WindowTint(rawValue: String(words[2])), for: id)
+            WindowMarks.shared.setName(words.dropFirst(3).joined(separator: " "), for: id)
+        case "markgroup":
+            // `markgroup <group number> <colour|none>`.
+            guard words.count >= 3, let group = Int(words[1]) else { return }
+            WindowMarks.shared.setTint(WindowTint(rawValue: String(words[2])), forGroup: group)
         case "refresh":
             enumerator?.refresh()
         case "dump":
@@ -2725,4 +2853,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() {
         NSApp.terminate(nil)
     }
+}
+
+/// A menu item that runs a closure, so a menu can be built inline.
+private final class MarkMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+        isEnabled = true
+    }
+
+    required init(coder: NSCoder) { fatalError("unsupported") }
+
+    @objc private func run() { handler() }
 }

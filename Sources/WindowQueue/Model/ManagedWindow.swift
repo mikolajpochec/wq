@@ -27,8 +27,10 @@ struct ManagedWindow: Identifiable, Equatable {
         "\(bundleID ?? appName)\u{1}\(title)"
     }
 
+    /// The name the user gave the window, else its title, else its application's name.
     var displayTitle: String {
-        title.isEmpty ? appName : title
+        if let name = WindowMarks.shared.name(for: id) { return name }
+        return title.isEmpty ? appName : title
     }
 
     /// The same image object every time for a given app. `NSRunningApplication.icon` hands out a

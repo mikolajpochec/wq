@@ -47,6 +47,7 @@ final class GroupPanelState: ObservableObject {
 struct GroupPanelView: View {
     @ObservedObject var state: GroupPanelState
     @ObservedObject var store: PreferencesStore
+    @ObservedObject var marks = WindowMarks.shared
     var pick: (ManagedWindow) -> Void
     var back: () -> Void = {}
     /// A window was dragged to another place among the group's windows (an index into
@@ -349,6 +350,7 @@ struct GroupPanelView: View {
                 .strokeBorder(highlight ?? .clear,
                               lineWidth: window.id == state.aimingID ? 2.5 : 1.5)
         )
+        .tintRing(marks.tint(for: window.id), prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
         }
@@ -471,6 +473,13 @@ private final class GroupHostingView: NSHostingView<GroupPanelView> {
         guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
         onMiddleClick?(convert(event.locationInWindow, from: nil))
     }
+
+    var onRightClick: ((NSPoint) -> Void)?
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let onRightClick else { return super.rightMouseDown(with: event) }
+        onRightClick(convert(event.locationInWindow, from: nil))
+    }
 }
 
 /// Owns the panel that shows a group's windows beside the strip.
@@ -512,6 +521,8 @@ final class GroupPanelController {
     var onDragTarget: ((ManagedWindow?, Int) -> Void)?
     /// A window in the panel was middle-clicked, which closes it as it does in the strip.
     var onClose: ((ManagedWindow) -> Void)?
+    /// A window's row was right-clicked: the window, and the view and point to open a menu at.
+    var onContextMenu: ((ManagedWindow, NSView, NSPoint) -> Void)?
 
     init(store: PreferencesStore) {
         self.store = store
@@ -571,6 +582,10 @@ final class GroupPanelController {
             hosting.onMiddleClick = { [weak self] point in
                 guard let self, let window = self.window(at: point) else { return }
                 self.onClose?(window)
+            }
+            hosting.onRightClick = { [weak self, weak hosting] point in
+                guard let self, let hosting, let window = self.window(at: point) else { return }
+                self.onContextMenu?(window, hosting, point)
             }
         }
         self.hosting = hosting
