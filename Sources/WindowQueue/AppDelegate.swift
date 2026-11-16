@@ -1638,11 +1638,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // after, with its aim untouched.
         let pausedAiming = model.aimingID != nil && aimingKeys.isActive
         if pausedAiming { aimingKeys.end() }
+        // Aiming's own panels (the layout menu beside a multi-selection, the action tiles) float
+        // above menus: they go away while it is open and come back as they were.
+        let wasAiming = model.aimingID != nil
+        let layoutFocused = tilingMenu.state.isFocused
+        if wasAiming {
+            tilingMenu.hide()
+            actionPanel.hide()
+        }
         defer {
             toast?.isSuppressed = false
-            if pausedAiming, model.aimingID != nil, !aimingKeys.isActive {
-                aimingKeys.begin()
+            if wasAiming, model.aimingID != nil {
+                if pausedAiming, !aimingKeys.isActive { aimingKeys.begin() }
                 aimChanged()
+                if layoutFocused { tilingMenu.state.isFocused = true }
             }
         }
         if let view, let point {
@@ -1725,6 +1734,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // gets the keyboard back after.
         let pausedAiming = model.aimingID != nil && aimingKeys.isActive
         if pausedAiming { aimingKeys.end() }
+        if model.aimingID != nil {
+            tilingMenu.hide()
+            actionPanel.hide()
+            toast?.hideNow()
+        }
         let previous = NSWorkspace.shared.frontmostApplication
         NSApp.activate()
         alert.window.level = .floating
