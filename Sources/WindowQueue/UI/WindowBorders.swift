@@ -13,7 +13,7 @@ final class WindowBorderController {
     /// Window numbers of the border windows, which the enumerator must not take for windows to queue.
     private(set) static var ownWindowNumbers: Set<CGWindowID> = []
 
-    static let borderWidth: CGFloat = 4
+    static let borderWidth: CGFloat = 3
 
     private let marks: WindowMarks
     private let isEnabled: () -> Bool
@@ -95,7 +95,10 @@ final class WindowBorderController {
             // CoreGraphics counts from the top of the primary screen, AppKit from its bottom.
             let window = NSRect(x: bounds.minX, y: primaryHeight - bounds.maxY,
                                 width: bounds.width, height: bounds.height)
-            let frame = window.insetBy(dx: -Self.borderWidth, dy: -Self.borderWidth)
+            // Exactly over the window, the border drawn inside its edge: one reaching outside would
+            // show round any window of the same size stacked on top of it, and in the gap between
+            // tiled windows.
+            let frame = window
             if border.frame != frame { border.setFrame(frame, display: true) }
             let mine = CGWindowID(border.windowNumber)
             let inFront = order.firstIndex(of: mine).map { index in
@@ -147,9 +150,10 @@ private final class BorderView: NSView {
     var tint: WindowTint?
     var name: String?
 
-    /// Roughly the corner of a macOS window, so the frame hugs it: Liquid Glass rounded them more.
+    /// At least the corner of a macOS window (Liquid Glass rounded them more, more still with a
+    /// toolbar): a corner tighter than the window's would poke out past it.
     private let windowCorner: CGFloat = {
-        if #available(macOS 26, *) { return 16 }
+        if #available(macOS 26, *) { return 24 }
         return 10
     }()
 
@@ -157,7 +161,7 @@ private final class BorderView: NSView {
         let width = WindowBorderController.borderWidth
         if let tint {
             let rect = bounds.insetBy(dx: width / 2, dy: width / 2)
-            let radius = windowCorner + width / 2
+            let radius = windowCorner - width / 2
             let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
             path.lineWidth = width
             tint.nsColor.setStroke()

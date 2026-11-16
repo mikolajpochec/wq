@@ -1592,7 +1592,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         // Section headers, not disabled items: the arrow keys (and `[` `]`) would stop on those.
-        menu.addItem(.sectionHeader(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows"))
+        let title = first.displayTitle.count > 48 ? first.displayTitle.prefix(47) + "…" : first.displayTitle
+        menu.addItem(.sectionHeader(title: windows.count == 1 ? title : "\(windows.count) windows"))
 
         var renaming = false
         if windows.count == 1 {
@@ -1632,6 +1633,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Diagnostics.note("mark menu for \(ids)\(view == nil ? " (keyboard)" : "")")
+        // The popup (and its window picture, which aiming and hovering hold up) would cover the menu.
+        toast?.isSuppressed = true
+        defer { toast?.isSuppressed = false }
         if let view, let point {
             MenuKeyMapper(prefs: store.prefs).whileOpen {
                 menu.popUp(positioning: nil, at: point, in: view)

@@ -91,6 +91,11 @@ private struct GroupPreview: View {
 /// Usually one bubble beside the strip the user is looking at. While aiming, the aimed window's name
 /// is shown beside every strip, since the aim is on all of them at once.
 final class ToastController {
+    /// While set (a menu of WindowQueue's is open), nothing pops up: the popup and its window
+    /// picture would cover the menu.
+    var isSuppressed = false {
+        didSet { if isSuppressed { hideNow() } }
+    }
     /// One popup window. Built once and updated in place: while an icon is dragged this is
     /// refreshed on every slot change, and rebuilding the hosting view each time is what makes a
     /// press feel sluggish.
@@ -147,7 +152,7 @@ final class ToastController {
     /// A popup in the middle of the screen, for something that is not about one window — a group
     /// of windows just acted on, say.
     func showCentred(title: String, subtitle: String) {
-        guard store.prefs.toastEnabled else { return }
+        guard store.prefs.toastEnabled, !isSuppressed else { return }
         generation += 1
         if bubbles.isEmpty { bubbles.append(Bubble(view: ToastView(title: title, subtitle: subtitle))) }
         guard let bubble = bubbles.first else { return }
@@ -167,7 +172,7 @@ final class ToastController {
     func show(title: String, subtitle: String, beside windowID: CGWindowID,
               pinned: Bool = false, everywhere: Bool = false, preview: NSImage? = nil,
               group: [WindowPreview.Tile]? = nil) {
-        guard store.prefs.toastEnabled else { return }
+        guard store.prefs.toastEnabled, !isSuppressed else { return }
         generation += 1
 
         let side = store.prefs.stripSide
