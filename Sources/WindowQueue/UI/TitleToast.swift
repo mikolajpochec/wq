@@ -6,6 +6,8 @@ private struct ToastView: View {
     let subtitle: String
     /// A picture of the window, when one can be taken.
     var preview: NSImage?
+    /// The whole tiled group the window belongs to, laid out as on screen, in place of `preview`.
+    var group: [WindowPreview.Tile]? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -19,7 +21,9 @@ private struct ToastView: View {
                 .lineLimit(1)
             }
             // Under the name: the words say which window it is, the picture shows what is in it.
-            if let preview {
+            if let group {
+                GroupPreview(tiles: group)
+            } else if let preview {
                 Image(nsImage: preview)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -34,6 +38,51 @@ private struct ToastView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassBackground(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// A tiled group in miniature: every window at its place, the one the popup names at full strength
+/// and outlined, the rest dimmed.
+private struct GroupPreview: View {
+    let tiles: [WindowPreview.Tile]
+
+    var body: some View {
+        let union = tiles.dropFirst().reduce(tiles[0].frame) { $0.union($1.frame) }
+        let maxHeight = WindowPreview.maximumSize * 0.75
+        let scale = min(WindowPreview.maximumSize / union.width, maxHeight / union.height, 1)
+        let size = CGSize(width: (union.width * scale).rounded(), height: (union.height * scale).rounded())
+        // The focused window last, so it is drawn on top where windows overlap.
+        let ordered = tiles.filter { !$0.isFocus } + tiles.filter(\.isFocus)
+        ZStack(alignment: .topLeading) {
+            ForEach(ordered) { tile in
+                let rect = CGRect(x: (tile.frame.minX - union.minX) * scale,
+                                  y: (tile.frame.minY - union.minY) * scale,
+                                  width: tile.frame.width * scale, height: tile.frame.height * scale)
+                    .insetBy(dx: 1, dy: 1)
+                tileView(tile)
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    @ViewBuilder private func tileView(_ tile: WindowPreview.Tile) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        ZStack {
+            if let image = tile.image {
+                Image(nsImage: image).resizable()
+            } else {
+                shape.fill(Color.primary.opacity(0.12))
+            }
+            if !tile.isFocus { Color.black.opacity(0.45) }
+        }
+        .clipShape(shape)
+        .opacity(tile.isFocus ? 1 : 0.6)
+        .overlay(
+            shape.strokeBorder(tile.isFocus ? Color.accentColor : Color.primary.opacity(0.15),
+                               lineWidth: tile.isFocus ? 2 : 1)
+        )
     }
 }
 
@@ -67,6 +116,9 @@ final class ToastController {
     var anchorProvider: ((CGWindowID) -> (frame: NSRect, side: StripSide)?)?
     /// The window's row on every strip on screen, for a popup shown beside each of them.
     var everyAnchorProvider: ((CGWindowID) -> [NSRect])?
+    /// The windows of the tiled group a window is in (itself included, layout order), for a
+    /// preview of the whole layout; nil or a single window when it is not tiled.
+    var tiledMatesProvider: ((CGWindowID) -> [ManagedWindow]?)?
 
     init(store: PreferencesStore) {
         self.store = store
@@ -80,9 +132,16 @@ final class ToastController {
         // Only where the window is not on screen to look at anyway: hovering an icon and aiming,
         // both of which hold the popup up. Cycling with the keyboard brings the window forward as it
         // goes, so a picture of it would be a picture of what is already there.
-        let preview = store.prefs.showWindowPreview && pinned ? WindowPreview.image(for: window.id) : nil
+        let wantsPicture = store.prefs.showWindowPreview && pinned
+        // A tiled window is shown with its whole layout, so it is clear which part of it this is.
+        let group = wantsPicture ? tiledMatesProvider?(window.id).flatMap { mates in
+            WindowPreview.group(mates.map(\.id), focus: window.id,
+                                knownFrames: Dictionary(mates.compactMap { mate in mate.frame.map { (mate.id, $0) } },
+                                                        uniquingKeysWith: { first, _ in first }))
+        } : nil
+        let preview = wantsPicture && group == nil ? WindowPreview.image(for: window.id) : nil
         show(title: window.displayTitle, subtitle: window.appName, beside: window.id,
-             pinned: pinned, everywhere: everywhere, preview: preview)
+             pinned: pinned, everywhere: everywhere, preview: preview, group: group)
     }
 
     /// A popup in the middle of the screen, for something that is not about one window — a group
@@ -106,7 +165,8 @@ final class ToastController {
 
     /// A popup with any text, placed beside a window's icon.
     func show(title: String, subtitle: String, beside windowID: CGWindowID,
-              pinned: Bool = false, everywhere: Bool = false, preview: NSImage? = nil) {
+              pinned: Bool = false, everywhere: Bool = false, preview: NSImage? = nil,
+              group: [WindowPreview.Tile]? = nil) {
         guard store.prefs.toastEnabled else { return }
         generation += 1
 
@@ -114,7 +174,7 @@ final class ToastController {
         var anchors: [NSRect?] = [anchorProvider?(windowID)?.frame]
         if everywhere, let all = everyAnchorProvider?(windowID), !all.isEmpty { anchors = all }
 
-        let view = ToastView(title: title, subtitle: subtitle, preview: preview)
+        let view = ToastView(title: title, subtitle: subtitle, preview: preview, group: group)
         while bubbles.count < anchors.count { bubbles.append(Bubble(view: view)) }
 
         for (bubble, anchor) in zip(bubbles, anchors) {

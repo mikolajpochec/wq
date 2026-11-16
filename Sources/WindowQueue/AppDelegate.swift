@@ -213,6 +213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let strip, let frame = strip.rowFrame(for: id) else { return nil }
             return (frame, strip.side)
         }
+        toast.tiledMatesProvider = { [weak self] id in
+            // Mates on the window's own workspace only: those are the ones laid out with it.
+            guard let model = self?.model, let group = model.tiledGroup(of: id),
+                  let window = model.windows.first(where: { $0.id == id }) else { return nil }
+            return model.tiledWindowsInQueueOrder(group).filter { $0.spaceID == window.spaceID }
+        }
         toast.everyAnchorProvider = { [weak self, weak strip] id in
             // Aiming shows the name on every strip, but a window listed in the group's strip lives
             // on that one only — the main strip holds the group's single entry, not the window.
