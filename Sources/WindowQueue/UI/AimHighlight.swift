@@ -20,6 +20,7 @@ final class AimHighlightOverlay {
         let panel = flashPanel ?? make()
         flashPanel = panel
         (panel.contentView as? HighlightView)?.style = .focus
+        (panel.contentView as? HighlightView)?.tint = WindowMarks.shared.tint(for: window.id)?.nsColor
         panel.setFrame(frame, display: true)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
@@ -131,12 +132,17 @@ final class AimHighlightOverlay {
         var style: Style = .aimCursor {
             didSet { if style != oldValue { needsDisplay = true } }
         }
+        /// The colour the user gave the window, which the focus flash takes over the selection's.
+        var tint: NSColor? {
+            didSet { if tint != oldValue { needsDisplay = true } }
+        }
 
         override func draw(_ dirtyRect: NSRect) {
             let inset = bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
             let path = NSBezierPath(roundedRect: inset, xRadius: 10, yRadius: 10)
             // An outline only: a tint over the window would hide the very thing being pointed at.
-            style.colour.withAlphaComponent(style.opacity).setStroke()
+            let colour = style == .focus ? (tint ?? style.colour) : style.colour
+            colour.withAlphaComponent(style.opacity).setStroke()
             path.lineWidth = lineWidth
             path.stroke()
         }

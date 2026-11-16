@@ -336,7 +336,9 @@ struct GroupPanelView: View {
         let aimed = window.id == state.aimingID && !isAimingRun
         // The fullscreen window is highlighted together with its cascade, not as a row of its own.
         let selected = window.id == state.selectedID && !aimed && !isAimingRun
-        let highlight: Color? = aimed ? .orange : (selected ? .accentColor : nil)
+        let tint = marks.tint(for: window.id)
+        // Selected in its own colour, if it has one, rather than ringed inside the selection.
+        let highlight: Color? = aimed ? .orange : (selected ? (tint?.color ?? .accentColor) : nil)
         return icon(for: window)
             .frame(width: prefs.iconSize, height: prefs.iconSize)
             .windowLabel(window, prefs: prefs)
@@ -350,7 +352,7 @@ struct GroupPanelView: View {
                 .strokeBorder(highlight ?? .clear,
                               lineWidth: window.id == state.aimingID ? 2.5 : 1.5)
         )
-        .tintRing(marks.tint(for: window.id), prefs: prefs)
+        .tintRing(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let number = state.tiledNumbers[window.id] { tiledMark(number) }
         }

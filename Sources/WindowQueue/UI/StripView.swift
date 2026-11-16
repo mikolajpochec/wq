@@ -420,6 +420,8 @@ struct StripView: View {
     private func groupTile(id: Int, windows: [ManagedWindow]) -> some View {
         let isOpen = model.openGroupID == id
         let holdsSelection = windows.contains { $0.id == model.selectedID }
+        let tint = marks.groupTint(id)
+        let selection = tint?.color ?? .accentColor
         return ZStack {
             ForEach(Array(windows.prefix(StripMetrics.stackPeek).enumerated().reversed()), id: \.element.id) { depth, window in
                 let back = CGFloat(depth)
@@ -445,14 +447,14 @@ struct StripView: View {
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
-                .fill(holdsSelection ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.08))
+                .fill(holdsSelection ? selection.opacity(0.28) : Color.primary.opacity(0.08))
         )
         .overlay(
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
-                .strokeBorder(holdsSelection ? Color.accentColor : Color.primary.opacity(0.25),
+                .strokeBorder(holdsSelection ? selection : Color.primary.opacity(0.25),
                               style: StrokeStyle(lineWidth: 1.5, dash: isOpen ? [] : [4, 3]))
         )
-        .tintRing(marks.groupTint(id), prefs: prefs)
+        .tintRing(holdsSelection ? nil : tint, prefs: prefs)
         .contentShape(Rectangle())
         .help("Group of \(windows.count) windows")
     }
@@ -591,7 +593,10 @@ struct StripView: View {
         // carry none of their own.
         let isAimCursor = window.id == model.aimingID && !isAimingRun
         let isAimed = isAimCursor
-        let highlight: Color? = isAimed ? .orange : (isSelected ? .accentColor : nil)
+        // A coloured window is selected in its own colour, rather than ringed in it inside the
+        // selection's: one mark, not two.
+        let tint = marks.tint(for: window.id)
+        let highlight: Color? = isAimed ? .orange : (isSelected ? (tint?.color ?? .accentColor) : nil)
         let covered = isCovered(window)
         return ZStack(alignment: .bottomTrailing) {
             iconWithLabel(for: window)
@@ -610,7 +615,7 @@ struct StripView: View {
             RoundedRectangle(cornerRadius: StripMetrics.rowCorner(prefs: prefs), style: .continuous)
                 .strokeBorder(highlight ?? .clear, lineWidth: isAimCursor ? 2.5 : 1.5)
         )
-        .tintRing(marks.tint(for: window.id), prefs: prefs)
+        .tintRing(highlight == nil ? tint : nil, prefs: prefs)
         .overlay(alignment: .topLeading) {
             if let group = model.tiledGroup(of: window.id) { tiledMark(group) }
         }

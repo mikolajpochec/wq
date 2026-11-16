@@ -241,10 +241,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         groupPanel.onClose = { [weak self] window in self?.close(window) }
         strip.onContextMenu = { [weak self] window, view, point in
-            self?.showMarkMenu(for: window, in: view, at: point)
+            guard let self else { return }
+            self.showMarkMenu(for: self.markTargets(around: window), in: view, at: point)
         }
         groupPanel.onContextMenu = { [weak self] window, view, point in
-            self?.showMarkMenu(for: window, in: view, at: point)
+            guard let self else { return }
+            self.showMarkMenu(for: self.markTargets(around: window), in: view, at: point)
         }
         model.$groups
             .receive(on: RunLoop.main)
@@ -717,6 +719,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions.append(AimAction(kind: .shortcut(.minimizeWindow), title: "Minimize", symbol: "minus.rectangle"))
         actions.append(AimAction(kind: .shortcut(.declutter), title: "Declutter", symbol: "rectangle.3.group"))
         actions.append(AimAction(kind: .shortcut(.closeWindow), title: "Close", symbol: "xmark"))
+        actions.append(AimAction(kind: .shortcut(.labelWindow), title: "Colour", symbol: "paintpalette"))
         actions.append(AimAction(kind: .selectAll, title: "Select all", symbol: "checklist"))
         actions.append(AimAction(kind: .shortcut(.openLauncher), title: store.prefs.launcher.title,
                                  symbol: "magnifyingglass"))
@@ -1341,9 +1344,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             // Naming or colouring while aiming labels the window aimed at.
             case .labelWindow:
-                let window = aimedWindow
+                let windows = markTargets(around: nil)
                 endAiming(commit: false)
-                if let window { showMarkMenu(for: window) }
+                showMarkMenu(for: windows)
+                return
+            // The aim stays: stepping through colours is easiest watching the strip.
+            case .cycleWindowColour:
+                cycleColour(of: markTargets(around: nil))
                 return
             // Binding while aiming binds the window aimed at.
             case .bindWindowKey, .bindAppKey:
@@ -1440,7 +1447,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .toggleGroupLock:
             toggleGroupLock()
         case .labelWindow:
-            if let window = model.selectedWindow { showMarkMenu(for: window) }
+            showMarkMenu(for: markTargets(around: nil))
+        case .cycleWindowColour:
+            cycleColour(of: markTargets(around: nil))
         case .closeWindow:
             closeSelectedWindow()
         case .search:
@@ -1561,41 +1570,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Window names and colours
 
-    /// The menu that names and colours a window and its group, at a point in a strip's view, or by
-    /// the window's row on the strip when opened from the keyboard.
-    private func showMarkMenu(for window: ManagedWindow, in view: NSView? = nil, at point: NSPoint? = nil) {
+    /// The windows a colour or name goes to: every aimed window while aiming (the one under a
+    /// right-click joins them only if it is one of them), else the window itself.
+    private func markTargets(around window: ManagedWindow?) -> [ManagedWindow] {
+        if model.aimingID != nil {
+            let aimed = model.aimedWindows
+            if let window, !aimed.contains(where: { $0.id == window.id }) { return [window] }
+            return aimed
+        }
+        if let window { return [window] }
+        return model.selectedWindow.map { [$0] } ?? []
+    }
+
+    /// The menu that names and colours windows and their group, at a point in a strip's view, or
+    /// by the first window's row on the strip when opened from the keyboard. Colours have number
+    /// keys (1–9, 0 for none) and naming has N, so super+T then a digit colours without the mouse.
+    private func showMarkMenu(for windows: [ManagedWindow], in view: NSView? = nil, at point: NSPoint? = nil) {
+        guard let first = windows.first else { return }
         let marks = WindowMarks.shared
+        let ids = windows.map(\.id)
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let header = NSMenuItem(title: window.displayTitle, action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows",
+                                action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+
         var renaming = false
-        menu.addItem(MarkMenuItem(title: marks.name(for: window.id) == nil ? "Name Window…" : "Rename Window…") { [weak self] in
-            renaming = true
-            // After the menu has closed, so the alert is not run from inside its tracking loop.
-            DispatchQueue.main.async { self?.promptForName(of: window) }
-        })
-        if marks.name(for: window.id) != nil {
-            menu.addItem(MarkMenuItem(title: "Remove Name") { marks.setName(nil, for: window.id) })
+        if windows.count == 1 {
+            let name = MarkMenuItem(title: marks.name(for: first.id) == nil ? "Name Window…" : "Rename Window…") { [weak self] in
+                renaming = true
+                // After the menu has closed, so the alert is not run from inside its tracking loop.
+                DispatchQueue.main.async { self?.promptForName(of: first) }
+            }
+            name.keyEquivalent = "n"
+            name.keyEquivalentModifierMask = []
+            menu.addItem(name)
+            if marks.name(for: first.id) != nil {
+                menu.addItem(MarkMenuItem(title: "Remove Name") { marks.setName(nil, for: first.id) })
+            }
         }
-        menu.addItem(colourItem(title: "Window Colour", current: marks.windowTints[window.id]) { tint in
-            marks.setTint(tint, for: window.id)
-        })
-        if let group = model.group(of: window.id) {
+        menu.addItem(.separator())
+        let label = NSMenuItem(title: windows.count == 1 ? "Window Colour" : "Colour of All \(windows.count)",
+                               action: nil, keyEquivalent: "")
+        label.isEnabled = false
+        menu.addItem(label)
+        let owned = Set(ids.map { marks.windowTints[$0] })
+        // Ticked only when every target has the same colour (or none).
+        let current: WindowTint?? = owned.count == 1 ? .some(owned.first!) : nil
+        addColourItems(to: menu, current: current, numbered: true) { tint in
+            for id in ids { marks.setTint(tint, for: id) }
+        }
+        // A group shared by every target can be coloured as a whole.
+        let groups = Set(ids.map { model.group(of: $0)?.id })
+        if groups.count == 1, let groupID = groups.first ?? nil {
             menu.addItem(.separator())
-            menu.addItem(colourItem(title: "Group \(group.id) Colour", current: marks.groupTint(group.id)) { tint in
-                marks.setTint(tint, forGroup: group.id)
-            })
+            let item = NSMenuItem(title: "Group \(groupID) Colour", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            addColourItems(to: submenu, current: .some(marks.groupTint(groupID)), numbered: false) { tint in
+                marks.setTint(tint, forGroup: groupID)
+            }
+            item.submenu = submenu
+            if let tint = marks.groupTint(groupID) { item.image = tint.swatch }
+            menu.addItem(item)
         }
 
-        Diagnostics.note("mark menu for \(window.id)\(view == nil ? " (keyboard)" : "")")
+        Diagnostics.note("mark menu for \(ids)\(view == nil ? " (keyboard)" : "")")
         if let view, let point {
             menu.popUp(positioning: nil, at: point, in: view)
             return
         }
         // From the keyboard: beside the window's icon, or mid-screen when the strip is hidden.
-        let anchor = groupPanel.rowFrame(for: window.id)?.frame ?? strip?.rowFrame(for: window.id)
+        let anchor = groupPanel.rowFrame(for: first.id)?.frame ?? strip?.rowFrame(for: first.id)
         let screenPoint: NSPoint
         if let anchor {
             screenPoint = NSPoint(x: anchor.maxX, y: anchor.maxY)
@@ -1611,24 +1658,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !renaming, let previous, previous.processIdentifier != getpid() { previous.activate() }
     }
 
-    private func colourItem(title: String, current: WindowTint?,
-                            set: @escaping (WindowTint?) -> Void) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        let none = MarkMenuItem(title: "None") { set(nil) }
-        none.state = current == nil ? .on : .off
-        submenu.addItem(none)
-        submenu.addItem(.separator())
-        for tint in WindowTint.allCases {
+    /// "None" and the colours, ticked at `current` (nil: no tick, mixed selection).
+    private func addColourItems(to menu: NSMenu, current: WindowTint??, numbered: Bool,
+                                set: @escaping (WindowTint?) -> Void) {
+        let none = MarkMenuItem(title: "No Colour") { set(nil) }
+        none.state = current == .some(nil) ? .on : .off
+        if numbered {
+            none.keyEquivalent = "0"
+            none.keyEquivalentModifierMask = []
+        }
+        menu.addItem(none)
+        for (index, tint) in WindowTint.allCases.enumerated() {
             let entry = MarkMenuItem(title: tint.title) { set(tint) }
             entry.image = tint.swatch
-            entry.state = current == tint ? .on : .off
-            submenu.addItem(entry)
+            entry.state = current == .some(tint) ? .on : .off
+            if numbered, index < 9 {
+                entry.keyEquivalent = "\(index + 1)"
+                entry.keyEquivalentModifierMask = []
+            }
+            menu.addItem(entry)
         }
-        item.submenu = submenu
-        if let current { item.image = current.swatch }
-        return item
+    }
+
+    /// Gives the windows the next colour along (after the first one's), wrapping to none.
+    private func cycleColour(of windows: [ManagedWindow]) {
+        guard let first = windows.first else { return }
+        let marks = WindowMarks.shared
+        let all = WindowTint.allCases
+        let next: WindowTint?
+        if let current = marks.windowTints[first.id], let index = all.firstIndex(of: current) {
+            next = index + 1 < all.count ? all[index + 1] : nil
+        } else {
+            next = all.first
+        }
+        for window in windows { marks.setTint(next, for: window.id) }
+        toast?.showCentred(title: next.map { "Colour: \($0.title)" } ?? "No colour",
+                           subtitle: windows.count == 1 ? first.displayTitle : "\(windows.count) windows")
     }
 
     /// Asks for a window's name in a small alert, then hands the keyboard back to the window.
