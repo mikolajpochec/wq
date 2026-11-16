@@ -1386,9 +1386,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch action {
         case .cyclePrevious:
-            if let window = model.cycle(by: -1) { focus(window) }
+            cycleFocus(by: -1)
         case .cycleNext:
-            if let window = model.cycle(by: 1) { focus(window) }
+            cycleFocus(by: 1)
         case .moveLeft:
             model.move(by: -1)
         case .moveRight:
@@ -1528,6 +1528,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         grabber.begin()
     }
+
+    /// Steps the focus through the queue. While a workspace jump is still sliding, the desktop on
+    /// show (and so the queue, and the selection) is still the one being left: a step taken then
+    /// would land on a window back there and carry the user straight back. So the steps wait for
+    /// the jump to land and are then taken from the window in front on the new workspace.
+    private func cycleFocus(by delta: Int) {
+        if let target = SpaceSwitcher.destination {
+            pendingCycle += delta
+            if pendingCycleTarget == nil {
+                Diagnostics.note("cycle \(delta) held until the jump to \(target) lands")
+                pendingCycleTarget = target
+                cycleOnArrival(until: Date().addingTimeInterval(1.5))
+            } else {
+                pendingCycleTarget = target
+            }
+            return
+        }
+        if let window = model.cycle(by: delta) { focus(window) }
+    }
+
+    private func cycleOnArrival(until deadline: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            if SpaceSwitcher.destination != nil, Date() < deadline {
+                self.cycleOnArrival(until: deadline)
+                return
+            }
+            let steps = self.pendingCycle
+            let target = self.pendingCycleTarget
+            self.pendingCycle = 0
+            self.pendingCycleTarget = nil
+            self.enumerator?.refreshSpaceState()
+            if let target, SpacesBridge.shared.isShowing(target),
+               self.model.selectedWindow?.spaceID != target {
+                // Start from the window on top over there, the one the user now sees in front.
+                let candidates = self.model.visibleWindows.filter { $0.spaceID == target && !$0.isMinimized }
+                let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                      kCGNullWindowID) as? [[String: Any]] ?? []
+                let topmost = list.lazy
+                    .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+                    .compactMap { id in candidates.first { $0.id == id } }
+                    .first
+                if let anchor = topmost ?? candidates.first {
+                    self.model.select(id: anchor.id, announce: false)
+                }
+            }
+            guard steps != 0, let window = self.model.cycle(by: steps) else { return }
+            self.focus(window)
+        }
+    }
+
+    /// Cycle steps asked for while a workspace jump was still on its way, and where it was going.
+    private var pendingCycle = 0
+    private var pendingCycleTarget: UInt64?
 
     /// Scrolling moves the selection immediately but defers focusing: spinning through the queue
     /// would otherwise fire a burst of app activations and workspace switches on the way past.
