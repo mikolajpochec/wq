@@ -1603,6 +1603,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.sectionHeader(title: windows.count == 1 ? title : "\(windows.count) windows"))
 
         var renaming = false
+        // A colour picked is the end of the job: aiming closes after it, rather than coming back with
+        // its layout menu or popup as it does when the menu is dismissed.
+        var picked = false
         if windows.count == 1 {
             let name = MarkMenuItem(title: marks.name(for: first.id) == nil ? "Name Window…" : "Rename Window…") { [weak self] in
                 renaming = true
@@ -1623,6 +1626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let current: WindowTint?? = owned.count == 1 ? .some(owned.first!) : nil
         addColourItems(to: menu, current: current, numbered: true) { tint in
             for id in ids { marks.setTint(tint, for: id) }
+            picked = true
             self.confirmColour(tint, of: windows)
         }
         // A group shared by every target can be coloured as a whole.
@@ -1634,6 +1638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             submenu.autoenablesItems = false
             addColourItems(to: submenu, current: .some(marks.groupTint(groupID)), numbered: false) { tint in
                 marks.setTint(tint, forGroup: groupID)
+                picked = true
                 self.toastAfterMenu(title: tint.map { "Group \(groupID): \($0.title)" } ?? "Group \(groupID): no colour",
                                     subtitle: "Every window in the group")
             }
@@ -1659,7 +1664,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         defer {
             toast?.isSuppressed = false
-            if wasAiming, model.aimingID != nil {
+            if wasAiming, model.aimingID != nil, picked {
+                // The selection stays where it was; nothing is focused.
+                endAiming(commit: false)
+            } else if wasAiming, model.aimingID != nil {
                 if pausedAiming, !aimingKeys.isActive { aimingKeys.begin() }
                 aimChanged()
                 if layoutFocused { tilingMenu.state.isFocused = true }
@@ -1775,7 +1783,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             focus(window, warpCursor: false)
         }
-        if pausedAiming, model.aimingID != nil, !aimingKeys.isActive {
+        if saved, model.aimingID != nil {
+            endAiming(commit: false)
+        } else if pausedAiming, model.aimingID != nil, !aimingKeys.isActive {
             aimingKeys.begin()
             aimChanged()
         }
