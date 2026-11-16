@@ -1492,9 +1492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let what = kind == .window ? "“\(window.displayTitle)”" : window.appName
         let bound = quickMarks.keys(for: window).map { KeyCombo.keyName(for: UInt32($0)) }
-        toast?.showCentred(title: "Press a key to bind \(what)",
-                           subtitle: bound.isEmpty ? "Esc cancels" : "Already on \(bound.joined(separator: " ")) · Esc cancels")
-        captureQuickMarkKey { [weak self] keyCode in
+        captureQuickMarkKey(title: "Press a key to bind \(what)",
+                            subtitle: bound.isEmpty ? "Esc cancels" : "Already on \(bound.joined(separator: " ")) · Esc cancels") { [weak self] keyCode in
             guard let self else { return }
             let mark = QuickMark(kind: kind, window: window)
             self.quickMarks.set(mark, keyCode: keyCode)
@@ -1513,8 +1512,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let list = quickMarks.marks.sorted { $0.key < $1.key }
             .map { "\(KeyCombo.keyName(for: UInt32($0.key))) \($0.value.title)" }
-        toast?.showCentred(title: "Jump to…", subtitle: list.joined(separator: " · "))
-        captureQuickMarkKey { [weak self] keyCode in self?.jumpToQuickMark(keyCode: keyCode) }
+        captureQuickMarkKey(title: "Jump to…", subtitle: list.joined(separator: " · ") + " · Esc cancels") { [weak self] keyCode in
+            self?.jumpToQuickMark(keyCode: keyCode)
+        }
     }
 
     private func jumpToQuickMark(keyCode: Int) {
@@ -1540,26 +1540,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Hands the next key press to `done`, swallowing it; Escape (or a while with nothing) cancels.
-    private func captureQuickMarkKey(_ done: @escaping (Int) -> Void) {
+    /// Shows the prompt and waits for the key that answers it: the prompt stays up until a key is
+    /// bound (or jumped to) or Esc gives up. A key that can't be bound keeps it waiting, saying so.
+    private func captureQuickMarkKey(title: String, subtitle: String, _ done: @escaping (Int) -> Void) {
         let grabber = quickMarkGrabber
         grabber.end()
-        grabber.idleTimeout = 5
+        toast?.showPrompt(title: title, subtitle: subtitle)
+        // Only a safety net: the grab swallows every key, so it is not left on for ever if
+        // something goes wrong, but the user is given all the time they need.
+        grabber.idleTimeout = 600
         grabber.onDismiss = { [weak self] in
             grabber.end()
-            self?.toast?.hideNow()
+            self?.toast?.endPrompt()
         }
         grabber.onKeyDown = { [weak self] event in
             let keyCode = event.keyCode
             // A key still repeating from the shortcut itself is not the answer.
             if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return true }
             DispatchQueue.main.async {
-                grabber.end()
                 if keyCode == QuickMarkStore.escapeKeyCode {
-                    self?.toast?.hideNow()
+                    grabber.end()
+                    self?.toast?.endPrompt()
                 } else if QuickMarkStore.isMarkable(keyCode: keyCode) {
+                    grabber.end()
+                    self?.toast?.endPrompt()
                     done(keyCode)
                 } else {
-                    self?.toast?.showCentred(title: "That key cannot be bound", subtitle: "Pick a letter, digit or symbol")
+                    self?.toast?.showPrompt(title: title,
+                                            subtitle: "That key can't be bound: pick a letter, digit or symbol · Esc cancels")
                 }
             }
             return true

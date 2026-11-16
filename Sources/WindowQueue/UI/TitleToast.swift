@@ -152,7 +152,27 @@ final class ToastController {
     /// A popup in the middle of the screen, for something that is not about one window — a group
     /// of windows just acted on, say.
     func showCentred(title: String, subtitle: String) {
-        guard store.prefs.toastEnabled, !isSuppressed else { return }
+        guard store.prefs.toastEnabled, !isSuppressed, !isPrompting else { return }
+        presentCentred(title: title, subtitle: subtitle, autoHide: true)
+    }
+
+    /// A question waiting for a key (binding a quick mark, say): in the middle of the screen until
+    /// `endPrompt`, with nothing else allowed to take its place meanwhile. Shown even with popups
+    /// turned off, since the user would not know what the keyboard is waiting for otherwise.
+    func showPrompt(title: String, subtitle: String) {
+        isPrompting = true
+        presentCentred(title: title, subtitle: subtitle, autoHide: false)
+    }
+
+    func endPrompt() {
+        guard isPrompting else { return }
+        isPrompting = false
+        hideNow()
+    }
+
+    private(set) var isPrompting = false
+
+    private func presentCentred(title: String, subtitle: String, autoHide: Bool) {
         generation += 1
         if bubbles.isEmpty { bubbles.append(Bubble(view: ToastView(title: title, subtitle: subtitle))) }
         guard let bubble = bubbles.first else { return }
@@ -165,6 +185,8 @@ final class ToastController {
         present(bubble, at: NSRect(origin: origin, size: clamped))
         for extra in bubbles.dropFirst() { extra.panel.orderOut(nil) }
         hideWorkItem?.cancel()
+        hideWorkItem = nil
+        guard autoHide else { return }
         scheduleHide(after: max(store.prefs.toastDuration, 1.2))
     }
 
@@ -172,7 +194,7 @@ final class ToastController {
     func show(title: String, subtitle: String, beside windowID: CGWindowID,
               pinned: Bool = false, everywhere: Bool = false, preview: NSImage? = nil,
               group: [WindowPreview.Tile]? = nil) {
-        guard store.prefs.toastEnabled, !isSuppressed else { return }
+        guard store.prefs.toastEnabled, !isSuppressed, !isPrompting else { return }
         generation += 1
 
         let side = store.prefs.stripSide
@@ -226,7 +248,7 @@ final class ToastController {
 
     /// Ends a pinned popup, leaving it up briefly so the final position is readable.
     func endHold() {
-        guard !bubbles.isEmpty else { return }
+        guard !bubbles.isEmpty, !isPrompting else { return }
         scheduleHide(after: min(store.prefs.toastDuration, 0.6))
     }
 
