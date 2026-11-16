@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0 (2026-11-16)
+
+- **Name and colour windows:** right-click a window on the strip, or press ⌥T, to give it a name or a colour. A coloured window gets a border in its colour on screen and a soft glow of that colour behind its icon on the strip; the selected window shows its colour in the selection box instead, so the two never look alike. A named window gets a tag with its name on the window, and the name replaces its title on the strip, in the popup and in search. Names and colours last until WindowQueue quits, like groups.
+- **Colour a whole group:** a grouped window's menu also has **Group Colour**, which colours every window in the group (a window's own colour wins).
+- **Colours from the keyboard:** in the menu, 1–9 picks a colour, 0 clears it and N names the window; `[` and `]` (or whatever the cycle shortcuts are bound to) move up and down and Space picks. ⌥⇧T steps the window through the colours without a menu. While aiming, both apply to every aimed window and the aim stays as it was; the aiming tiles have a **Colour** button too.
+- **Quick marks:** ⌥B and then a key binds the selected window to that key, ⌥⇧B binds its whole app; ⌥J and then the key jumps back to it. An app mark walks through the app's windows when pressed again from inside it, and starts the app when none is open. Marks persist across restarts, and the "press a key" prompt stays on screen until a key is pressed or Esc cancels. Rebindable in Settings › **Hotkeys**; the tour's last page has a tip to try it on.
+- The tour's Setup page has a **Hide the Dock** button: it turns on the Dock's auto-hide so the strip gets the edge and windows get the room (**Show It Again** undoes it).
+- The picture in the popup over a tiled window shows its whole layout: every window of the tile group in its place, the hovered one outlined and the rest dimmed.
+- Fixed: cycling to another window while a workspace switch was still sliding took you back to the workspace you were leaving. The step now waits for the switch to land and starts from the window in front there.
+
 ## 1.3.1 (2026-11-12)
 
 - **⌘Tab cycles the queue:** ⌘Tab selects the next window and ⌘⇧Tab the previous one, in place of the macOS app switcher, which comes back when WindowQueue quits. Settings › General › Queue › **Cycle with Tab** switches it to ⌥Tab or off. A shortcut you set to the same keys keeps them.
