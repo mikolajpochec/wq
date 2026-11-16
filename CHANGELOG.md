@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1 (2026-11-16)
+
+- Colouring the window you're aiming at now shows: its icon keeps its colour's glow inside the orange aim box (before, the box hid it, so the colour seemed not to take), and every colour change is confirmed in a popup, e.g. "Colour: Teal".
+- Picking a colour or saving a name while aiming ends aiming, with the selection where it was, instead of bringing back the layout menu or the window popup. Dismissing the menu with Esc still returns to aiming.
+
 ## 1.4.0 (2026-11-16)
 
 - **Name and colour windows:** right-click a window on the strip, or press ⌥T, to give it a name or a colour. A coloured window gets a border in its colour on screen and a soft glow of that colour behind its icon on the strip; the selected window shows its colour in the selection box instead, so the two never look alike. A named window gets a tag with its name on the window, and the name replaces its title on the strip, in the popup and in search. Names and colours last until WindowQueue quits, like groups.
