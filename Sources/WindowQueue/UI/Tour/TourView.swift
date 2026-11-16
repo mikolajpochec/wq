@@ -427,6 +427,21 @@ struct TourView: View {
                         .labelsHidden()
                         .frame(width: 200)
                     }
+                    setting("Dock", "The strip does the Dock's job. Hiding the Dock gives its room back to your windows; it still slides in at the screen's edge.") {
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            if NativeDock.isAutoHidden {
+                                HStack(spacing: 8) {
+                                    Label("The Dock is hidden", systemImage: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.green)
+                                    Button("Show It Again") { NativeDock.setAutoHidden(false) }
+                                        .controlSize(.small)
+                                }
+                            } else {
+                                Button("Hide the Dock") { NativeDock.setAutoHidden(true) }
+                            }
+                        }
+                    }
                     setting("Queue", "Which windows each strip shows.") {
                         VStack(alignment: .leading, spacing: 6) {
                             scopeChoice(.global, "rectangle.stack", "All windows", "One queue of everything, everywhere.")
