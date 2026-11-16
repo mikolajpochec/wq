@@ -1591,10 +1591,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ids = windows.map(\.id)
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let header = NSMenuItem(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows",
-                                action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
+        // Section headers, not disabled items: the arrow keys (and `[` `]`) would stop on those.
+        menu.addItem(.sectionHeader(title: windows.count == 1 ? first.displayTitle : "\(windows.count) windows"))
 
         var renaming = false
         if windows.count == 1 {
@@ -1611,10 +1609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         menu.addItem(.separator())
-        let label = NSMenuItem(title: windows.count == 1 ? "Window Colour" : "Colour of All \(windows.count)",
-                               action: nil, keyEquivalent: "")
-        label.isEnabled = false
-        menu.addItem(label)
+        menu.addItem(.sectionHeader(title: windows.count == 1 ? "Window Colour" : "Colour of All \(windows.count)"))
         let owned = Set(ids.map { marks.windowTints[$0] })
         // Ticked only when every target has the same colour (or none).
         let current: WindowTint?? = owned.count == 1 ? .some(owned.first!) : nil
@@ -1638,7 +1633,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Diagnostics.note("mark menu for \(ids)\(view == nil ? " (keyboard)" : "")")
         if let view, let point {
-            menu.popUp(positioning: nil, at: point, in: view)
+            MenuKeyMapper(prefs: store.prefs).whileOpen {
+                menu.popUp(positioning: nil, at: point, in: view)
+            }
             return
         }
         // From the keyboard: beside the window's icon, or mid-screen when the strip is hidden.
@@ -1654,7 +1651,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // in front gets the keyboard back once it closes.
         let previous = NSWorkspace.shared.frontmostApplication
         NSApp.activate()
-        menu.popUp(positioning: nil, at: screenPoint, in: nil)
+        MenuKeyMapper(prefs: store.prefs).whileOpen {
+            menu.popUp(positioning: nil, at: screenPoint, in: nil)
+        }
         if !renaming, let previous, previous.processIdentifier != getpid() { previous.activate() }
     }
 
