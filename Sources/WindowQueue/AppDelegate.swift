@@ -1342,11 +1342,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .toggleGroupLock:
                 toggleGroupLock()
                 return
-            // Naming or colouring while aiming labels the window aimed at.
+            // Naming or colouring while aiming labels every aimed window, and the aim stays as it
+            // was: a run of aimed windows is still there to act on once the menu has closed.
             case .labelWindow:
-                let windows = markTargets(around: nil)
-                endAiming(commit: false)
-                showMarkMenu(for: windows)
+                showMarkMenu(for: markTargets(around: nil))
                 return
             // The aim stays: stepping through colours is easiest watching the strip.
             case .cycleWindowColour:
@@ -1635,7 +1634,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.note("mark menu for \(ids)\(view == nil ? " (keyboard)" : "")")
         // The popup (and its window picture, which aiming and hovering hold up) would cover the menu.
         toast?.isSuppressed = true
-        defer { toast?.isSuppressed = false }
+        // Aiming swallows every key; the menu needs them while it is open, and aiming gets them back
+        // after, with its aim untouched.
+        let pausedAiming = model.aimingID != nil && aimingKeys.isActive
+        if pausedAiming { aimingKeys.end() }
+        defer {
+            toast?.isSuppressed = false
+            if pausedAiming, model.aimingID != nil, !aimingKeys.isActive {
+                aimingKeys.begin()
+                aimChanged()
+            }
+        }
         if let view, let point {
             MenuKeyMapper(prefs: store.prefs).whileOpen {
                 menu.popUp(positioning: nil, at: point, in: view)
@@ -1712,6 +1721,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         field.placeholderString = window.title.isEmpty ? window.appName : window.title
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
+        // The alert needs the keyboard: aiming's grab is paused meanwhile, and the app in front
+        // gets the keyboard back after.
+        let pausedAiming = model.aimingID != nil && aimingKeys.isActive
+        if pausedAiming { aimingKeys.end() }
+        let previous = NSWorkspace.shared.frontmostApplication
         NSApp.activate()
         alert.window.level = .floating
         let saved = alert.runModal() == .alertFirstButtonReturn
@@ -1719,7 +1733,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             marks.setName(field.stringValue, for: window.id)
             Diagnostics.note("window \(window.id) named \(marks.name(for: window.id) ?? "(none)")")
         }
-        focus(window, warpCursor: false)
+        if let previous, previous.processIdentifier != getpid() {
+            previous.activate()
+        } else {
+            focus(window, warpCursor: false)
+        }
+        if pausedAiming, model.aimingID != nil, !aimingKeys.isActive {
+            aimingKeys.begin()
+            aimChanged()
+        }
     }
 
     /// Steps the focus through the queue. While a workspace jump is still sliding, the desktop on
