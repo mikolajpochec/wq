@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let monitorFrame = MonitorFrameOverlay()
     /// When aiming mode last opened, for telling a double tap of the super key from two separate ones.
     private var aimingOpenedAt = Date.distantPast
+    /// When the super key was last tapped with no windows to aim at, so a second tap can still be a double tap.
+    private var emptyTapAt = Date.distantPast
     /// Aiming was opened with the mouse, so it offers its actions as tiles to click.
     private var aimStartedWithPointer = false
     /// Watches for a click anywhere outside WindowQueue's own panels while aiming.
@@ -491,7 +493,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             endAiming(commit: true)
+        } else if let action = store.prefs.superDoubleTapAction, model.visibleWindows.isEmpty,
+                  Date().timeIntervalSince(emptyTapAt) < Self.doubleTapInterval {
+            // With nothing on the workspace the first tap opened no mode, but two quick taps are
+            // still the double tap.
+            emptyTapAt = .distantPast
+            perform(action)
         } else {
+            if model.visibleWindows.isEmpty { emptyTapAt = Date() }
             beginAiming()
         }
     }
