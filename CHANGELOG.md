@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2 (2026-11-17)
+
+- Fixed: two quick taps of the super key did nothing on a workspace with no windows. The double tap's action (e.g. opening the launcher) now runs there too.
+
 ## 1.4.1 (2026-11-16)
 
 - Colouring the window you're aiming at now shows: its icon keeps its colour's glow inside the orange aim box (before, the box hid it, so the colour seemed not to take), and every colour change is confirmed in a popup, e.g. "Colour: Teal".
