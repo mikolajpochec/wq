@@ -715,14 +715,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let aimed = model.aimedWindows
         var actions: [AimAction] = []
+        let ungroups = groupAimedAlone != nil
         if aimed.count > 1 {
-            actions.append(AimAction(kind: .shortcut(.toggleGroup), title: "Group", symbol: "square.stack.3d.up"))
+            actions.append(AimAction(kind: .shortcut(.toggleGroup), title: ungroups ? "Ungroup" : "Group",
+                                     symbol: ungroups ? "square.stack.3d.up.slash" : "square.stack.3d.up"))
             if model.aimedGroup == nil {
                 actions.append(AimAction(kind: .confirm, title: "Tile", symbol: "square.grid.2x2"))
             }
         } else {
             actions.append(AimAction(kind: .confirm, title: "Focus", symbol: "scope"))
             actions.append(AimAction(kind: .shortcut(.toggleMaximize), title: "Fullscreen", symbol: "arrow.up.left.and.arrow.down.right"))
+            if ungroups {
+                actions.append(AimAction(kind: .shortcut(.toggleGroup), title: "Ungroup", symbol: "square.stack.3d.up.slash"))
+            }
         }
         actions.append(AimAction(kind: .shortcut(.maximizeWindow), title: "Maximize", symbol: "rectangle.expand.vertical"))
         actions.append(AimAction(kind: .shortcut(.minimizeWindow), title: "Minimize", symbol: "minus.rectangle"))
@@ -1881,13 +1886,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The monitor `focusMonitor` last sent only the pointer to, and the selection then.
     private var pointerOnlyMonitor: (display: CGDirectDisplayID, selectedID: CGWindowID?)?
 
-    /// Groups the aimed windows, or breaks up the group the selection is in.
+    /// The group the aim rests on alone: one aimed window's group, or a group's tile aimed at whole.
+    private var groupAimedAlone: WindowQueueModel.WindowGroup? {
+        let aimed = model.aimedWindows
+        if aimed.count == 1 { return model.group(of: aimed[0].id) }
+        return model.aimedGroup.flatMap { group in aimed.allSatisfy { group.ids.contains($0.id) } ? group : nil }
+    }
+
+    /// Groups the aimed windows, or breaks up the group the selection (or the lone aimed window) is in.
     private func toggleGroup() {
         if model.aimingID != nil {
             let aimed = model.aimedWindows
+            // One thing aimed at (a single window, or a group's tile as a whole) has nothing to be
+            // grouped with, so G breaks up the group it belongs to instead.
+            if let soleGroup = groupAimedAlone, let target = aimed.first {
+                endAiming(commit: false)
+                let count = soleGroup.ids.count
+                model.ungroup(containing: target.id)
+                model.select(id: target.id, announce: false)
+                announceGroup("Ungrouped \(count) windows")
+                return
+            }
             guard aimed.count > 1 else {
                 toast?.showCentred(title: "Aim at two or more windows to group them",
-                                   subtitle: "Shift-click or Shift with the arrows")
+                                   subtitle: "Or at a grouped window to ungroup it")
                 return
             }
             endAiming(commit: false)

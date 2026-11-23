@@ -769,6 +769,15 @@ final class TourSim: ObservableObject {
     private func toggleGroup() {
         if aiming {
             let ids = queue.filter(aimedIDs.contains)
+            // One window or one whole group aimed at: G ungroups instead.
+            if let first = ids.first, let group = group(of: first), ids.count == 1 || aimedGroup == group.id {
+                endAiming()
+                groups.removeAll { $0.id == group.id }
+                dropStaleLock()
+                select(first)
+                flash(.note, "Ungrouped \(group.ids.count) windows")
+                return
+            }
             guard ids.count > 1 else {
                 flash(.note, "Aim at two or more windows to group them")
                 return
