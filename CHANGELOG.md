@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 (2026-11-23)
+
+- **Updates install themselves.** When a new version is out, **Install and Relaunch** downloads it from GitHub, checks it is signed by WindowQueue's developer, replaces the app and reopens it; no more browser and DMG. If it can't (for example when WindowQueue isn't in a writable folder), the window says why and offers the release page.
+- **Settings reorganised.** Eight tabs, one per area: **General**, **Queue**, **Strip**, **Aiming**, **Focus**, **Tiling**, **Shortcuts** and **Animations**. Rarely changed settings sit in an **Advanced** section at the end of each tab, and many settings were renamed to say what they do. **Queue** has one choice for what each strip lists (all windows, the windows on its monitor, or the windows on the workspace in view) in place of three separate settings; your current choice is kept.
+- **Rectangle integration removed.** WindowQueue tiles windows itself, so it no longer writes Rectangle's screen-edge gaps or restarts it. Gaps it set earlier stay in Rectangle's settings until you change them there.
+
 ## 1.5.0 (2026-11-23)
 
 - **Tour tips move on when you're done.** A tip on the Tips page plays its preview once, with no countdown bar, then waits until you've used all its shortcuts. The next tip you haven't done then comes up. A shortcut pressed right after finishing a tip counts for the next one.
