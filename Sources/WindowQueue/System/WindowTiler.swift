@@ -452,7 +452,9 @@ enum TiledResize {
     ///   - gap: the room left between windows of the layout.
     /// - Returns: the new frames of the windows that have to follow; the rest stay as they are.
     static func follow(from old: NSRect, to new: NSRect, others: [CGWindowID: NSRect],
-                       gap: CGFloat, tolerance: CGFloat = 6) -> [CGWindowID: NSRect] {
+                       gap: CGFloat, tolerance: CGFloat = 24) -> [CGWindowID: NSRect] {
+        // The tolerance is generous: terminals keep to whole rows and columns of text, so their
+        // edges sit up to a character short of where the layout put them.
         func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
         /// Whether `edge` of a neighbour faces the dragged edge at `at` across the gap. `ahead` says
         /// the neighbour lies on the far side (beyond a max edge), else on the near side.
@@ -464,19 +466,19 @@ enum TiledResize {
         for (id, frame) in others {
             var minX = frame.minX, maxX = frame.maxX, minY = frame.minY, maxY = frame.maxY
             if !near(old.maxX, new.maxX) {
-                if faces(frame.minX, old.maxX, ahead: true) { minX = new.maxX + (frame.minX - old.maxX) }
+                if faces(frame.minX, old.maxX, ahead: true) { minX = new.maxX + gap }
                 else if near(frame.maxX, old.maxX) { maxX = new.maxX }
             }
             if !near(old.minX, new.minX) {
-                if faces(frame.maxX, old.minX, ahead: false) { maxX = new.minX - (old.minX - frame.maxX) }
+                if faces(frame.maxX, old.minX, ahead: false) { maxX = new.minX - gap }
                 else if near(frame.minX, old.minX) { minX = new.minX }
             }
             if !near(old.maxY, new.maxY) {
-                if faces(frame.minY, old.maxY, ahead: true) { minY = new.maxY + (frame.minY - old.maxY) }
+                if faces(frame.minY, old.maxY, ahead: true) { minY = new.maxY + gap }
                 else if near(frame.maxY, old.maxY) { maxY = new.maxY }
             }
             if !near(old.minY, new.minY) {
-                if faces(frame.maxY, old.minY, ahead: false) { maxY = new.minY - (old.minY - frame.maxY) }
+                if faces(frame.maxY, old.minY, ahead: false) { maxY = new.minY - gap }
                 else if near(frame.minY, old.minY) { minY = new.minY }
             }
             // A neighbour squeezed past its smallest keeps the far edge and stops there.

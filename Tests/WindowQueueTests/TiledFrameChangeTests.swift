@@ -70,3 +70,14 @@ final class TiledResizeTests: XCTestCase {
                                         width: TiledResize.minimumSide, height: 800))
     }
 }
+
+final class TiledResizeSnappingTests: XCTestCase {
+    func testATerminalShortOfItsCellStillFollows() {
+        // The top window kept to whole text rows and ended 14 pt short of the bottom one's gap.
+        let top = NSRect(x: 510, y: 419, width: 490, height: 381)
+        let bottom = NSRect(x: 510, y: 0, width: 490, height: 395)
+        let moves = TiledResize.follow(from: bottom, to: NSRect(x: 510, y: 0, width: 490, height: 300),
+                                       others: [2: top], gap: 10)
+        XCTAssertEqual(moves[2], NSRect(x: 510, y: 310, width: 490, height: 490))
+    }
+}

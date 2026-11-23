@@ -1112,14 +1112,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let group = model.tiledGroup(of: id),
               let window = model.windows.first(where: { $0.id == id })
         else { return }
-        // A window following a neighbour's resize: that change is ours. Where it landed is its place.
+        guard let now = WindowTiler.frame(of: window) else { return }
+        // A drag under way: the dragged window leads, its mates are following it (their changes are
+        // ours), and everything is measured from where the windows were when the drag began.
+        if var session = resizeSessions[group.id] {
+            guard id == session.id else { return }
+            if TiledFrameChange.between(session.start, now) == .moved {
+                Diagnostics.note("tiling broken by moving window \(id) from \(session.start) to \(now) while resizing")
+                endResize(group.id, settle: false)
+                breakTiling(group)
+                return
+            }
+            session.latest = now
+            resizeSessions[group.id] = session
+            follow(session)
+            scheduleResizeEnd(group.id)
+            return
+        }
+        // A window that followed a neighbour's resize a moment ago: still settling, and ours.
         if let until = followingResize[id], Date() < until {
-            if let now = WindowTiler.frame(of: window) { tiledFrames[id] = now }
+            tiledFrames[id] = now
             return
         }
         // Apps report a move for all sorts of reasons, focus among them; only a frame that is
         // really somewhere else means the user has taken the window out of the layout.
-        guard let now = WindowTiler.frame(of: window) else { return }
         guard let placed = tiledFrames[id] else {
             // Its resting place is not known yet (the layout is still settling, or the app was
             // slow to say): there is nothing to tell a move by, so this is where it rests.
@@ -1130,9 +1146,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .unchanged:
             return
         case .resized:
-            // Remembered as its new place, so a later move is measured from where it is now.
-            tiledFrames[id] = now
-            followResize(of: id, in: group, from: placed, to: now)
+            var mates: [CGWindowID: NSRect] = [:]
+            for mate in model.windows where group.ids.contains(mate.id) && mate.id != id {
+                if let frame = tiledFrames[mate.id] ?? WindowTiler.frame(of: mate) { mates[mate.id] = frame }
+            }
+            Diagnostics.note("resizing tiled window \(id) from \(placed); \(mates.count) mate(s) follow")
+            let session = ResizeSession(id: id, start: placed, latest: now, mates: mates)
+            resizeSessions[group.id] = session
+            follow(session)
+            scheduleResizeEnd(group.id)
             return
         case .moved:
             break
@@ -1141,26 +1163,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         breakTiling(group)
     }
 
-    /// The windows sharing an edge with one just resized move that edge with it, so the layout
-    /// keeps filling its room: widening one column narrows the next.
-    private func followResize(of id: CGWindowID, in group: WindowQueueModel.TiledGroup,
-                              from old: NSRect, to new: NSRect) {
-        let mates = model.windows.filter { group.ids.contains($0.id) && $0.id != id }
-        var others: [CGWindowID: NSRect] = [:]
-        for mate in mates {
-            if let frame = tiledFrames[mate.id] ?? WindowTiler.frame(of: mate) { others[mate.id] = frame }
-        }
-        let moves = TiledResize.follow(from: old, to: new, others: others,
+    /// One drag of a tiled window's edge, from the first frame change to a short pause after the
+    /// last one.
+    private struct ResizeSession {
+        let id: CGWindowID
+        /// Where the dragged window was when the drag began.
+        let start: NSRect
+        var latest: NSRect
+        /// Where its mates were when the drag began.
+        let mates: [CGWindowID: NSRect]
+        /// The frames last asked of the mates, so a drag step that changes nothing for one asks nothing.
+        var asked: [CGWindowID: NSRect] = [:]
+        var end: DispatchWorkItem?
+    }
+    private var resizeSessions: [Int: ResizeSession] = [:]
+
+    /// Moves the mates' shared edges to where the dragged window's edges are now. Always worked out
+    /// from the frames at the start of the drag, so a mate that landed a little off (a terminal
+    /// keeps to whole rows of text) does not throw the next step off.
+    private func follow(_ session: ResizeSession, force: Bool = false) {
+        guard let group = model.tiledGroup(of: session.id) else { return }
+        let moves = TiledResize.follow(from: session.start, to: session.latest, others: session.mates,
                                        gap: WindowTiler.Gaps(prefs: store.prefs).inner)
-        guard !moves.isEmpty else { return }
-        let until = Date().addingTimeInterval(1)
-        for mate in mates {
-            guard let frame = moves[mate.id] else { continue }
+        var asked = session.asked
+        let until = Date().addingTimeInterval(1.5)
+        for mate in model.windows where moves[mate.id] != nil {
+            let frame = moves[mate.id]!
+            guard force || asked[mate.id] != frame else { continue }
             var mate = mate
             mate.element = mate.element ?? WindowSpaceMover.element(for: mate)
-            tiledFrames[mate.id] = frame
+            asked[mate.id] = frame
             followingResize[mate.id] = until
             WindowTiler.nudge(mate, to: frame)
+        }
+        resizeSessions[group.id]?.asked = asked
+    }
+
+    private func scheduleResizeEnd(_ groupID: Int) {
+        resizeSessions[groupID]?.end?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.endResize(groupID, settle: true) }
+        resizeSessions[groupID]?.end = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    /// The drag is over: the mates are asked once more for their frames (an app busy with the drag
+    /// may have missed a step), and where everyone came to rest becomes their place.
+    private func endResize(_ groupID: Int, settle: Bool) {
+        guard var session = resizeSessions.removeValue(forKey: groupID) else { return }
+        session.end?.cancel()
+        guard settle, let window = model.windows.first(where: { $0.id == session.id }) else { return }
+        if let now = WindowTiler.frame(of: window) { session.latest = now }
+        resizeSessions[groupID] = session
+        follow(session, force: true)
+        resizeSessions[groupID] = nil
+        let members = model.windows.filter { session.mates[$0.id] != nil || $0.id == session.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            var landed: [String] = []
+            for member in members where self.model.tiledIDs.contains(member.id) {
+                guard let frame = WindowTiler.frame(of: member) else { continue }
+                self.tiledFrames[member.id] = frame
+                landed.append("\(member.id)=\(frame)")
+            }
+            Diagnostics.note("resize of tiled window \(session.id) settled: \(landed.joined(separator: " "))")
         }
     }
 
@@ -1168,6 +1233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func breakTiling(_ group: WindowQueueModel.TiledGroup) {
         if let first = group.ids.first { model.clearTiled(containing: first) }
         tiledOrders[group.id] = nil
+        resizeSessions[group.id]?.end?.cancel()
+        resizeSessions[group.id] = nil
         for member in group.ids { tiledFrames[member] = nil }
     }
 
