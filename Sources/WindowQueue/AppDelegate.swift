@@ -946,6 +946,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tiledOrders: [Int: [CGWindowID]] = [:]
     /// The frames the layout gave them, to tell a real move from a notification about nothing.
     private var tiledFrames: [CGWindowID: NSRect] = [:]
+    /// Windows being moved along with a neighbour's resize, until when their changes are ours.
+    private var followingResize: [CGWindowID: Date] = [:]
     /// The workspace each group was laid out on. A window that turns up on another one has left
     /// the layout, however it got there.
     private var tiledHomes: [Int: UInt64] = [:]
@@ -1107,6 +1109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let group = model.tiledGroup(of: id),
               let window = model.windows.first(where: { $0.id == id })
         else { return }
+        // A window following a neighbour's resize: that change is ours. Where it landed is its place.
+        if let until = followingResize[id], Date() < until {
+            if let now = WindowTiler.frame(of: window) { tiledFrames[id] = now }
+            return
+        }
         // Apps report a move for all sorts of reasons, focus among them; only a frame that is
         // really somewhere else means the user has taken the window out of the layout.
         if let placed = tiledFrames[id], let now = WindowTiler.frame(of: window) {
@@ -1116,6 +1123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .resized:
                 // Remembered as its new place, so a later move is measured from where it is now.
                 tiledFrames[id] = now
+                followResize(of: id, in: group, from: placed, to: now)
                 return
             case .moved:
                 break
@@ -1123,6 +1131,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Diagnostics.note("tiling broken by moving window \(id)")
         breakTiling(group)
+    }
+
+    /// The windows sharing an edge with one just resized move that edge with it, so the layout
+    /// keeps filling its room: widening one column narrows the next.
+    private func followResize(of id: CGWindowID, in group: WindowQueueModel.TiledGroup,
+                              from old: NSRect, to new: NSRect) {
+        let mates = model.windows.filter { group.ids.contains($0.id) && $0.id != id }
+        var others: [CGWindowID: NSRect] = [:]
+        for mate in mates {
+            if let frame = tiledFrames[mate.id] ?? WindowTiler.frame(of: mate) { others[mate.id] = frame }
+        }
+        let moves = TiledResize.follow(from: old, to: new, others: others,
+                                       gap: WindowTiler.Gaps(prefs: store.prefs).inner)
+        guard !moves.isEmpty else { return }
+        let until = Date().addingTimeInterval(1)
+        for mate in mates {
+            guard let frame = moves[mate.id] else { continue }
+            var mate = mate
+            mate.element = mate.element ?? WindowSpaceMover.element(for: mate)
+            tiledFrames[mate.id] = frame
+            followingResize[mate.id] = until
+            WindowTiler.nudge(mate, to: frame)
+        }
     }
 
     /// The layout is no more: its windows stay exactly where they are, simply free again.

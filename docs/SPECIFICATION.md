@@ -2348,6 +2348,9 @@ a focus change):
   in a tiled group, or if its frame differs from the saved one by ≤ 4 pt in every coordinate;
 - a resize (`TiledFrameChange.resized`: the size changed but at least one horizontal and one
   vertical edge stayed within 4 pt) keeps the group and saves the new frame as the window's place;
+  every other member whose edge faces a dragged edge across the gap, or lines up with it along the
+  same divider, moves that edge with it (`TiledResize.follow`, neighbours stop at 120 pt), set once
+  with `WindowTiler.nudge`; their own notifications for the next second only record their frames;
 - otherwise (a move: the same size elsewhere, or every edge on an axis shifted) the whole group ceases to exist; the windows stay exactly where they are.
 Note: `maximizeWindow` on a window from a group causes a frame change after the protection period → releases the group.
 Re-tiling via “groups that lost windows” does not refresh the saved frames — a reimplementation

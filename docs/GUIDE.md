@@ -62,7 +62,7 @@ always-on-top strip showing that list, and workspace switching by number.
   the entry names the group. `⌥G` again, with the selection inside a group, breaks it up. The queue itself is untouched throughout.
 - Tiling from aiming mode leaves the windows in a **tiled group**, marked in the strip. Reordering
   them in the queue lays them out again in the new order, the quick way to change which window is
-  the main one. Resizing one by an edge or corner keeps it in the layout; moving any of them by
+  the main one. Resizing one by an edge or corner keeps it in the layout, and its neighbours follow the dragged edge; moving any of them by
   hand, or maximizing one with `⌥M`, frees the group where it stands. Going fullscreen and back does not.
 - `⌥H` minimizes the selected window.
 - With several windows aimed at, `⌥M`, `⌥H`, `⌥Q`, `⌥⇧↖`, `⌥⇧↘` and `⌥⇧1`…`⌥⇧9` act on all of them

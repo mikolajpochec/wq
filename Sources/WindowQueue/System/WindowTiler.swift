@@ -354,6 +354,28 @@ enum WindowTiler {
         setFrame(target, of: element, window: window)
     }
 
+    /// Sets a window's frame once, in Cocoa screen coordinates, with no checks or retries: for a
+    /// window following a neighbour being resized, where the next drag step soon asks again.
+    static func nudge(_ window: ManagedWindow, to frame: NSRect) {
+        guard let element = window.element else { return }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let target = CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+        placedFrames[window.id] = target
+        currentRequest[window.id] = nil
+        var size = target.size
+        var origin = target.origin
+        guard let sizeValue = AXValueCreate(.cgSize, &size),
+              let originValue = AXValueCreate(.cgPoint, &origin)
+        else { return }
+        withoutAnimation(pid: window.pid) {
+            // Shrinking towards the far edge needs the size first, growing the position first;
+            // setting the size on both sides covers either way in one go.
+            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+            element.setAttribute(kAXPositionAttribute, value: originValue)
+            element.setAttribute(kAXSizeAttribute, value: sizeValue)
+        }
+    }
+
     /// Brings the tiled windows forward together, so none of them is left behind another app.
     static func raise(_ windows: [ManagedWindow]) {
         for window in windows.reversed() {
@@ -414,5 +436,59 @@ enum TiledFrameChange: Equatable {
         let keepsHorizontalEdge = same(now.minX, placed.minX) || same(now.maxX, placed.maxX)
         let keepsVerticalEdge = same(now.minY, placed.minY) || same(now.maxY, placed.maxY)
         return keepsHorizontalEdge && keepsVerticalEdge ? .resized : .moved
+    }
+}
+
+/// When one window of a layout is resized, the windows sharing the edges it dragged follow them:
+/// a neighbour across the edge gives up or takes the room, and a window lined up along the same
+/// divider (the other row of a grid, say) moves its edge too, so the layout stays one piece.
+enum TiledResize {
+    /// Narrower or shorter than this, a neighbour stops giving way.
+    static let minimumSide: CGFloat = 120
+
+    /// - Parameters:
+    ///   - old: where the resized window was. - new: where it is now.
+    ///   - others: the other windows of the layout and their frames.
+    ///   - gap: the room left between windows of the layout.
+    /// - Returns: the new frames of the windows that have to follow; the rest stay as they are.
+    static func follow(from old: NSRect, to new: NSRect, others: [CGWindowID: NSRect],
+                       gap: CGFloat, tolerance: CGFloat = 6) -> [CGWindowID: NSRect] {
+        func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
+        /// Whether `edge` of a neighbour faces the dragged edge at `at` across the gap. `ahead` says
+        /// the neighbour lies on the far side (beyond a max edge), else on the near side.
+        func faces(_ edge: CGFloat, _ at: CGFloat, ahead: Bool) -> Bool {
+            let distance = ahead ? edge - at : at - edge
+            return distance >= -tolerance && distance <= gap + tolerance
+        }
+        var result: [CGWindowID: NSRect] = [:]
+        for (id, frame) in others {
+            var minX = frame.minX, maxX = frame.maxX, minY = frame.minY, maxY = frame.maxY
+            if !near(old.maxX, new.maxX) {
+                if faces(frame.minX, old.maxX, ahead: true) { minX = new.maxX + (frame.minX - old.maxX) }
+                else if near(frame.maxX, old.maxX) { maxX = new.maxX }
+            }
+            if !near(old.minX, new.minX) {
+                if faces(frame.maxX, old.minX, ahead: false) { maxX = new.minX - (old.minX - frame.maxX) }
+                else if near(frame.minX, old.minX) { minX = new.minX }
+            }
+            if !near(old.maxY, new.maxY) {
+                if faces(frame.minY, old.maxY, ahead: true) { minY = new.maxY + (frame.minY - old.maxY) }
+                else if near(frame.maxY, old.maxY) { maxY = new.maxY }
+            }
+            if !near(old.minY, new.minY) {
+                if faces(frame.maxY, old.minY, ahead: false) { maxY = new.minY - (old.minY - frame.maxY) }
+                else if near(frame.minY, old.minY) { minY = new.minY }
+            }
+            // A neighbour squeezed past its smallest keeps the far edge and stops there.
+            if maxX - minX < minimumSide {
+                if minX != frame.minX { minX = maxX - minimumSide } else { maxX = minX + minimumSide }
+            }
+            if maxY - minY < minimumSide {
+                if minY != frame.minY { minY = maxY - minimumSide } else { maxY = minY + minimumSide }
+            }
+            let moved = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            if moved != frame { result[id] = moved }
+        }
+        return result
     }
 }

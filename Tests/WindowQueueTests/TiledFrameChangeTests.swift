@@ -23,3 +23,50 @@ final class TiledFrameChangeTests: XCTestCase {
         XCTAssertEqual(TiledFrameChange.between(placed, NSRect(x: 400, y: 300, width: 700, height: 500)), .moved)
     }
 }
+
+final class TiledResizeTests: XCTestCase {
+    // Two columns 10 pt apart.
+    let left = NSRect(x: 0, y: 0, width: 500, height: 800)
+    let right = NSRect(x: 510, y: 0, width: 490, height: 800)
+
+    func testWideningOneColumnNarrowsTheOther() {
+        let moves = TiledResize.follow(from: left, to: NSRect(x: 0, y: 0, width: 600, height: 800),
+                                       others: [2: right], gap: 10)
+        XCTAssertEqual(moves[2], NSRect(x: 610, y: 0, width: 390, height: 800))
+    }
+
+    func testNarrowingFromTheLeftEdgeWidensTheLeftNeighbour() {
+        let moves = TiledResize.follow(from: right, to: NSRect(x: 410, y: 0, width: 590, height: 800),
+                                       others: [1: left], gap: 10)
+        XCTAssertEqual(moves[1], NSRect(x: 0, y: 0, width: 400, height: 800))
+    }
+
+    func testMainAndStackDividerMovesTheWholeStack() {
+        let main = NSRect(x: 0, y: 0, width: 500, height: 800)
+        let top = NSRect(x: 510, y: 405, width: 490, height: 395)
+        let bottom = NSRect(x: 510, y: 0, width: 490, height: 395)
+        // Resizing the top stack window by its left edge drags the shared divider.
+        let moves = TiledResize.follow(from: top, to: NSRect(x: 610, y: 405, width: 390, height: 395),
+                                       others: [1: main, 3: bottom], gap: 10)
+        XCTAssertEqual(moves[1], NSRect(x: 0, y: 0, width: 600, height: 800))
+        XCTAssertEqual(moves[3], NSRect(x: 610, y: 0, width: 390, height: 395))
+    }
+
+    func testStackDividerMovesOnlyTheStack() {
+        let main = NSRect(x: 0, y: 0, width: 500, height: 800)
+        let top = NSRect(x: 510, y: 405, width: 490, height: 395)
+        let bottom = NSRect(x: 510, y: 0, width: 490, height: 395)
+        // Dragging the bottom window's top edge up (Cocoa y grows upwards).
+        let moves = TiledResize.follow(from: bottom, to: NSRect(x: 510, y: 0, width: 490, height: 495),
+                                       others: [1: main, 2: top], gap: 10)
+        XCTAssertNil(moves[1])
+        XCTAssertEqual(moves[2], NSRect(x: 510, y: 505, width: 490, height: 295))
+    }
+
+    func testANeighbourStopsAtItsSmallestSize() {
+        let moves = TiledResize.follow(from: left, to: NSRect(x: 0, y: 0, width: 950, height: 800),
+                                       others: [2: right], gap: 10)
+        XCTAssertEqual(moves[2], NSRect(x: 1000 - TiledResize.minimumSide, y: 0,
+                                        width: TiledResize.minimumSide, height: 800))
+    }
+}
