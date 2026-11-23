@@ -30,7 +30,7 @@ always-on-top strip showing that list, and workspace switching by number.
 - `⌥V` — or `V` in aiming mode, which stays open — starts recording the screen and stops it again;
   while it records, the strip shows a record mark in place of the workspace number. `⌥P`, or `P`
   while aiming, photographs the aimed windows, one file each, where your own screenshots go.
-- Settings › Shortcuts › **Aiming mode only** binds bare keys that work in aiming mode and nowhere
+- Settings › Shortcuts › **Extra keys for aiming mode** binds bare keys that work in aiming mode and nowhere
   else; they win over the shortcut of the same key.
 - `⌥I` — or `I` in aiming mode, which stays open — hides or shows the strip, saying which it now is,
   and the windows WindowQueue placed are laid out again for the room that just changed.
@@ -38,7 +38,7 @@ always-on-top strip showing that list, and workspace switching by number.
   where it swings open from its edge like a page; the queue works as always and a change is announced
   by the name popup alone.
 - The window focus lands on is outlined for a moment, in the selection colour (Settings › Focus ›
-  Outlines, with the duration; opt out there).
+  Outlines; the duration is under Advanced).
 - While aiming, every aimed window on the workspace in view is outlined on screen, brightest for the
   one the aim is on, so a run of windows of the same application is still telling.
 - Clicking the workspace number opens aiming mode, and a click anywhere outside WindowQueue's own
@@ -137,28 +137,24 @@ Nothing else depends on it.
 ## Keeping windows clear of the strip
 
 Only the Dock and menu bar can shrink `NSScreen.visibleFrame`, so a third-party strip cannot reserve
-screen space on macOS through public API. WindowQueue works around it three ways:
+screen space on macOS through public API. WindowQueue works around it two ways:
 
 - Every app derives its visible frame from one Dock rectangle kept by the WindowServer, and any
   process can overwrite it. While the Dock auto-hides, WindowQueue replaces it with a strip-wide rect
   on the menu bar screen, so zoom, Fill and tiling leave room natively. Apps only read the rect at
   launch and whenever the Dock announces its own, so this reaches apps started after WindowQueue and
   is lost for everyone when the Dock rewrites it; WindowQueue puts it back, and restores the Dock's
-  rect on quit (including `kill`). Rectangle is relaunched with the Dock's rect in place, since it
-  adds its own gap on top.
+  rect on quit (including `kill`).
 
 - Zoom (double-clicking a title bar), Fill and the built-in tiling size windows to the visible frame.
   WindowQueue watches for a window resized flush against the strip's screen edge and trims it to
   start beside the strip. Plain moves and resizes with a mouse button still held are left alone.
-- Rectangle honours its own hidden screen-edge gap preferences, so WindowQueue writes
-  `screenEdgeGapLeft`/`screenEdgeGapRight` to match the strip and restarts Rectangle when the value
-  changes.
 
-Turn both off in Settings › Strip.
+Turn both off in Settings › Strip (the trimming is under Advanced).
 
 ## Workspace switching
 
-`⌥1` … `⌥9` switch workspace in one of three ways (Settings › Queue):
+`⌥1` … `⌥9` switch workspace in one of three ways (Settings › Queue › Advanced):
 
 - **Carry an invisible window there** (the default): a one-pixel panel of WindowQueue's own is put on
   the target desktop — a process may place its own windows on any space — and brought to the front

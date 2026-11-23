@@ -120,13 +120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Restarting Rectangle is the only way it picks up a new gap, so it must not happen on
-        // every step of a slider drag: wait until the settings have been still for a moment.
-        store.$prefs
-            .debounce(for: .seconds(1.0), scheduler: RunLoop.main)
-            .sink { prefs in RectangleIntegration.applyAndReloadIfNeeded(prefs: prefs) }
-            .store(in: &cancellables)
-
         let dimOverlay = DimOverlay(store: store)
         self.dimOverlay = dimOverlay
         search = SearchController(model: model, store: store, dim: dimOverlay) { [weak self] window in
@@ -392,7 +385,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         debugCommands?.start()
         // Until Accessibility is granted the shortcuts would swallow their keys and do nothing.
         syncHotkeys()
-        RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
 
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .sink { [weak self] note in
@@ -467,11 +459,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             source.resume()
             terminationSources.append(source)
         }
-
-        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)
-            .compactMap { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
-            .sink { app in RectangleIntegration.handleLaunch(of: app) }
-            .store(in: &cancellables)
     }
 
     // MARK: - Actions
@@ -1228,7 +1215,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                ? "\(combo) brings it back; aiming mode shows it meanwhile"
                                : "\(combo) hides it again")
         dockReservation.update()
-        RectangleIntegration.applyAndReloadIfNeeded(prefs: store.prefs)
         // The reservation reaches the WindowServer and comes back as a new visible frame a moment
         // later; laying the windows out before that would measure the screen as it just was.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -1299,7 +1285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // reservation that keeps it — otherwise it is subtracted twice.
         var area = screen.map { DockReservation.unreservedFrame(of: $0, prefs: prefs) } ?? .zero
         guard prefs.stripDisplay != .hidden, prefs.reserveScreenSpace else { return area }
-        let gap = CGFloat(RectangleIntegration.reservedWidth(for: prefs))
+        let gap = CGFloat(StripMetrics.reservedWidth(for: prefs))
         switch prefs.stripSide {
         case .left:
             area.origin.x += gap

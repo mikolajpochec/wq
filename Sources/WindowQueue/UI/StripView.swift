@@ -756,6 +756,13 @@ struct StripView: View {
 }
 
 enum StripMetrics {
+    /// The room the strip takes from its screen edge, margins included. None in invisible mode: a
+    /// strip that is only there while aiming takes no room from the windows.
+    static func reservedWidth(for prefs: Preferences) -> Int {
+        guard !prefs.invisibleStrip else { return 0 }
+        return Int((thickness(prefs: prefs) + prefs.stripMargin * 2).rounded(.up))
+    }
+
     static let spacing: CGFloat = 6
     static let padding: CGFloat = 6
     /// Corners follow the size of what they round: the strip's own, a row's highlight, the

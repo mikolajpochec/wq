@@ -31,7 +31,10 @@ struct SettingsView: View {
     var showTour: () -> Void = {}
     var checkForUpdates: () -> Void = {}
 
-    @State private var rectangleStatus = ""
+    /// Set before the views are made to draw the Advanced sections open (offscreen renders).
+    static var opensAdvanced = false
+
+    @State private var showsAdvanced = SettingsView.opensAdvanced
     @State private var newAimAction: HotkeyAction = .toggleRecording
 
     var body: some View {
@@ -152,29 +155,21 @@ struct SettingsView: View {
 
     private var queue: some View {
         Form {
-            Section("Monitors") {
+            Section("Contents") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
-                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and, with Shift, take the window there with you.")
-                }
-                Picker("Queue scope", selection: $store.prefs.scope) {
-                    ForEach(QueueScope.allCases.filter { $0 != .monitor || store.prefs.multiMonitorMode }) {
-                        Text($0.title).tag($0)
+                    Picker("Each strip lists", selection: queueContents) {
+                        ForEach(QueueContents.allCases) { Text($0.title).tag($0) }
                     }
+                    caption(queueContents.wrappedValue.explanation)
                 }
-                if store.prefs.effectiveScope == .monitor {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle("Also keep to the workspace on show", isOn: $store.prefs.monitorScopeByWorkspace)
-                        caption("Each monitor's queue holds only the windows on the desktop that monitor has on show: first by monitor, then by workspace.")
-                    }
+                if !spacesAvailable {
+                    Text("Workspace support is unavailable on this macOS version, because the private Spaces API could not be loaded. Workspace switching and the per-workspace queue are disabled.")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
                 }
             }
 
             Section("Cycling") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Wrap around at the ends of the queue", isOn: $store.prefs.cycleWrapsAround)
-                    caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
-                }
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("Cycle with Tab", selection: $store.prefs.tabCycling) {
                         ForEach(TabCycling.allCases) { Text($0.title).tag($0) }
@@ -186,26 +181,57 @@ struct SettingsView: View {
 
             Section("Order") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
-                    caption("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
+                    Toggle("Keep each workspace's windows together", isOn: $store.prefs.autoSortByWorkspace)
+                    caption("The queue stays ordered by workspace number, and a new window joins the others on its workspace. Moving a window by hand turns this off, and the sort shortcut turns it back on.")
                 }
             }
 
-            Section("Workspaces") {
+            advanced {
                 VStack(alignment: .leading, spacing: 4) {
-                    Picker("Workspace switching", selection: $store.prefs.spaceSwitchMethod) {
-                        ForEach(SpaceSwitchMethod.allCases) { Text($0.title).tag($0) }
+                    Toggle("A queue for each monitor", isOn: queuePerMonitor)
+                    caption("Each monitor's strip lists its own windows and cycling stays on the monitor you are on. It also switches on the shortcuts that go to another monitor or take a window there. Off, every strip shows the queue of the monitor in use.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Wrap around at the ends of the queue", isOn: $store.prefs.cycleWrapsAround)
+                    caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Switch workspace by", selection: $store.prefs.spaceSwitchMethod) {
+                        ForEach([SpaceSwitchMethod.privateAPI, .focusWindow, .systemShortcut]) { Text($0.title).tag($0) }
                     }
                     caption(store.prefs.spaceSwitchMethod.explanation)
-                }
-                if !spacesAvailable {
-                    Text("Workspace support is unavailable on this macOS version: the private Spaces API could not be loaded. Workspace switching and per-workspace scope are disabled.")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
                 }
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The one choice the Queue tab offers for what a strip lists; it writes every setting behind
+    /// it in a single change.
+    private var queueContents: Binding<QueueContents> {
+        Binding(
+            get: { QueueContents(prefs: store.prefs) },
+            set: { contents in
+                var prefs = store.prefs
+                contents.apply(to: &prefs)
+                store.prefs = prefs
+            }
+        )
+    }
+
+    /// Multi-monitor mode. The per-workspace choice is stored differently with it on and off, so
+    /// it is written again after the switch and stays what it was.
+    private var queuePerMonitor: Binding<Bool> {
+        Binding(
+            get: { store.prefs.multiMonitorMode },
+            set: { on in
+                var prefs = store.prefs
+                let contents = QueueContents(prefs: prefs)
+                prefs.multiMonitorMode = on
+                if contents == .workspace { contents.apply(to: &prefs) }
+                store.prefs = prefs
+            }
+        )
     }
 
     // MARK: - Tiling
@@ -215,35 +241,34 @@ struct SettingsView: View {
             Section("Gaps") {
                 sliderRow("Screen gap", value: $store.prefs.tileOuterGap, in: 0...40, step: 1, format: Self.points)
                 sliderRow("Gap between windows", value: $store.prefs.tileInnerGap, in: 0...40, step: 1, format: Self.points)
-                caption("Room left around windows that WindowQueue places: tiled from aiming mode, maximized, or sent fullscreen.")
+                caption("Room left around windows that WindowQueue places, whether tiled from aiming mode, maximized or sent fullscreen.")
             }
 
-            Section("Layout") {
+            Section("Fullscreen windows") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("A fullscreen window takes over its workspace", isOn: $store.prefs.focusMaximizedWindow)
+                    caption("While a window is fullscreen (WindowQueue's own, not the macOS full screen), cycling skips the windows it covers, until it is restored. In a group or a tiled layout it covers only that group or layout. Plain maximizing never does this.")
+                }
+            }
+
+            advanced {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Fold the covered windows into one tile", isOn: $store.prefs.collapseCoveredWindows)
+                        .disabled(!store.prefs.focusMaximizedWindow)
+                    caption("The windows a fullscreen one covers share one tile beside it in the strip. Off, they keep a row each and are tinted instead.")
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Tile on a separate workspace", isOn: $store.prefs.tileOnSeparateWorkspace)
                     caption("When other windows share the workspace, the tiled windows move to one holding nothing else. Off, they are gathered on the first aimed window's workspace.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Respect window size limits", isOn: $store.prefs.respectWindowSizeLimits)
-                    caption("Windows with a minimum or maximum size, a fixed size or a fixed aspect ratio, like the iOS Simulator, are sized to fit and centred in their place, and the other windows take the room they leave. A window's limits are learnt the first time it refuses a size, which makes it flicker once.")
+                    caption("Windows with a minimum, maximum or fixed size, or a fixed aspect ratio (the iOS Simulator), are sized to fit and centred in their place, and the others take the room they leave. A window's limits are learnt the first time it refuses a size, which makes it flicker once.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Placeholders for windows too big to tile", isOn: $store.prefs.tilePlaceholders)
+                    Toggle("Show a placeholder for a window too big for its place", isOn: $store.prefs.tilePlaceholders)
                         .disabled(!store.prefs.respectWindowSizeLimits)
-                    caption("When a window cannot be made small enough for its place, even with the others as small as they go, a placeholder takes the place and says why. The window waits behind it; click the placeholder, or focus the window, to bring it out.")
-                }
-            }
-
-            Section("Fullscreen windows") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Focus on the fullscreen window", isOn: $store.prefs.focusMaximizedWindow)
-                    caption("Sending a window fullscreen moves it to the front of its workspace in the queue. Cycling then stays on it until it is restored, which puts the queue back as it was. A window in a group or a tiled layout takes over only that group or layout: cycling skips its other windows but can still leave it. Plain maximizing leaves the queue alone.")
-                }
-                if store.prefs.focusMaximizedWindow {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle("Collapse the windows it covers", isOn: $store.prefs.collapseCoveredWindows)
-                        caption("The windows the fullscreen one covers fold into one tile beside it, showing the first few icons and how many there are. Off, they keep a row each and are tinted instead.")
-                    }
+                    caption("The placeholder takes the window's place in the layout and says why. The window waits behind it until you click the placeholder or focus the window.")
                 }
             }
         }
@@ -260,22 +285,25 @@ struct SettingsView: View {
                     caption("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Show aiming mode instantly", isOn: $store.prefs.instantAiming)
-                    caption("The mode appears the moment the super key is tapped: the screens dim, the strip grows and, in invisible mode, opens without animating, and nothing waits to see whether a double tap is coming. With a double-tap action set, the mode shows for an instant before the second tap replaces it. Leaving the mode still animates.")
-                }
-                .disabled(!store.prefs.aimingEnabled)
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("Double tap of the super key", selection: $store.prefs.superDoubleTapAction) {
-                        Text("Confirm the aim").tag(HotkeyAction?.none)
-                        ForEach(HotkeyAction.doubleTapActions) { action in
-                            Text(action.title).tag(HotkeyAction?.some(action))
-                        }
-                    }
-                    caption("Two taps of the super key in quick succession. Confirming focuses the aimed window, which is what the second tap does on its own; any other choice leaves aiming mode and runs that action instead.")
+                    Toggle("Open without delay", isOn: $store.prefs.instantAiming)
+                    caption("Aiming mode opens on the first tap, with no opening animation and no wait for a possible second tap. With a double tap action set below, the mode shows for an instant before that action takes over.")
                 }
                 .disabled(!store.prefs.aimingEnabled)
                 sliderRow("Dim the screens", value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05) {
                     $0 == 0 ? "off" : Self.percent($0)
+                }
+                .disabled(!store.prefs.aimingEnabled)
+            }
+
+            Section("Double tap") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Double tap of the super key", selection: $store.prefs.superDoubleTapAction) {
+                        Text("Nothing extra").tag(HotkeyAction?.none)
+                        ForEach(HotkeyAction.doubleTapActions) { action in
+                            Text(action.title).tag(HotkeyAction?.some(action))
+                        }
+                    }
+                    caption("Two quick taps of the super key. Normally the second tap just confirms the aim, like any tap in aiming mode. With an action chosen, the double tap leaves aiming mode and runs it instead.")
                 }
                 .disabled(!store.prefs.aimingEnabled)
             }
@@ -288,11 +316,11 @@ struct SettingsView: View {
                                 .tag(launcher)
                         }
                     }
-                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
+                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. A launcher that is not installed falls back to Spotlight.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField("Launcher command", text: $store.prefs.raycastCommand, prompt: Text("Opens the launcher above"))
-                    caption("The URL \"Run a launcher command\" opens. Bind it to a shortcut or the double tap of the super key. Any link an installed app handles works: a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…), a Shortcut (shortcuts://run-shortcut?name=…). Left empty, or on a Mac without the app it needs, it opens the launcher chosen above.")
+                    TextField("Custom command", text: $store.prefs.raycastCommand, prompt: Text("A link to open"))
+                    caption("The link that \"Run a launcher command\" opens, from its shortcut or the double tap above. Any link an installed app handles works, such as a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…) or a Shortcut (shortcuts://run-shortcut?name=…). Left empty, it opens the launcher chosen above.")
                 }
             }
         }
@@ -306,37 +334,43 @@ struct SettingsView: View {
             Section("Pointer") {
                 Toggle("Move the pointer to windows focused from the keyboard", isOn: $store.prefs.warpCursorToWindow)
                 Toggle("Focus the window under the pointer", isOn: $store.prefs.focusFollowsMouse)
-                sliderRow("Hover delay", value: $store.prefs.focusFollowsMouseDelay, in: 0...1.0, step: 0.05,
-                          format: Self.seconds)
-                    .disabled(!store.prefs.focusFollowsMouse)
-                Toggle("Bring the hovered window to the front", isOn: $store.prefs.focusFollowsMouseRaises)
-                    .disabled(!store.prefs.focusFollowsMouse)
             }
 
             Section("Outlines") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Outline the window focus lands on", isOn: $store.prefs.flashFocusedWindow)
-                    caption("A brief outline around the window that just took focus, in the selection colour, the same mark aiming mode draws around what it is pointing at. It appears at once, holds, then fades over half a second.")
+                    caption("A brief outline around the window that just took focus, in the selection colour, the same mark aiming mode draws around what it is pointing at.")
                 }
-                sliderRow("Outline holds for", value: $store.prefs.flashFocusedWindowDuration,
-                          in: 0.05...1, step: 0.05, format: Self.seconds)
-                    .disabled(!store.prefs.flashFocusedWindow)
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Frame the monitor switched to", isOn: $store.prefs.flashMonitorOnSwitch)
-                    caption("When a monitor shortcut, or a workspace shortcut for a desktop on show on another display, takes you to another monitor, its edges light up for a moment in the selection colour.")
+                    caption("When a shortcut takes you to another monitor, its edges light up for a moment in the selection colour.")
                 }
             }
 
             Section("Name popup") {
                 Toggle("Show the window name after a change", isOn: $store.prefs.toastEnabled)
-                sliderRow("Popup duration", value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5,
-                          format: Self.seconds)
-                    .disabled(!store.prefs.toastEnabled)
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Show a picture of the window", isOn: $store.prefs.showWindowPreview)
                         .disabled(!store.prefs.toastEnabled)
                     caption("Needs Screen Recording access, and only windows on the workspace in view can be pictured.")
                 }
+            }
+
+            advanced {
+                sliderRow("Hover delay", value: $store.prefs.focusFollowsMouseDelay, in: 0...1.0, step: 0.05,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.focusFollowsMouse)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Also bring the hovered window to the front", isOn: $store.prefs.focusFollowsMouseRaises)
+                    caption("Off, the window under the pointer takes the keyboard but stays behind any window covering it.")
+                }
+                .disabled(!store.prefs.focusFollowsMouse)
+                sliderRow("Outline holds for", value: $store.prefs.flashFocusedWindowDuration,
+                          in: 0.05...1, step: 0.05, format: Self.seconds)
+                    .disabled(!store.prefs.flashFocusedWindow)
+                sliderRow("Name popup stays for", value: $store.prefs.toastDuration, in: 0.5...10, step: 0.5,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.toastEnabled)
             }
         }
         .formStyle(.grouped)
@@ -405,8 +439,8 @@ struct SettingsView: View {
     /// answers to without their super key.
     private var aimBindings: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Aiming mode only").font(.headline).padding(.top, 12)
-            Text("While aiming, every shortcut above works without its super key. These keys work there and nowhere else, and come first when both would answer.")
+            Text("Extra keys for aiming mode").font(.headline).padding(.top, 12)
+            Text("While aiming, every shortcut above already works without its super key. Keys added here work only while aiming, and win when the same key is in both lists.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -499,10 +533,8 @@ struct SettingsView: View {
     }
 
     private var reservationExplanation: String {
-        let gap = RectangleIntegration.reservedWidth(for: store.prefs)
-        let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free, in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
-        guard RectangleIntegration.isInstalled else { return base }
-        return base + " It also sets Rectangle's \(store.prefs.stripSide.rawValue) screen-edge gap, which Rectangle reads at launch, so restart it after changing this."
+        let gap = StripMetrics.reservedWidth(for: store.prefs)
+        return "Windows that macOS or an app sizes to the screen (zoom, Fill, the system's tiling) stop \(gap) pt short of the strip's edge. It works while the Dock hides itself, on the menu bar screen, in apps opened after WindowQueue started. Windows WindowQueue places itself always stay clear."
     }
 
 
@@ -517,17 +549,11 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Strip") {
+            advanced {
                 animationToggle(.stripLayout)
                 animationToggle(.groupStrip)
-            }
-
-            Section("Aiming mode") {
                 animationToggle(.aimingMode)
                 animationToggle(.aimCursor)
-            }
-
-            Section("Windows and popups") {
                 animationToggle(.windowOutlines)
                 animationToggle(.namePopup)
             }
@@ -535,6 +561,29 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    /// The rarely touched settings of a tab, folded away at its end.
+    private func advanced<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+        Section {
+            Button {
+                showsAdvanced.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Advanced")
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // Rows of the section itself, so they get the form's own spacing and separators.
+            if showsAdvanced {
+                content()
+            }
+        }
+    }
 
     /// One animation's own switch, greyed out while the main switch is off.
     private func animationToggle(_ kind: AnimationKind) -> some View {
@@ -561,22 +610,14 @@ struct SettingsView: View {
     private var strip: some View {
         Form {
             Section("Visibility") {
+                Picker("Show the strip on", selection: $store.prefs.stripDisplay) {
+                    ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Invisible mode", isOn: $store.prefs.invisibleStrip)
                     caption("The strip is drawn only while aiming mode is open. The queue works as it always does; outside aiming, a change is announced by the name popup alone, and no screen space is reserved.")
                 }
-                Toggle("Peek when the pointer rests at the edge", isOn: $store.prefs.peekInvisibleStrip)
-                    .disabled(!store.prefs.invisibleStrip)
-                sliderRow("Peek after", value: $store.prefs.stripPeekDelay, in: 0.1...1.0, step: 0.05,
-                          format: Self.seconds)
-                    .disabled(!store.prefs.invisibleStrip || !store.prefs.peekInvisibleStrip)
-                Picker("Show strip", selection: $store.prefs.stripDisplay) {
-                    ForEach(StripDisplayMode.allCases) { Text($0.title).tag($0) }
-                }
-                sliderRow("Inactive monitors", value: $store.prefs.inactiveStripOpacity, in: 0.1...1.0, step: 0.05,
-                          format: Self.percent)
-                    .disabled(store.prefs.stripDisplay != .highlightActiveScreen)
-                Toggle("Hide over fullscreen windows", isOn: $store.prefs.hideInFullscreen)
+                Toggle("Hide over apps in macOS full screen", isOn: $store.prefs.hideInFullscreen)
             }
 
             Section("Position") {
@@ -588,12 +629,10 @@ struct SettingsView: View {
                     ForEach(StripAlignment.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                sliderRow("Margin", value: $store.prefs.stripMargin, in: 0...40, step: 1, format: Self.points)
             }
 
             Section("Appearance") {
                 sliderRow("Icon size", value: $store.prefs.iconSize, in: 16...48, step: 2, format: Self.points)
-                sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
                 Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
@@ -602,43 +641,108 @@ struct SettingsView: View {
             }
 
             Section("Groups") {
-                Picker("Group strip", selection: $store.prefs.groupStripPlacement) {
-                    ForEach(GroupStripPlacement.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                caption(groupStripPlacementExplanation)
-                Picker("Group exit doors", selection: $store.prefs.groupExitDoors) {
-                    ForEach(GroupExitDoors.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                caption(groupExitDoorsExplanation)
-            }
-
-            Section("Scrolling") {
-                sliderRow("Focus after scrolling", value: $store.prefs.scrollFocusDelay, in: 0.1...2.0, step: 0.1,
-                          format: Self.seconds)
-            }
-
-            Section("Reserve screen space") {
-                Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
-                Toggle("Trim windows on other screens and in older apps", isOn: $store.prefs.trimWindowsOutsideReservation)
-                    .disabled(!store.prefs.reserveScreenSpace)
-                caption(reservationExplanation)
-                if RectangleIntegration.isInstalled {
-                    HStack {
-                        Button("Restart Rectangle to apply") {
-                            rectangleStatus = "Restarting…"
-                            RectangleIntegration.apply(prefs: store.prefs)
-                            RectangleIntegration.restart { success in
-                                rectangleStatus = success ? "Rectangle restarted." : "Could not restart Rectangle."
-                            }
-                        }
-                        Text(rectangleStatus).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("A group's windows open", selection: $store.prefs.groupStripPlacement) {
+                        ForEach(GroupStripPlacement.allCases) { Text($0.title).tag($0) }
                     }
+                    caption(groupStripPlacementExplanation)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Mark a group's exits", selection: $store.prefs.groupExitDoors) {
+                        ForEach(GroupExitDoors.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    caption(groupExitDoorsExplanation)
+                }
+            }
+
+            Section("Screen space") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Keep windows clear of the strip", isOn: $store.prefs.reserveScreenSpace)
+                    caption(reservationExplanation)
+                }
+            }
+
+            advanced {
+                Toggle("In invisible mode, peek when the pointer rests at the edge", isOn: $store.prefs.peekInvisibleStrip)
+                    .disabled(!store.prefs.invisibleStrip)
+                sliderRow("Peek after", value: $store.prefs.stripPeekDelay, in: 0.1...1.0, step: 0.05,
+                          format: Self.seconds)
+                    .disabled(!store.prefs.invisibleStrip || !store.prefs.peekInvisibleStrip)
+                sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
+                sliderRow("Opacity on other monitors", value: $store.prefs.inactiveStripOpacity, in: 0.1...1.0, step: 0.05,
+                          format: Self.percent)
+                    .disabled(store.prefs.stripDisplay != .highlightActiveScreen)
+                sliderRow("Margin", value: $store.prefs.stripMargin, in: 0...40, step: 1, format: Self.points)
+                VStack(alignment: .leading, spacing: 4) {
+                    sliderRow("Focus after scrolling stops for", value: $store.prefs.scrollFocusDelay, in: 0.1...2.0, step: 0.1,
+                              format: Self.seconds)
+                    caption("Scrolling over the strip steps through the queue. The window is focused once the wheel has rested this long, so the ones passed on the way are not.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Also pull back windows that end up under the strip", isOn: $store.prefs.trimWindowsOutsideReservation)
+                        .disabled(!store.prefs.reserveScreenSpace)
+                    caption("Covers what the reservation cannot reach, which is other monitors and apps that were already open when WindowQueue started. A window resized flush against the strip's screen edge is trimmed right after.")
                 }
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// What each strip lists, as the Queue tab offers it. One choice stands for three stored settings:
+/// the scope, multi-monitor mode and the monitor scope's workspace filter.
+enum QueueContents: String, CaseIterable, Identifiable {
+    case everything, monitor, workspace
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .everything: return "All windows"
+        case .monitor: return "The windows on its monitor"
+        case .workspace: return "The windows on the workspace in view"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .everything:
+            return "One queue of every window, on every workspace and monitor."
+        case .monitor:
+            return "Each monitor has its own queue of the windows on it, whatever workspace they are on."
+        case .workspace:
+            return "The queue holds only the windows on the workspace in view, so switching workspace switches the queue. With several monitors, each has its own."
+        }
+    }
+
+    init(prefs: Preferences) {
+        switch prefs.effectiveScope {
+        case .global: self = .everything
+        case .currentSpace: self = .workspace
+        case .monitor: self = prefs.monitorScopeByWorkspace ? .workspace : .monitor
+        }
+    }
+
+    /// Writes the choice. A queue per monitor needs multi-monitor mode, so choosing it turns the
+    /// mode on; the workspace queue is the monitor scope narrowed to its workspace with the mode
+    /// on, and the plain workspace scope without it.
+    func apply(to prefs: inout Preferences) {
+        switch self {
+        case .everything:
+            prefs.scope = .global
+        case .monitor:
+            prefs.multiMonitorMode = true
+            prefs.scope = .monitor
+            prefs.monitorScopeByWorkspace = false
+        case .workspace:
+            if prefs.multiMonitorMode {
+                prefs.scope = .monitor
+                prefs.monitorScopeByWorkspace = true
+            } else {
+                prefs.scope = .currentSpace
+            }
+        }
     }
 }
 
@@ -685,8 +789,17 @@ final class SettingsWindowController: NSWindowController {
     /// putting it on screen. Run as `WindowQueue --render settings <dir>`.
     static func render(store: PreferencesStore, to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        render(store: store, to: directory, suffix: "")
+        SettingsView.opensAdvanced = true
+        render(store: store, to: directory, suffix: "-advanced")
+        SettingsView.opensAdvanced = false
+    }
+
+    private static func render(store: PreferencesStore, to directory: URL, suffix: String) {
         let controller = SettingsWindowController(store: store, failures: { [] }, spacesAvailable: true, showTour: {})
         guard let window = controller.window else { return }
+        // Tall enough to show a whole tab, which the real window scrolls.
+        window.setContentSize(NSSize(width: size.width, height: 1500))
         window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         window.orderBack(nil)
         for (index, tab) in SettingsTab.allCases.enumerated() {
@@ -696,7 +809,7 @@ final class SettingsWindowController: NSWindowController {
             if let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
                 frame.cacheDisplay(in: frame.bounds, to: rep)
                 try? rep.representation(using: .png, properties: [:])?
-                    .write(to: directory.appendingPathComponent("settings-\(index)-\(tab.rawValue).png"))
+                    .write(to: directory.appendingPathComponent("settings-\(index)-\(tab.rawValue)\(suffix).png"))
             }
         }
         window.orderOut(nil)

@@ -62,11 +62,11 @@ enum GroupStripPlacement: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .automatic: return "Automatic"
-        case .before: return "Before"
-        case .after: return "After"
-        case .replace: return "Replace"
-        case .overGroup: return "Over group"
+        case .automatic: return "Beside the strip (automatic side)"
+        case .before: return "Before the strip"
+        case .after: return "After the strip"
+        case .replace: return "In place of the strip"
+        case .overGroup: return "Over the group's icon"
         }
     }
     /// The group's strip sits beside the main one, which moves to make room for it.
@@ -129,9 +129,9 @@ enum AnimationKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .stripLayout: return "Windows arriving, leaving and moving"
-        case .aimingMode: return "Entering and leaving"
-        case .aimCursor: return "Aim moving"
+        case .stripLayout: return "Windows arriving, leaving and moving in the strip"
+        case .aimingMode: return "Aiming mode opening and closing"
+        case .aimCursor: return "The aim moving"
         case .groupStrip: return "Group strip folding out"
         case .windowOutlines: return "Window outlines"
         case .namePopup: return "Name popup"
@@ -150,9 +150,9 @@ enum StripDisplayMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .activeScreenOnly: return "Selected monitor only"
-        case .highlightActiveScreen: return "All monitors, highlight selected"
-        case .hidden: return "Hidden"
+        case .activeScreenOnly: return "Only the monitor in use"
+        case .highlightActiveScreen: return "Every monitor"
+        case .hidden: return "Nowhere"
         }
     }
 }
@@ -416,7 +416,7 @@ struct Preferences: Codable, Equatable {
     var monitorScopeByWorkspace: Bool = false
     var superModifier: SuperModifier = .option
     var spaceSwitchMethod: SpaceSwitchMethod = .privateAPI
-    /// Ask Rectangle to keep its tiled windows clear of the strip.
+    /// Keep windows clear of the strip: the Dock reservation, plus trimming where it does not reach.
     var reserveScreenSpace: Bool = true
     var bindings: [String: KeyCombo] = [:]
 
@@ -432,9 +432,6 @@ struct Preferences: Codable, Equatable {
     var groupStripPlacement: GroupStripPlacement = .before
     /// Gap between the strip and the screen edges around it.
     var stripMargin: Double = 4
-    /// No longer set by hand: the strip is as thick as an icon row needs. Kept so an old stored
-    /// blob still decodes.
-    var stripWidth: Double = 36
     var iconSize: Double = 36
     var showSpaceBadge: Bool = true
     /// Keep the queue grouped by workspace without having to sort it by hand.
@@ -483,9 +480,6 @@ struct Preferences: Codable, Equatable {
     /// A tiled window too big for its place, even with the others at their smallest, is kept
     /// behind a placeholder saying so instead of overlapping its neighbours.
     var tilePlaceholders: Bool = true
-
-    /// Windows the user has minimised are still queue members but drawn dimmed.
-    var includeMinimized: Bool = true
 
     /// Sending a window fullscreen (`toggleMaximize`) puts it first on its workspace and takes the
     /// rest of that workspace out of the way until it is restored. Plain maximizing does not.
@@ -585,7 +579,6 @@ struct Preferences: Codable, Equatable {
         stripAlignment = value(.stripAlignment, defaults.stripAlignment)
         groupStripPlacement = value(.groupStripPlacement, defaults.groupStripPlacement)
         stripMargin = value(.stripMargin, defaults.stripMargin)
-        stripWidth = value(.stripWidth, defaults.stripWidth)
         iconSize = value(.iconSize, defaults.iconSize)
         showSpaceBadge = value(.showSpaceBadge, defaults.showSpaceBadge)
         autoSortByWorkspace = value(.autoSortByWorkspace, defaults.autoSortByWorkspace)
@@ -607,7 +600,6 @@ struct Preferences: Codable, Equatable {
         tileOnSeparateWorkspace = value(.tileOnSeparateWorkspace, defaults.tileOnSeparateWorkspace)
         respectWindowSizeLimits = value(.respectWindowSizeLimits, defaults.respectWindowSizeLimits)
         tilePlaceholders = value(.tilePlaceholders, defaults.tilePlaceholders)
-        includeMinimized = value(.includeMinimized, defaults.includeMinimized)
         focusMaximizedWindow = value(.focusMaximizedWindow, defaults.focusMaximizedWindow)
         collapseCoveredWindows = value(.collapseCoveredWindows, defaults.collapseCoveredWindows)
         showWindowLabels = value(.showWindowLabels, defaults.showWindowLabels)

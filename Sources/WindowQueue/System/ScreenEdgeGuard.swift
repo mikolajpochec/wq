@@ -94,7 +94,7 @@ final class ScreenEdgeGuard {
         if WindowTiler.placed(id, at: frame) { return settle(id, at: frame) }
 
         let visible = Self.axRect(fromCocoa: DockReservation.unreservedFrame(of: screen, prefs: store.prefs))
-        let gap = CGFloat(RectangleIntegration.reservedWidth(for: store.prefs))
+        let gap = CGFloat(StripMetrics.reservedWidth(for: store.prefs))
         var target = frame
 
         // Accessibility coordinates grow downwards, so "top" is the smaller y.

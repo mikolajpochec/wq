@@ -16,9 +16,9 @@ enum SpaceSwitchMethod: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .focusWindow: return "Focus a window on that workspace (recommended)"
+        case .focusWindow: return "Focus a window on that workspace"
         case .systemShortcut: return "Send macOS ⌃1…⌃9 shortcut"
-        case .privateAPI: return "Carry an invisible window there"
+        case .privateAPI: return "Carry an invisible window there (recommended)"
         }
     }
 

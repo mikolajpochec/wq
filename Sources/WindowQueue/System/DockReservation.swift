@@ -55,9 +55,6 @@ final class DockReservation {
     /// The rect we last installed, to tell our own value apart from one the Dock has written since.
     private var installed: DockRect?
     private var timer: Timer?
-    /// Until when the Dock's own rect is deliberately left in place, while an app that has to see
-    /// the unreserved screen starts up.
-    private var suspendedUntil: Date?
 
     init(store: PreferencesStore) {
         self.store = store
@@ -94,8 +91,6 @@ final class DockReservation {
 
     /// Re-evaluates after a settings change, installing, moving or removing the reservation.
     func update() {
-        if let suspendedUntil, suspendedUntil > Date() { return }
-        suspendedUntil = nil
         guard isAvailable, let current = current() else { return }
 
         if current != installed {
@@ -144,7 +139,7 @@ final class DockReservation {
         guard let reservation = shared, reservation.isInstalled,
               screen == NSScreen.screens.first
         else { return frame }
-        let gap = CGFloat(RectangleIntegration.reservedWidth(for: prefs))
+        let gap = CGFloat(StripMetrics.reservedWidth(for: prefs))
         // Installing the rect and the screen picking it up are two different moments, and a display
         // being plugged or unplugged pulls them apart: the Dock rewrites its own rect, every app is
         // told, and ours goes back in a beat later. Giving back a gap that the frame does not
@@ -175,20 +170,6 @@ final class DockReservation {
         return frame
     }
 
-    /// Puts the Dock's rect back for a while, so an app launched meanwhile reads the real screen.
-    ///
-    /// Rectangle needs this: it adds its own screen-edge gap on top of the visible frame it read at
-    /// launch, and a frame that already leaves room for the strip would make the gap twice as wide.
-    func suspend(for duration: TimeInterval) {
-        guard isAvailable else { return }
-        suspendedUntil = Date().addingTimeInterval(duration)
-        if let original = savedOriginal, let current = current(), current == installed {
-            write(original)
-        }
-        installed = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in self?.update() }
-    }
-
     // MARK: - Rects
 
     private func wantedRect() -> DockRect? {
@@ -198,7 +179,7 @@ final class DockReservation {
               let screen = NSScreen.screens.first
         else { return nil }
 
-        let gap = Double(RectangleIntegration.reservedWidth(for: prefs))
+        let gap = Double(StripMetrics.reservedWidth(for: prefs))
         // Global coordinates with the origin at the top left of the menu bar screen.
         let menuBarHeight = Double(screen.frame.maxY - screen.visibleFrame.maxY)
         let width = Double(screen.frame.width)
