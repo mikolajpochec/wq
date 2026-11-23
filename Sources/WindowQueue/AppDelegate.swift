@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // about the tab it replaced — its layout, its frame before fullscreen — is its now.
         model.onHandoff = { [weak self] old, new in
             guard let self else { return }
-            if let frame = self.tiledFrames.removeValue(forKey: old) { self.tiledFrames[new] = frame }
+            self.resizeTracker.renamed(old, to: new)
             if let frame = self.framesBeforeMaximize.removeValue(forKey: old) { self.framesBeforeMaximize[new] = frame }
             for (group, order) in self.tiledOrders where order.contains(old) {
                 self.tiledOrders[group] = order.map { $0 == old ? new : $0 }
@@ -432,6 +432,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Focus changes arrive as "settled" too, and focusing a window is not moving it.
             enumerator.onWindowFrameChanged = { [weak self] element in
                 self?.windowFrameChanged(element)
+            }
+            // A drag's last frame changes can be reported after the button is already up.
+            self.mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+                self?.lastMouseUp = Date()
             }
             enumerator.onActiveSpaceChanged = { [weak self] in self?.keepHeldWorkspace() }
             self.enumerator = enumerator
@@ -944,10 +948,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tilingSettledAt = Date.distantPast
     /// The order each group was last laid out in, to notice a reorder.
     private var tiledOrders: [Int: [CGWindowID]] = [:]
-    /// The frames the layout gave them, to tell a real move from a notification about nothing.
-    private var tiledFrames: [CGWindowID: NSRect] = [:]
-    /// Windows being moved along with a neighbour's resize, until when their changes are ours.
-    private var followingResize: [CGWindowID: Date] = [:]
+    private var mouseUpMonitor: Any?
+    private var lastMouseUp = Date.distantPast
+    /// Tells a hand resize (the layout follows) from a move (the layout breaks).
+    private lazy var resizeTracker: TiledResizeTracker = {
+        let tracker = TiledResizeTracker()
+        tracker.host = self
+        return tracker
+    }()
     /// The workspace each group was laid out on. A window that turns up on another one has left
     /// the layout, however it got there.
     private var tiledHomes: [Int: UInt64] = [:]
@@ -1039,22 +1047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Remembers where the windows came to rest, read once the tiler has finished its own
     /// corrections — anything else later is the user moving them.
     private func recordTiledFrames(_ windows: [ManagedWindow]) {
-        // Frames from an earlier layout say nothing about this one; measured against them, the
-        // window would seem to have been moved.
-        for window in windows { tiledFrames[window.id] = nil }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            guard let self else { return }
-            // With the mouse button down the user may already be dragging one of them: a frame read
-            // now would be a moment of that drag, and the drag would seem to start from there. The
-            // frame the tiler asked for is where they rest.
-            let dragging = NSEvent.pressedMouseButtons & 1 != 0
-            for window in windows where self.model.tiledIDs.contains(window.id) {
-                if let group = self.model.tiledGroup(of: window.id), self.resizeSessions[group.id] != nil { continue }
-                self.tiledFrames[window.id] = dragging
-                    ? WindowTiler.placedFrame(of: window.id) ?? WindowTiler.frame(of: window)
-                    : WindowTiler.frame(of: window)
-            }
-        }
+        resizeTracker.layoutApplied(windows.map(\.id))
     }
 
     /// A window of a layout sent to another workspace has left it: the ones still there close up
@@ -1068,7 +1061,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let staying = members.filter { !leavers.contains($0.id) }
             Diagnostics.note("tiled group \(group.id): \(leavers.count) window(s) left for another workspace, "
                              + "\(staying.count) stay")
-            for id in leavers { tiledFrames[id] = nil }
+            resizeTracker.forget(Array(leavers))
             model.releaseFromTiled(leavers)
             if staying.count > 1 {
                 relayout([group.id])
@@ -1076,7 +1069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 tiledOrders[group.id] = nil
                 tiledHomes[group.id] = nil
                 for window in staying {
-                    tiledFrames[window.id] = nil
+                    resizeTracker.forget([window.id])
                     tilingSettledAt = Date().addingTimeInterval(2)
                     // Left alone by the others, not asked for: it grows in place without taking focus.
                     maximize(window, bringUp: false)
@@ -1111,182 +1104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A window was resized or moved. If it was holding a layout and the user moved it, the group
-    /// is broken: the windows stay exactly where they are, they are simply free again. Resizing a
-    /// tiled window by an edge or corner keeps it in its layout.
+    /// A window was resized or moved: `TiledResizeTracker` keeps its layout together through a
+    /// resize by hand and breaks it on a move.
     private func windowFrameChanged(_ element: AXUIElement) {
-        guard Date() > tilingSettledAt, let id = AXPrivate.windowID(of: element),
-              let group = model.tiledGroup(of: id),
-              let window = model.windows.first(where: { $0.id == id })
-        else { return }
-        guard let now = WindowTiler.frame(of: window) else { return }
-        // A drag under way: the dragged window leads, its mates are following it (their changes are
-        // ours), and everything is measured from where the windows were when the drag began.
-        if var session = resizeSessions[group.id] {
-            guard id == session.id else { return }
-            if TiledFrameChange.between(session.start, now) == .moved {
-                Diagnostics.note("tiling broken by moving window \(id) from \(session.start) to \(now) while resizing")
-                breakTiling(group)
-                return
-            }
-            session.latest = now
-            resizeSessions[group.id] = session
-            follow(session)
-            return
-        }
-        let dragging = NSEvent.pressedMouseButtons & 1 != 0
-        // A window that followed a neighbour's resize a moment ago: still settling, and ours. That
-        // drag ended with the mouse button going up, so with the button down again it is the user,
-        // grabbing this window next.
-        if let until = followingResize[id], Date() < until, !dragging {
-            tiledFrames[id] = now
-            return
-        }
-        followingResize[id] = nil
-        // Apps report a move for all sorts of reasons, focus among them; only a frame that is
-        // really somewhere else means the user has taken the window out of the layout. Before its
-        // resting place is read, the frame the tiler asked for stands in for it.
-        let placed = tiledFrames[id] ?? WindowTiler.placedFrame(of: id) ?? now
-        switch TiledFrameChange.between(placed, now) {
-        case .unchanged:
-            tiledFrames[id] = tiledFrames[id] ?? placed
-            return
-        case .resized where dragging:
-            // Every mate's frame as the drag begins: the tiler's cell until its resting place is read.
-            var mates: [CGWindowID: NSRect] = [:]
-            for mate in model.windows where group.ids.contains(mate.id) && mate.id != id {
-                if let frame = tiledFrames[mate.id] ?? WindowTiler.placedFrame(of: mate.id)
-                    ?? WindowTiler.frame(of: mate) { mates[mate.id] = frame }
-            }
-            Diagnostics.note("resizing tiled window \(id) from \(placed) mates \(mates)")
-            resizeSessions[group.id] = ResizeSession(id: id, start: placed, latest: now, mates: mates)
-            follow(resizeSessions[group.id]!)
-            watchForMouseUp(group.id)
-            return
-        case .resized:
-            // The app changed its own size (a terminal rounding to whole rows, say): no one is
-            // dragging anything, so that is simply where it is now.
-            tiledFrames[id] = now
-            return
-        case .moved:
-            break
-        }
-        Diagnostics.note("tiling broken by moving window \(id) from \(placed) to \(now)")
-        breakTiling(group)
-    }
-
-    /// One drag of a tiled window's edge, from the first frame change until the mouse button goes up.
-    private struct ResizeSession {
-        let id: CGWindowID
-        /// Where the dragged window was when the drag began.
-        let start: NSRect
-        var latest: NSRect
-        /// Where its mates were when the drag began.
-        let mates: [CGWindowID: NSRect]
-        /// The frames last asked of the mates, so a drag step that changes nothing for one asks nothing.
-        var asked: [CGWindowID: NSRect] = [:]
-    }
-    private var resizeSessions: [Int: ResizeSession] = [:]
-
-    /// Moves the mates' shared edges to where the dragged window's edges are now. Always worked out
-    /// from the frames at the start of the drag, so a mate that landed a little off (a terminal
-    /// keeps to whole rows of text) does not throw the next step off.
-    private func follow(_ session: ResizeSession, force: Bool = false) {
-        guard let group = model.tiledGroup(of: session.id) else { return }
-        let moves = TiledResize.follow(from: session.start, to: session.latest, others: session.mates,
-                                       gap: WindowTiler.Gaps(prefs: store.prefs).inner)
-        var asked = session.asked
-        let until = Date().addingTimeInterval(1.5)
-        for mate in model.windows {
-            // One that followed earlier in the drag but no longer has to goes back where it began.
-            guard let start = session.mates[mate.id],
-                  let frame = moves[mate.id] ?? (asked[mate.id] != nil ? start : nil)
-            else { continue }
-            followingResize[mate.id] = until
-            guard force || asked[mate.id] != frame else { continue }
-            var mate = mate
-            mate.element = mate.element ?? WindowSpaceMover.element(for: mate)
-            asked[mate.id] = frame
-            guard let landed = WindowTiler.nudge(mate, to: frame) else { continue }
-            if abs(landed.width - frame.width) > 2 || abs(landed.height - frame.height) > 2 {
-                let anchored = TiledResize.anchor(asked: frame, landed: landed.size, start: start)
-                if anchored != landed { WindowTiler.nudge(mate, to: anchored) }
-            }
-        }
-        resizeSessions[group.id]?.asked = asked
-    }
-
-    /// The drag lasts as long as the mouse button is held; a pause mid-drag does not end it.
-    private func watchForMouseUp(_ groupID: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self, self.resizeSessions[groupID] != nil else { return }
-            if NSEvent.pressedMouseButtons & 1 != 0 { self.watchForMouseUp(groupID); return }
-            self.endResize(groupID)
-        }
-    }
-
-    /// The drag is over: the mates are asked once more for their frames (an app busy with the drag
-    /// may have missed a step), and where everyone came to rest becomes their place.
-    private func endResize(_ groupID: Int) {
-        guard var session = resizeSessions[groupID],
-              let window = model.windows.first(where: { $0.id == session.id })
-        else { resizeSessions[groupID] = nil; return }
-        if let now = WindowTiler.frame(of: window) { session.latest = now }
-        resizeSessions[groupID] = session
-        follow(session, force: true)
-        resizeSessions[groupID] = nil
-        tiledFrames[session.id] = session.latest
-        // Until they are read back, the frames asked of the mates are their places, so a drag
-        // started straight after this one begins from here, not from before this one.
-        let moves = TiledResize.follow(from: session.start, to: session.latest, others: session.mates,
-                                       gap: WindowTiler.Gaps(prefs: store.prefs).inner)
-        for (id, frame) in moves { tiledFrames[id] = frame }
-        let members = model.windows.filter { session.mates[$0.id] != nil }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self else { return }
-            var landed: [String] = []
-            var followers: [(start: NSRect, now: NSRect)] = []
-            for member in members where self.model.tiledIDs.contains(member.id) {
-                guard let frame = WindowTiler.frame(of: member) else { continue }
-                self.tiledFrames[member.id] = frame
-                landed.append("\(member.id)=\(frame)")
-                if moves[member.id] != nil, let start = session.mates[member.id] {
-                    followers.append((start: start, now: frame))
-                }
-            }
-            // A neighbour that could not give way any further holds the dragged window back, so it
-            // does not end up lying over it.
-            var dragged = session.latest
-            let clamped = TiledResize.clamp(dragged, start: session.start, mates: followers,
-                                            gap: WindowTiler.Gaps(prefs: self.store.prefs).inner)
-            if clamped != dragged, self.model.tiledIDs.contains(session.id),
-               var window = self.model.windows.first(where: { $0.id == session.id }) {
-                window.element = window.element ?? WindowSpaceMover.element(for: window)
-                self.followingResize[session.id] = Date().addingTimeInterval(1.5)
-                WindowTiler.nudge(window, to: clamped)
-                dragged = clamped
-                // The windows lined up along the same divider come back with it.
-                var held = session
-                held.latest = clamped
-                self.resizeSessions[groupID] = held
-                self.follow(held, force: true)
-                self.resizeSessions[groupID] = nil
-                for member in members where self.model.tiledIDs.contains(member.id) {
-                    if let frame = WindowTiler.frame(of: member) { self.tiledFrames[member.id] = frame }
-                }
-            }
-            self.tiledFrames[session.id] = dragged
-            landed.insert("\(session.id)=\(dragged)\(clamped != session.latest ? " (held back)" : "")", at: 0)
-            Diagnostics.note("resize of tiled window \(session.id) settled: \(landed.joined(separator: " "))")
-        }
+        guard Date() > tilingSettledAt, let id = AXPrivate.windowID(of: element) else { return }
+        resizeTracker.frameChanged(id)
     }
 
     /// The layout is no more: its windows stay exactly where they are, simply free again.
     private func breakTiling(_ group: WindowQueueModel.TiledGroup) {
         if let first = group.ids.first { model.clearTiled(containing: first) }
         tiledOrders[group.id] = nil
-        resizeSessions[group.id] = nil
-        for member in group.ids { tiledFrames[member] = nil }
+        resizeTracker.groupBroken(group.id, members: group.ids)
     }
 
     /// The queue order of tiled windows decides their places in the layout, so moving one of them
@@ -2295,7 +2124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let group = model.tiledGroup(of: entry.window.id) {
                     model.clearTiled(containing: entry.window.id)
                     tiledOrders[group.id] = nil
-                    for member in group.ids { tiledFrames[member] = nil }
+                    resizeTracker.groupBroken(group.id, members: group.ids)
                 }
                 WindowTiler.restore(entry.window, to: target)
                 moved.append(entry.window)
@@ -3198,4 +3027,41 @@ private final class MarkMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("unsupported") }
 
     @objc private func run() { handler() }
+}
+
+extension AppDelegate: TiledResizeHost {
+    func tiledGroup(of id: CGWindowID) -> (id: Int, members: [CGWindowID])? {
+        model.tiledGroup(of: id).map { (id: $0.id, members: $0.ids) }
+    }
+
+    func frame(of id: CGWindowID) -> NSRect? {
+        model.windows.first(where: { $0.id == id }).flatMap { WindowTiler.frame(of: $0) }
+    }
+
+    func placedFrame(of id: CGWindowID) -> NSRect? { WindowTiler.placedFrame(of: id) }
+    func layoutRoom(of id: CGWindowID) -> NSRect? { WindowTiler.placedRoom(of: id) }
+
+    @discardableResult
+    func nudge(_ id: CGWindowID, to frame: NSRect) -> NSRect? {
+        guard var window = model.windows.first(where: { $0.id == id }) else { return nil }
+        window.element = window.element ?? WindowSpaceMover.element(for: window)
+        return WindowTiler.nudge(window, to: frame)
+    }
+
+    func breakTiling(groupID: Int) {
+        guard let group = model.tiledGroups.first(where: { $0.id == groupID }) else { return }
+        breakTiling(group)
+    }
+
+    var isMouseDown: Bool { NSEvent.pressedMouseButtons & 1 != 0 }
+    var mouseReleasedAt: Date { lastMouseUp }
+    var now: Date { Date() }
+
+    func after(_ delay: TimeInterval, _ block: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block)
+    }
+
+    var innerGap: CGFloat { WindowTiler.Gaps(prefs: store.prefs).inner }
+
+    func note(_ text: String) { Diagnostics.note(text) }
 }

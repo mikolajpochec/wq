@@ -2342,19 +2342,26 @@ the order of its windows in the queue is compared with the remembered one. Diffe
   group (again the smallest free number — the number may change).
 This is the fastest way to change the “main” window: move it in the queue to the start of the group.
 
-**Release by manual movement**: on a window moved or resized notification (not on
-a focus change):
-- ignored if 2 s have not passed since the last tiling (`tilingSettledAt`), if the window is not
-  in a tiled group, or if its frame differs from the saved one by ≤ 4 pt in every coordinate;
-- a resize (`TiledFrameChange.resized`: the size changed but at least one horizontal and one
-  vertical edge stayed within 4 pt) keeps the group and saves the new frame as the window's place;
-  every other member whose edge faces a dragged edge across the gap, or lines up with it along the
-  same divider, moves that edge with it (`TiledResize.follow`, neighbours stop at 120 pt), set once
-  with `WindowTiler.nudge`; their own notifications for the next second only record their frames;
-- otherwise (a move: the same size elsewhere, or every edge on an axis shifted) the whole group ceases to exist; the windows stay exactly where they are.
-Note: `maximizeWindow` on a window from a group causes a frame change after the protection period → releases the group.
-Re-tiling via “groups that lost windows” does not refresh the saved frames — a reimplementation
-should refresh them after 2 s, so that an accidental notification does not release the group.
+**Resizing and moving by hand** (`TiledResizeTracker`, tests in `TiledResizeTrackerTests` with a
+simulated desktop and a fuzz): on a window moved or resized notification (none within 2 s of a
+tiling, `tilingSettledAt`), for a window in a tiled group. Each window has a *cell* (its room in the
+layout, exact, with exact gaps; initially the tiler's room) and a *resting frame* (where it really is).
+- same frame as resting (sizes within 1 pt under the mouse, 4 pt otherwise; a same-size shift of up
+  to 32 pt under the mouse is not yet a move) → nothing;
+- resized with the left mouse button held (or released < 0.5 s ago: late reports) → a drag, lasting
+  until the button goes up (a pause does not end it). Each step moves the dragged window's cell by
+  as much as its edges moved; the cells of members facing a moved edge across the gap, or lined up
+  with it on the same divider, follow (`TiledResize.follow`, floor 120 pt), and each follower is put
+  in its cell (`WindowTiler.nudge`); one that comes out bigger (an app minimum) keeps its far edge,
+  one that comes out smaller (a terminal's text grid) keeps the moved edge. 0.6 s after the release
+  (or at once when the next drag in the group begins) a follower that would not fit holds the
+  divider back (`TiledResize.clamp`), and the resting frames are read;
+- resized without the mouse → the app's own doing: only the resting frame changes;
+- moved (same size elsewhere, or a held edge slipping more than 32 pt) → the group ceases to exist;
+  the windows stay exactly where they are.
+A drag made entirely within the 2 s after tiling is found when the resting frames are read (button
+released since the tiling, a window's size differs from its cell) and settled like any other.
+Note: `maximizeWindow` on a window from a group releases the group explicitly.
 
 **Fullscreen does not release the group**: toggling fullscreen sets a 2 s protection period, and returning
 restores the window to its cell (§7.2).

@@ -158,6 +158,9 @@ enum WindowTiler {
                 }
             }
         }
+        // Each window's room in the layout, which may be larger than the window (an app with a
+        // largest size or a fixed shape is centred in it): what a hand resize moves.
+        for (index, member) in members.enumerated() { placedRooms[member.window.id] = planned.rooms[index] }
         // Those that still do not fit, however small the others go, are held out: a placeholder
         // takes their place in the layout.
         TilePlaceholders.shared.set(members.indices.map { index in
@@ -193,6 +196,8 @@ enum WindowTiler {
     private static var currentRequest: [CGWindowID: Int] = [:]
     /// The frame each window was last given, so nothing else corrects a window we just placed.
     private(set) static var placedFrames: [CGWindowID: CGRect] = [:]
+    /// Each tiled window's room in its layout, in accessibility coordinates.
+    private(set) static var placedRooms: [CGWindowID: CGRect] = [:]
     private static var lastRequest = 0
 
     /// When to look at a tiled window again. A window that has just arrived from another
@@ -354,6 +359,13 @@ enum WindowTiler {
         setFrame(target, of: element, window: window)
     }
 
+    /// The window's room in the layout it was last tiled into, in Cocoa screen coordinates.
+    static func placedRoom(of id: CGWindowID) -> NSRect? {
+        guard let room = placedRooms[id] else { return nil }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSRect(x: room.minX, y: primaryHeight - room.maxY, width: room.width, height: room.height)
+    }
+
     /// The frame WindowQueue last asked of the window, in Cocoa screen coordinates.
     static func placedFrame(of id: CGWindowID) -> NSRect? {
         guard let frame = placedFrames[id] else { return nil }
@@ -442,9 +454,13 @@ enum TiledFrameChange: Equatable {
     /// How far the edge held still in a resize may slip with an app rounding its size.
     static let snapTolerance: CGFloat = 32
 
-    static func between(_ placed: NSRect, _ now: NSRect, tolerance: CGFloat = 4) -> TiledFrameChange {
+    /// - Parameter sizeTolerance: how much the size may change and still be the same; smaller
+    ///   while the user is at the mouse, when any resize must be followed.
+    static func between(_ placed: NSRect, _ now: NSRect, tolerance: CGFloat = 4,
+                        sizeTolerance: CGFloat? = nil) -> TiledFrameChange {
         func same(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
-        let sameSize = same(now.width, placed.width) && same(now.height, placed.height)
+        let sizeTolerance = sizeTolerance ?? tolerance
+        let sameSize = abs(now.width - placed.width) <= sizeTolerance && abs(now.height - placed.height) <= sizeTolerance
         if sameSize && same(now.minX, placed.minX) && same(now.minY, placed.minY) { return .unchanged }
         if sameSize { return .moved }
         // An app that keeps to a grid (a terminal's rows and columns of text) rounds its size as it
@@ -473,6 +489,9 @@ enum TiledResize {
         // The tolerance is generous: terminals keep to whole rows and columns of text, so their
         // edges sit up to a character short of where the layout put them.
         func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
+        // Any change of a dragged edge counts, however small; the tolerance is for finding the
+        // neighbours, whose edges may sit off the line.
+        func moved(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) > 0.5 }
         /// Whether `edge` of a neighbour faces the dragged edge at `at` across the gap. `ahead` says
         /// the neighbour lies on the far side (beyond a max edge), else on the near side.
         func faces(_ edge: CGFloat, _ at: CGFloat, ahead: Bool) -> Bool {
@@ -482,19 +501,19 @@ enum TiledResize {
         var result: [CGWindowID: NSRect] = [:]
         for (id, frame) in others {
             var minX = frame.minX, maxX = frame.maxX, minY = frame.minY, maxY = frame.maxY
-            if !near(old.maxX, new.maxX) {
+            if moved(old.maxX, new.maxX) {
                 if faces(frame.minX, old.maxX, ahead: true) { minX = new.maxX + gap }
                 else if near(frame.maxX, old.maxX) { maxX = new.maxX }
             }
-            if !near(old.minX, new.minX) {
+            if moved(old.minX, new.minX) {
                 if faces(frame.maxX, old.minX, ahead: false) { maxX = new.minX - gap }
                 else if near(frame.minX, old.minX) { minX = new.minX }
             }
-            if !near(old.maxY, new.maxY) {
+            if moved(old.maxY, new.maxY) {
                 if faces(frame.minY, old.maxY, ahead: true) { minY = new.maxY + gap }
                 else if near(frame.maxY, old.maxY) { maxY = new.maxY }
             }
-            if !near(old.minY, new.minY) {
+            if moved(old.minY, new.minY) {
                 if faces(frame.maxY, old.minY, ahead: false) { maxY = new.minY - gap }
                 else if near(frame.minY, old.minY) { minY = new.minY }
             }
@@ -514,9 +533,23 @@ enum TiledResize {
     /// Where a following window goes when its app will not take the size asked (a minimum of its
     /// own): it keeps the size it insists on and stays against its far edge, the one the drag did
     /// not reach, instead of being pushed past it (off the screen, even).
+    ///
+    /// One that came out smaller (a terminal rounding to whole rows) stays against the edge that
+    /// moved instead, so it keeps touching the divider and the spare room goes to the far side.
     static func anchor(asked: NSRect, landed size: NSSize, start: NSRect) -> NSRect {
-        let x = abs(asked.minX - start.minX) > 0.5 ? asked.maxX - size.width : asked.minX
-        let y = abs(asked.minY - start.minY) > 0.5 ? asked.maxY - size.height : asked.minY
+        /// - Parameter top: where it sits when neither edge moved (left, or top in Cocoa terms).
+        func origin(_ lo: CGFloat, _ hi: CGFloat, _ startLo: CGFloat, _ startHi: CGFloat,
+                    _ length: CGFloat, _ cell: CGFloat, top: Bool) -> CGFloat {
+            let movedLo = abs(lo - startLo) > 0.5, movedHi = abs(hi - startHi) > 0.5
+            let bigger = length > cell + 0.5
+            if movedLo != movedHi {
+                // Bigger: keep the edge that did not move. Smaller: keep the one that did.
+                return movedLo == bigger ? hi - length : lo
+            }
+            return top ? hi - length : lo
+        }
+        let x = origin(asked.minX, asked.maxX, start.minX, start.maxX, size.width, asked.width, top: false)
+        let y = origin(asked.minY, asked.maxY, start.minY, start.maxY, size.height, asked.height, top: true)
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
@@ -530,12 +563,26 @@ enum TiledResize {
             let distance = ahead ? edge - at : at - edge
             return distance >= -tolerance && distance <= gap + tolerance
         }
+        func aligned(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
+        // An edge pushed outwards squeezes the windows across it: one that stopped short holds it
+        // back. An edge pulled inwards squeezes the windows lined up along the same divider: one of
+        // those that stopped short holds it back. (The others simply follow, and limit nothing.)
+        // Which way each edge went is read from the drag, not from the limits applied so far: the
+        // result must not depend on the order the mates come in.
+        let grewRight = dragged.maxX > start.maxX, shrankRight = dragged.maxX < start.maxX
+        let grewLeft = dragged.minX < start.minX, shrankLeft = dragged.minX > start.minX
+        let grewUp = dragged.maxY > start.maxY, shrankUp = dragged.maxY < start.maxY
+        let grewDown = dragged.minY < start.minY, shrankDown = dragged.minY > start.minY
         var minX = dragged.minX, maxX = dragged.maxX, minY = dragged.minY, maxY = dragged.maxY
         for mate in mates {
-            if faces(mate.start.minX, start.maxX, ahead: true) { maxX = min(maxX, mate.now.minX - gap) }
-            if faces(mate.start.maxX, start.minX, ahead: false) { minX = max(minX, mate.now.maxX + gap) }
-            if faces(mate.start.minY, start.maxY, ahead: true) { maxY = min(maxY, mate.now.minY - gap) }
-            if faces(mate.start.maxY, start.minY, ahead: false) { minY = max(minY, mate.now.maxY + gap) }
+            if grewRight, faces(mate.start.minX, start.maxX, ahead: true) { maxX = min(maxX, mate.now.minX - gap) }
+            if shrankRight, aligned(mate.start.maxX, start.maxX) { maxX = max(maxX, mate.now.maxX) }
+            if grewLeft, faces(mate.start.maxX, start.minX, ahead: false) { minX = max(minX, mate.now.maxX + gap) }
+            if shrankLeft, aligned(mate.start.minX, start.minX) { minX = min(minX, mate.now.minX) }
+            if grewUp, faces(mate.start.minY, start.maxY, ahead: true) { maxY = min(maxY, mate.now.minY - gap) }
+            if shrankUp, aligned(mate.start.maxY, start.maxY) { maxY = max(maxY, mate.now.maxY) }
+            if grewDown, faces(mate.start.maxY, start.minY, ahead: false) { minY = max(minY, mate.now.maxY + gap) }
+            if shrankDown, aligned(mate.start.minY, start.minY) { minY = min(minY, mate.now.minY) }
         }
         return NSRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
     }
