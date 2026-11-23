@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// desktop rather than to the real windows.
     private var tourHasKeyboard = false
     private let updates = UpdateChecker()
+    private let updater = Updater()
     private var updateWindow: UpdateWindowController?
     /// Up at the top of the menu once a newer release is out, until this copy is updated.
     private let updateItem = NSMenuItem(title: "", action: #selector(showUpdate), keyEquivalent: "")
@@ -2891,6 +2892,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugCommands.writeState(model)
         case "tour":
             showTour()
+        case "install-update":
+            // Installs the release the last check found, without the window.
+            if let release = updates.available { updater.install(release) }
+            else { Diagnostics.note("install-update: no update found yet; run Check for Updates first") }
+        case "check-update":
+            updates.check(userAsked: false)
         default:
             break
         }
@@ -2990,7 +2997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showUpdate() {
         guard let release = updates.available else { return }
         if updateWindow?.window.isVisible != true {
-            updateWindow = UpdateWindowController(release: release)
+            updateWindow = UpdateWindowController(release: release, updater: updater)
         }
         updateWindow?.present()
     }

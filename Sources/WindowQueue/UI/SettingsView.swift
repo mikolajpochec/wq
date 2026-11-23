@@ -113,7 +113,7 @@ struct SettingsView: View {
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: $store.prefs.checkForUpdates)
                 HStack {
-                    caption("Version \(UpdateChecker.currentVersion). WindowQueue looks for a new release on GitHub once a day and tells you; it never installs anything itself.")
+                    caption("Version \(UpdateChecker.currentVersion). WindowQueue looks for a new release on GitHub once a day and offers to install it; nothing is installed without your OK.")
                     Spacer()
                     Button("Check Now") { checkForUpdates() }
                 }

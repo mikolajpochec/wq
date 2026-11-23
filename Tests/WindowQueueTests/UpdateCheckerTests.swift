@@ -39,4 +39,27 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(Preferences().checkForUpdates)
         XCTAssertTrue(try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8)).checkForUpdates)
     }
+
+    func testUpdaterDownloadsTheReleaseZip() {
+        XCTAssertEqual(Updater.assetURL(version: "1.6.0").absoluteString,
+                       "https://github.com/mikolajpochec/wq/releases/download/v1.6.0/WindowQueue-1.6.0.zip")
+    }
+
+    func testUpdaterRejectsADownloadWithoutTheApp() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let zip = dir.appendingPathComponent("WindowQueue-9.9.9.zip")
+        try Data("not a zip".utf8).write(to: zip)
+        guard case .failure = Updater.prepare(zip: zip, version: "9.9.9") else { return XCTFail("installed junk") }
+    }
+
+    func testUpdaterDoesNotTrustAnUnsignedApp() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = dir.appendingPathComponent("WindowQueue.app/Contents/MacOS")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.copyItem(atPath: "/bin/echo", toPath: app.appendingPathComponent("WindowQueue").path)
+        XCTAssertFalse(Updater.isTrusted(dir.appendingPathComponent("WindowQueue.app")))
+    }
 }

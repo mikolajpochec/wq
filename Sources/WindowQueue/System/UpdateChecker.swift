@@ -1,7 +1,7 @@
 import Foundation
 
-/// Looks for a newer release on GitHub, at launch and once a day. It only tells: downloading and
-/// installing stay the user's to do, from the release page.
+/// Looks for a newer release on GitHub, at launch and once a day. It only tells; `Updater` installs
+/// one when the user asks.
 final class UpdateChecker {
     struct Release: Equatable {
         let version: String
