@@ -4,7 +4,7 @@ import Combine
 
 /// The tour's pages, in order.
 enum TourPage: Int, CaseIterable, Identifiable {
-    case welcome, basics, aiming, tiling, groups, setup, tips, done
+    case welcome, basics, aiming, tiling, setup, tips, done
 
     var id: Int { rawValue }
 
@@ -14,7 +14,6 @@ enum TourPage: Int, CaseIterable, Identifiable {
         case .basics: return "Focus"
         case .aiming: return "Aiming"
         case .tiling: return "Tiling"
-        case .groups: return "Groups"
         case .setup: return "Setup"
         case .tips: return "Tips"
         case .done: return "All set"
@@ -27,7 +26,7 @@ enum TourPage: Int, CaseIterable, Identifiable {
     var windows: [SimWindow] {
         switch self {
         case .tiling: return [.xcode, .simulator, .safari, .terminal]
-        case .aiming, .groups: return [.safari, .notes, .terminal, .mail, .music]
+        case .aiming: return [.safari, .notes, .terminal, .mail, .music]
         default: return [.safari, .notes, .terminal, .mail]
         }
     }
@@ -46,7 +45,7 @@ enum TourPage: Int, CaseIterable, Identifiable {
 }
 
 /// One of the tips on the last page: what it does, its keys, and a preview on the pretend desktop
-/// that plays before the next tip comes up — or that the user can take over and try.
+/// that the user then tries; the next tip comes up once they have.
 struct TourTip: Identifiable {
     /// One of a tip's shortcuts, and what the pretend desktop records once it has been used.
     struct Goal {
@@ -104,12 +103,14 @@ final class TourModel: ObservableObject {
     /// The desktop is the user's and they haven't done anything yet: it says it's their turn, so it
     /// is not mistaken for something predefined.
     @Published private(set) var awaitingUser = false
-    /// The tip on show. Tips never move on by themselves; the user picks the next one.
+    /// The tip on show. It moves on only once the user has done it (or picks another one).
     @Published private(set) var tipIndex = 0
     let sim = TourSim()
     let store: PreferencesStore
     private var demoWork: [DispatchWorkItem] = []
     private var simWatch: AnyCancellable?
+    /// The move to the next tip, a moment after the user has done this one.
+    private var advanceWork: DispatchWorkItem?
     /// The tips the user has done on the desktop, ticked in the list.
     @Published private(set) var finishedTips: Set<String> = []
 
@@ -128,6 +129,7 @@ final class TourModel: ObservableObject {
     ///   the caller to `run` — for rendering the tour without timers.
     func show(_ page: TourPage, scheduled: Bool = true) {
         stopDemo()
+        cancelAdvance()
         awaitingUser = false
         self.page = page
         sim.clearDone()
@@ -151,7 +153,10 @@ final class TourModel: ObservableObject {
         if let previous = TourPage(rawValue: page.rawValue - 1) { show(previous) }
     }
 
-    func stop() { stopDemo() }
+    func stop() {
+        stopDemo()
+        cancelAdvance()
+    }
 
     /// What the user has done on this page; the demo's own doings don't count.
     var done: Set<TourEvent> { demoPlaying ? [] : sim.done }
@@ -172,11 +177,33 @@ final class TourModel: ObservableObject {
         showTip(index)
     }
 
-    /// The user has used every one of the tip's shortcuts: it is ticked in the list. The tips
-    /// stay on it; the user moves on when they want.
+    /// The user has used every one of the tip's shortcuts: it is ticked in the list, and a moment
+    /// later the next tip they haven't done yet comes up. Nothing moves on before that.
     private func markTipIfDone() {
-        guard page == .tips, !demoPlaying, let tip = currentTip, tip.isDone(sim.done) else { return }
+        guard page == .tips, !demoPlaying, advanceWork == nil, let tip = currentTip, tip.isDone(sim.done) else { return }
         if !finishedTips.contains(tip.id) { finishedTips.insert(tip.id) }
+        guard let next = nextTipIndex(after: tipIndex) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.page == .tips else { return }
+            self.advanceWork = nil
+            self.showTip(next)
+        }
+        advanceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.advanceDelay, execute: work)
+    }
+
+    /// How long a done tip stays up, its keys all green, before the next one comes.
+    static let advanceDelay: TimeInterval = 1.2
+
+    /// The first tip after `index` the user hasn't done, wrapping round; nil once all are done.
+    func nextTipIndex(after index: Int) -> Int? {
+        let all = tips
+        return (1..<max(all.count, 1)).lazy.map { (index + $0) % all.count }.first { !self.finishedTips.contains(all[$0].id) }
+    }
+
+    private func cancelAdvance() {
+        advanceWork?.cancel()
+        advanceWork = nil
     }
 
     var tips: [TourTip] {
@@ -255,6 +282,15 @@ final class TourModel: ObservableObject {
                     preview: [.wait(0.6), .pointer(SimWindow.mail.id), .wait(0.8), .lift(SimWindow.mail.id), .wait(0.4),
                               .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.45), .dragStep(-1), .wait(0.6), .drop,
                               .wait(0.8), .pointer(nil), .wait(1)]),
+            TourTip(id: "groups", symbol: "square.stack.3d.up", title: "Groups",
+                    goals: [.init(keys: "\(superKey) ⇧] G", event: .grouped), .init(keys: combo(.toggleGroupLock), event: .locked),
+                            .init(keys: combo(.cycleNext), event: .cycledLocked)],
+                    text: "Tap \(superKey), aim at two or more windows with ⇧], then G: they share one place in the strip and open in a strip of their own. \(combo(.toggleGroupLock)) locks cycling to the group (and unlocks it); \(combo(.toggleGroup)) ungroups.",
+                    hint: "tap \(superKey), ⇧], G, then \(combo(.toggleGroupLock)) and \(combo(.cycleNext))",
+                    setup: SimSetup(windows: [.safari, .notes, .terminal, .mail, .music]),
+                    preview: [.wait(0.8), .superTap, .wait(0.8), .key(.next, extend: true), .wait(0.8), .bareAction(.toggleGroup),
+                              .wait(1.4), .action(.toggleGroupLock), .wait(1.2), .action(.cycleNext), .wait(0.9),
+                              .action(.cycleNext), .wait(1), .action(.toggleGroupLock), .wait(1.3)]),
         ]
         if prefs.multiMonitorMode {
             tips.insert(TourTip(id: "monitors", symbol: "display.2", title: "Monitors",
@@ -284,6 +320,7 @@ final class TourModel: ObservableObject {
     /// Plays the demo (or the tip's preview) from the start.
     func playDemo(scheduled: Bool = true) {
         stopDemo()
+        cancelAdvance()
         resetDesktop()
         awaitingUser = false
         demoPlaying = true

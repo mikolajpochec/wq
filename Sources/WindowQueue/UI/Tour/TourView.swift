@@ -26,7 +26,7 @@ struct TourView: View {
             Group {
                 switch model.page {
                 case .welcome: welcome
-                case .basics, .aiming, .tiling, .groups: lesson
+                case .basics, .aiming, .tiling: lesson
                 case .setup: setup
                 case .tips: tips
                 case .done: allSet
@@ -195,7 +195,8 @@ struct TourView: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    if model.demoPlaying {
+                    // Tips have no countdown: a preview plays once, then waits for the user.
+                    if model.demoPlaying && model.page != .tips {
                         // How far through the demo is, so it reads as a recording that will end.
                         TimelineView(.animation) { context in
                             let progress = min(1, context.date.timeIntervalSince(model.demoStarted) / model.demoLength)
@@ -345,17 +346,6 @@ struct TourView: View {
                 keyRow(["\(superKey)["], "While aiming: move a window, and the tiles follow")
             }
             tasks(taskList)
-        case .groups:
-            pageTitle("Groups")
-            enterAiming("Grouping happens there. Grouped windows share one place in the strip, and open in a strip of their own beside it.")
-            VStack(alignment: .leading, spacing: 6) {
-                keyRow(["⇧]", "G"], "Aim multiple windows, then group them", joiner: "then")
-                keyRow([model.intoArrow], "While aiming at a group: step into it")
-                keyRow([model.combo(.toggleGroup)], "Ungroup the selected window's group")
-                keyRow([model.combo(.toggleGroupLock)], "Lock cycling to the group, and unlock it")
-            }
-            callout("lock.fill", "While locked, \(model.combo(.cyclePrevious)) and \(model.combo(.cycleNext)) only go round the group, and its strip shows a padlock.")
-            tasks(taskList)
         default:
             EmptyView()
         }
@@ -372,9 +362,6 @@ struct TourView: View {
         case .tiling: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
                    (.tiled, "Tile windows — ⇧], then \(model.intoArrow) and ↩"), (.reorderedTiles, "Reorder the tiles — aim, then \(superKey)["),
                    (.secondLayout, "Try a second layout")]
-        case .groups: return [(.aimed, "Tap \(superKey) on its own to enter aiming mode"),
-                   (.grouped, "Group two windows — ⇧], then G"), (.locked, "Lock cycling to the group — \(model.combo(.toggleGroupLock))"),
-                   (.cycledLocked, "Cycle while it's locked — \(model.combo(.cycleNext))")]
         default: return []
         }
     }
@@ -538,13 +525,13 @@ struct TourView: View {
 
     // MARK: - Tips
 
-    /// The tips in a list that moves on by itself, each previewed on the desktop beside it; pressing
-    /// a tip's keys stops the previews and lets the user try it there.
+    /// The tips in a list, each previewed on the desktop beside it and then the user's to try; once
+    /// they have used all its keys the next tip comes up.
     private var tips: some View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 pageTitle("A few more things")
-                paragraph("Each one previews on the desktop in turn. Press its keys to try it yourself, or pick one from the list.")
+                paragraph("Watch a tip's preview, then try its keys yourself; once you have, the next one comes up. Or pick any from the list.")
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 6) {
@@ -618,16 +605,6 @@ struct TourView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if model.demoPlaying {
-                        TimelineView(.animation) { context in
-                            let progress = min(1, context.date.timeIntervalSince(model.demoStarted) / model.demoLength)
-                            GeometryReader { geometry in
-                                Capsule().fill(Color.accentColor.opacity(0.25))
-                                Capsule().fill(Color.accentColor).frame(width: geometry.size.width * progress)
-                            }
-                            .frame(height: 3)
-                        }
-                    }
                 }
             }
             .padding(10)

@@ -259,21 +259,38 @@ final class TourModelTests: XCTestCase {
         XCTAssertTrue(model.done.contains(.cycled))
     }
 
-    func testDoingATipStaysOnIt() throws {
+    func testDoingATipMovesOnToTheNextOne() throws {
         let model = TourModel(store: PreferencesStore())
         model.show(.tips, scheduled: false)
         let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "declutter" })
         model.showTip(index, scheduled: false)
-        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
-        let stayed = expectation(description: "same tip")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            XCTAssertEqual(model.tipIndex, index, "no moving on by itself")
-            XCTAssertEqual(model.page, .tips)
-            XCTAssertFalse(model.demoPlaying)
-            XCTAssertTrue(model.finishedTips.contains("declutter"), "ticked in the list")
-            stayed.fulfill()
+        model.finishDemo()
+        let waited = expectation(description: "not done yet")
+        DispatchQueue.main.asyncAfter(deadline: .now() + TourModel.advanceDelay + 0.4) {
+            XCTAssertEqual(model.tipIndex, index, "no moving on before the tip is done")
+            XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
+            waited.fulfill()
         }
-        wait(for: [stayed], timeout: 3)
+        wait(for: [waited], timeout: 3)
+        let moved = expectation(description: "next tip")
+        DispatchQueue.main.asyncAfter(deadline: .now() + TourModel.advanceDelay + 0.4) {
+            XCTAssertTrue(model.finishedTips.contains("declutter"), "ticked in the list")
+            XCTAssertEqual(model.tipIndex, index + 1, "the next tip comes up once this one is done")
+            XCTAssertTrue(model.demoPlaying, "and previews")
+            moved.fulfill()
+        }
+        wait(for: [moved], timeout: 4)
+    }
+
+    func testGroupsIsTheLastTipAndCanBeDone() throws {
+        let model = TourModel(store: PreferencesStore())
+        XCTAssertFalse(TourPage.allCases.map(\.title).contains("Groups"), "no Groups page")
+        let tip = try XCTUnwrap(model.tips.last)
+        XCTAssertEqual(tip.id, "groups")
+        model.show(.tips, scheduled: false)
+        model.showTip(model.tips.count - 1, scheduled: false)
+        for step in tip.preview { model.run(step) }
+        XCTAssertTrue(tip.isDone(model.sim.done), "the preview does what the tip asks")
     }
 
     func testATipsPreviewEndsOnTheSameTip() {
