@@ -1039,6 +1039,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Remembers where the windows came to rest, read once the tiler has finished its own
     /// corrections — anything else later is the user moving them.
     private func recordTiledFrames(_ windows: [ManagedWindow]) {
+        // Frames from an earlier layout say nothing about this one; measured against them, the
+        // window would seem to have been moved.
+        for window in windows { tiledFrames[window.id] = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
             for window in windows where self.model.tiledIDs.contains(window.id) {
@@ -1116,20 +1119,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Apps report a move for all sorts of reasons, focus among them; only a frame that is
         // really somewhere else means the user has taken the window out of the layout.
-        if let placed = tiledFrames[id], let now = WindowTiler.frame(of: window) {
-            switch TiledFrameChange.between(placed, now) {
-            case .unchanged:
-                return
-            case .resized:
-                // Remembered as its new place, so a later move is measured from where it is now.
-                tiledFrames[id] = now
-                followResize(of: id, in: group, from: placed, to: now)
-                return
-            case .moved:
-                break
-            }
+        guard let now = WindowTiler.frame(of: window) else { return }
+        guard let placed = tiledFrames[id] else {
+            // Its resting place is not known yet (the layout is still settling, or the app was
+            // slow to say): there is nothing to tell a move by, so this is where it rests.
+            tiledFrames[id] = now
+            return
         }
-        Diagnostics.note("tiling broken by moving window \(id)")
+        switch TiledFrameChange.between(placed, now) {
+        case .unchanged:
+            return
+        case .resized:
+            // Remembered as its new place, so a later move is measured from where it is now.
+            tiledFrames[id] = now
+            followResize(of: id, in: group, from: placed, to: now)
+            return
+        case .moved:
+            break
+        }
+        Diagnostics.note("tiling broken by moving window \(id) from \(placed) to \(now)")
         breakTiling(group)
     }
 
