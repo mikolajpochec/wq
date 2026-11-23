@@ -20,7 +20,7 @@ always-on-top strip showing that list, and workspace switching by number.
   workspaces slides the desktops underneath it instead of hiding and redrawing it.
 - Focus follows the mouse: resting the pointer on a window focuses and raises it (macOS cannot
   focus without raising). It waits for the pointer to settle, and ignores the strip, menus, the Dock
-  and anything held with a button or modifier down. Opt out in Settings › General.
+  and anything held with a button or modifier down. Opt out in Settings › Focus.
 - A popup shows the window name for 2 seconds after a selection change (duration configurable).
 - Tapping the super key on its own opens **aiming mode**: the screens dim, the strip grows, the aimed icon is
   outlined in orange, `[`/`]` or the arrow keys move the aim without focusing anything, and tapping the
@@ -37,8 +37,8 @@ always-on-top strip showing that list, and workspace switching by number.
 - **Invisible mode** (Settings › Strip › Visibility) keeps the strip off screen except while aiming,
   where it swings open from its edge like a page; the queue works as always and a change is announced
   by the name popup alone.
-- The window focus lands on is outlined for a moment, in the selection colour (Settings › General ›
-  Focus, with the duration; opt out there).
+- The window focus lands on is outlined for a moment, in the selection colour (Settings › Focus ›
+  Outlines, with the duration; opt out there).
 - While aiming, every aimed window on the workspace in view is outlined on screen, brightest for the
   one the aim is on, so a run of windows of the same application is still telling.
 - Clicking the workspace number opens aiming mode, and a click anywhere outside WindowQueue's own
@@ -55,7 +55,7 @@ always-on-top strip showing that list, and workspace switching by number.
   among themselves. Each screen is done on its own, less the strip's room.
 - Fullscreening a window (`⌥F`, again to restore) also focuses the queue on it: it moves to the front of
   its workspace, the workspace's other windows are tinted blue in the strip, and cycling skips them
-  until the window is restored, which puts the order back. Off in Settings › General.
+  until the window is restored, which puts the order back. Off in Settings › Tiling.
 - `⌥G` puts the aimed windows in a **group**: the strip shows them as one entry, and stepping into it
   — with the cycle shortcuts, or by clicking it — selects its first window and lists the group beside
   the strip — a second strip of its own, in the same line and the same size. Resting the pointer on
@@ -158,7 +158,7 @@ Turn both off in Settings › Strip.
 
 ## Workspace switching
 
-`⌥1` … `⌥9` switch workspace in one of three ways (Settings › General):
+`⌥1` … `⌥9` switch workspace in one of three ways (Settings › Queue):
 
 - **Carry an invisible window there** (the default): a one-pixel panel of WindowQueue's own is put on
   the target desktop — a process may place its own windows on any space — and brought to the front

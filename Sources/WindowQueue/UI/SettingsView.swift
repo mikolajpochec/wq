@@ -1,18 +1,22 @@
 import AppKit
 import SwiftUI
 
-/// The settings' tabs, shown as the window's toolbar the way macOS settings windows are.
+/// The settings' tabs, shown as the window's toolbar the way macOS settings windows are. Each tab
+/// is one area of the app: what the queue holds, how the strip looks, aiming, focus, tiling.
 enum SettingsTab: String, CaseIterable {
-    case general, focus, shortcuts, strip, animations
+    case general, queue, strip, aiming, focus, tiling, shortcuts, animations
 
     var title: String { rawValue.capitalized }
 
     var symbol: String {
         switch self {
         case .general: return "gearshape"
-        case .focus: return "cursorarrow.rays"
-        case .shortcuts: return "keyboard"
+        case .queue: return "list.number"
         case .strip: return "sidebar.left"
+        case .aiming: return "scope"
+        case .focus: return "cursorarrow.rays"
+        case .tiling: return "rectangle.split.2x2"
+        case .shortcuts: return "keyboard"
         case .animations: return "wand.and.stars"
         }
     }
@@ -34,13 +38,15 @@ struct SettingsView: View {
         Group {
             switch tab {
             case .general: general
-            case .focus: focus
-            case .shortcuts: shortcuts
+            case .queue: queue
             case .strip: strip
+            case .aiming: aiming
+            case .focus: focus
+            case .tiling: tiling
+            case .shortcuts: shortcuts
             case .animations: animations
             }
         }
-        .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
     }
 
     // MARK: - Building blocks
@@ -75,6 +81,7 @@ struct SettingsView: View {
 
     // MARK: - General
 
+    /// Permissions, updates and startup: the app itself rather than how it handles windows.
     private var general: some View {
         Form {
             Section("Getting started") {
@@ -112,7 +119,44 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Queue") {
+            Section("Startup") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Launch at login", isOn: $store.prefs.launchAtLogin)
+                        .disabled(!LoginItem.isInstalled)
+                    if let note = loginItemNote {
+                        HStack(spacing: 8) {
+                            caption(note)
+                            if LoginItem.state == .needsApproval {
+                                Button("Open Login Items") { LoginItem.openSystemSettings() }
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Section("Window titles") {
+                caption(titlesExplanation)
+                if !ScreenRecordingAccess.isGranted {
+                    Button("Grant Screen Recording…") {
+                        ScreenRecordingAccess.request()
+                        ScreenRecordingAccess.openSettings()
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Queue
+
+    private var queue: some View {
+        Form {
+            Section("Monitors") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
+                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and, with Shift, take the window there with you.")
+                }
                 Picker("Queue scope", selection: $store.prefs.scope) {
                     ForEach(QueueScope.allCases.filter { $0 != .monitor || store.prefs.multiMonitorMode }) {
                         Text($0.title).tag($0)
@@ -124,10 +168,9 @@ struct SettingsView: View {
                         caption("Each monitor's queue holds only the windows on the desktop that monitor has on show: first by monitor, then by workspace.")
                     }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Multi-monitor mode", isOn: $store.prefs.multiMonitorMode)
-                    caption("Every monitor's strip shows its own queue: with the per-monitor scope the windows on that monitor, with the per-workspace one the desktop it has on show. Cycling works on the monitor you are on. Also takes the shortcuts that go to monitor N (counted left to right) or on to the next monitor, and — with Shift — take the window there with you.")
-                }
+            }
+
+            Section("Cycling") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Wrap around at the ends of the queue", isOn: $store.prefs.cycleWrapsAround)
                     caption("Going past the last window comes back to the first, and the other way round, when cycling and when moving the aim. Off, the steps stop at the ends.")
@@ -139,6 +182,9 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                     caption(tabCyclingExplanation)
                 }
+            }
+
+            Section("Order") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Keep the queue sorted by workspace", isOn: $store.prefs.autoSortByWorkspace)
                     caption("New windows join their workspace's group automatically. Reordering the queue by hand turns this off; the sort shortcut turns it back on.")
@@ -158,11 +204,21 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section("Tiling") {
+    // MARK: - Tiling
+
+    private var tiling: some View {
+        Form {
+            Section("Gaps") {
                 sliderRow("Screen gap", value: $store.prefs.tileOuterGap, in: 0...40, step: 1, format: Self.points)
                 sliderRow("Gap between windows", value: $store.prefs.tileInnerGap, in: 0...40, step: 1, format: Self.points)
                 caption("Room left around windows that WindowQueue places: tiled from aiming mode, maximized, or sent fullscreen.")
+            }
+
+            Section("Layout") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Tile on a separate workspace", isOn: $store.prefs.tileOnSeparateWorkspace)
                     caption("When other windows share the workspace, the tiled windows move to one holding nothing else. Off, they are gathered on the first aimed window's workspace.")
@@ -190,37 +246,53 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section("Strip labels") {
+    // MARK: - Aiming
+
+    private var aiming: some View {
+        Form {
+            Section("Aiming mode") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
-                    caption("Tells apart several windows of the same application. The icon shrinks to make room, so the strip stays the same size.")
+                    Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
+                    caption("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
                 }
-            }
-
-            Section("Window titles") {
-                caption(titlesExplanation)
-                if !ScreenRecordingAccess.isGranted {
-                    Button("Grant Screen Recording…") {
-                        ScreenRecordingAccess.request()
-                        ScreenRecordingAccess.openSettings()
-                    }
-                }
-            }
-
-            Section("Startup") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Launch at login", isOn: $store.prefs.launchAtLogin)
-                        .disabled(!LoginItem.isInstalled)
-                    if let note = loginItemNote {
-                        HStack(spacing: 8) {
-                            caption(note)
-                            if LoginItem.state == .needsApproval {
-                                Button("Open Login Items") { LoginItem.openSystemSettings() }
-                                    .controlSize(.small)
-                            }
+                    Toggle("Show aiming mode instantly", isOn: $store.prefs.instantAiming)
+                    caption("The mode appears the moment the super key is tapped: the screens dim, the strip grows and, in invisible mode, opens without animating, and nothing waits to see whether a double tap is coming. With a double-tap action set, the mode shows for an instant before the second tap replaces it. Leaving the mode still animates.")
+                }
+                .disabled(!store.prefs.aimingEnabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Double tap of the super key", selection: $store.prefs.superDoubleTapAction) {
+                        Text("Confirm the aim").tag(HotkeyAction?.none)
+                        ForEach(HotkeyAction.doubleTapActions) { action in
+                            Text(action.title).tag(HotkeyAction?.some(action))
                         }
                     }
+                    caption("Two taps of the super key in quick succession. Confirming focuses the aimed window, which is what the second tap does on its own; any other choice leaves aiming mode and runs that action instead.")
+                }
+                .disabled(!store.prefs.aimingEnabled)
+                sliderRow("Dim the screens", value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05) {
+                    $0 == 0 ? "off" : Self.percent($0)
+                }
+                .disabled(!store.prefs.aimingEnabled)
+            }
+
+            Section("Launcher") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Open with", selection: $store.prefs.launcher) {
+                        ForEach(LauncherApp.allCases) { launcher in
+                            Text(launcher.isAvailable ? launcher.title : "\(launcher.title) (not installed)")
+                                .tag(launcher)
+                        }
+                    }
+                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Launcher command", text: $store.prefs.raycastCommand, prompt: Text("Opens the launcher above"))
+                    caption("The URL \"Run a launcher command\" opens. Bind it to a shortcut or the double tap of the super key. Any link an installed app handles works: a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…), a Shortcut (shortcuts://run-shortcut?name=…). Left empty, or on a Mac without the app it needs, it opens the launcher chosen above.")
                 }
             }
         }
@@ -241,31 +313,10 @@ struct SettingsView: View {
                     .disabled(!store.prefs.focusFollowsMouse)
             }
 
-            Section("Aiming mode") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Aiming mode", isOn: $store.prefs.aimingEnabled)
-                    caption("Tap the super key on its own to pick a window without focusing it. The strip grows, the screens dim behind it, the aimed icon turns orange, and [ / ] or the arrows move the aim. Tapping the super key again focuses the window; so do Return and Space. Escape leaves everything as it was.")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("Double tap of the super key", selection: $store.prefs.superDoubleTapAction) {
-                        Text("Confirm the aim").tag(HotkeyAction?.none)
-                        ForEach(HotkeyAction.doubleTapActions) { action in
-                            Text(action.title).tag(HotkeyAction?.some(action))
-                        }
-                    }
-                    caption("Two taps of the super key in quick succession. Confirming focuses the aimed window, which is what the second tap does on its own; any other choice leaves aiming mode and runs that action instead.")
-                }
-                .disabled(!store.prefs.aimingEnabled)
-                sliderRow("Dim the screens", value: $store.prefs.aimingDimOpacity, in: 0...0.85, step: 0.05) {
-                    $0 == 0 ? "off" : Self.percent($0)
-                }
-                .disabled(!store.prefs.aimingEnabled)
-            }
-
-            Section("Focus") {
+            Section("Outlines") {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Outline the window focus lands on", isOn: $store.prefs.flashFocusedWindow)
-                    caption("A brief outline around the window that just took focus, in the selection colour — the same mark aiming mode draws around what it is pointing at. It appears at once, holds, then fades over half a second.")
+                    caption("A brief outline around the window that just took focus, in the selection colour, the same mark aiming mode draws around what it is pointing at. It appears at once, holds, then fades over half a second.")
                 }
                 sliderRow("Outline holds for", value: $store.prefs.flashFocusedWindowDuration,
                           in: 0.05...1, step: 0.05, format: Self.seconds)
@@ -273,22 +324,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Frame the monitor switched to", isOn: $store.prefs.flashMonitorOnSwitch)
                     caption("When a monitor shortcut, or a workspace shortcut for a desktop on show on another display, takes you to another monitor, its edges light up for a moment in the selection colour.")
-                }
-            }
-
-            Section("Launcher") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("Open with", selection: $store.prefs.launcher) {
-                        ForEach(LauncherApp.allCases) { launcher in
-                            Text(launcher.isAvailable ? launcher.title : "\(launcher.title) (not installed)")
-                                .tag(launcher)
-                        }
-                    }
-                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. Spotlight has no way in other than its own ⌘Space, which is sent as a key press; the others are opened as applications. A launcher that is not installed falls back to Spotlight.")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField("Launcher command", text: $store.prefs.raycastCommand, prompt: Text("Opens the launcher above"))
-                    caption("The URL \"Run a launcher command\" opens — bind it to a shortcut or the double tap of the super key. Any link an installed app handles works: a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…), a Shortcut (shortcuts://run-shortcut?name=…). Left empty, or on a Mac without the app it needs, it opens the launcher chosen above.")
                 }
             }
 
@@ -306,6 +341,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
     }
+
 
     private var loginItemNote: String? {
         switch LoginItem.state {
@@ -464,12 +500,13 @@ struct SettingsView: View {
 
     private var reservationExplanation: String {
         let gap = RectangleIntegration.reservedWidth(for: store.prefs)
-        let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free — in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
+        let base = "While the Dock hides itself, WindowQueue lends the strip the Dock's reserved area on the menu bar screen, so zoom, Fill and tiling leave \(gap) pt free, in apps opened after WindowQueue started. Everywhere else, windows laid against the strip's edge are trimmed after the fact."
         guard RectangleIntegration.isInstalled else { return base }
         return base + " It also sets Rectangle's \(store.prefs.stripSide.rawValue) screen-edge gap, which Rectangle reads at launch, so restart it after changing this."
     }
 
-    // MARK: - Strip
+
+    // MARK: - Animations
 
     private var animations: some View {
         Form {
@@ -488,10 +525,6 @@ struct SettingsView: View {
             Section("Aiming mode") {
                 animationToggle(.aimingMode)
                 animationToggle(.aimCursor)
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Show aiming mode instantly", isOn: $store.prefs.instantAiming)
-                    caption("The mode appears the moment the super key is tapped: the screens dim, the strip grows and — in invisible mode — opens without animating, and nothing waits to see whether a double tap is coming. With a double-tap action set, the mode shows for an instant before the second tap replaces it. Leaving the mode still animates.")
-                }
             }
 
             Section("Windows and popups") {
@@ -501,6 +534,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
     }
+
 
     /// One animation's own switch, greyed out while the main switch is off.
     private func animationToggle(_ kind: AnimationKind) -> some View {
@@ -521,6 +555,8 @@ struct SettingsView: View {
             }
         )
     }
+
+    // MARK: - Strip
 
     private var strip: some View {
         Form {
@@ -553,17 +589,24 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 sliderRow("Margin", value: $store.prefs.stripMargin, in: 0...40, step: 1, format: Self.points)
-                Picker("Group strip", selection: $store.prefs.groupStripPlacement) {
-                    ForEach(GroupStripPlacement.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                caption(groupStripPlacementExplanation)
             }
 
             Section("Appearance") {
                 sliderRow("Icon size", value: $store.prefs.iconSize, in: 16...48, step: 2, format: Self.points)
                 sliderRow("Opacity", value: $store.prefs.stripOpacity, in: 0.2...1.0, step: 0.05, format: Self.percent)
                 Toggle("Show workspace number", isOn: $store.prefs.showSpaceBadge)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show window titles under the icons", isOn: $store.prefs.showWindowLabels)
+                    caption("Tells apart several windows of the same application. The icon shrinks to make room, so the strip stays the same size.")
+                }
+            }
+
+            Section("Groups") {
+                Picker("Group strip", selection: $store.prefs.groupStripPlacement) {
+                    ForEach(GroupStripPlacement.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                caption(groupStripPlacementExplanation)
                 Picker("Group exit doors", selection: $store.prefs.groupExitDoors) {
                     ForEach(GroupExitDoors.allCases) { Text($0.title).tag($0) }
                 }
@@ -607,7 +650,7 @@ final class SettingsWindowController: NSWindowController {
     private let tabs: NSTabViewController
 
     /// A tab view controller in toolbar style: the tabs are the window's toolbar, and its title
-    /// follows the tab — the standard macOS settings window, which a SwiftUI `TabView` in a plain
+    /// follows the tab: the standard macOS settings window, which a SwiftUI `TabView` in a plain
     /// window is not (on macOS 26 that draws as a blank segmented bar).
     init(store: PreferencesStore, failures: @escaping () -> [HotkeyAction], spacesAvailable: Bool,
          showTour: @escaping () -> Void, checkForUpdates: @escaping () -> Void = {}) {
