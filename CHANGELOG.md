@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0 (2026-11-23)
+
+- **Resize tiled windows without breaking the layout.** Drag the edge or corner of a tiled window and the windows next to it follow the edge as you drag, for as long as you hold the button; dividers that line up (the rows of a grid, the windows of a stack) move together. A window that can't get any smaller stops the drag instead of being pushed off screen, and terminals that size themselves to whole rows and columns of text keep up too. Moving a window by its title bar still frees the layout.
+
 ## 1.5.1 (2026-11-23)
 
 - **Updates install themselves.** When a new version is out, **Install and Relaunch** downloads it from GitHub, checks it is signed by WindowQueue's developer, replaces the app and reopens it; no more browser and DMG. If it can't (for example when WindowQueue isn't in a writable folder), the window says why and offers the release page.
