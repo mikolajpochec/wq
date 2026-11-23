@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.3 (2026-11-23)
+
+- The Tips page of the tour no longer moves on to the next tip by itself, neither when a tip's preview ends nor when you've tried its shortcuts. The tip stays on screen (ticked once done) until you pick another; "Watch Preview" plays it again.
+- Pressing the group shortcut (G) in aiming mode with a single grouped window aimed, or a group's tile aimed at whole, now ungroups it; the aiming panel offers "Ungroup" there.
+
 ## 1.4.2 (2026-11-17)
 
 - Fixed: two quick taps of the super key did nothing on a workspace with no windows. The double tap's action (e.g. opening the launcher) now runs there too.
