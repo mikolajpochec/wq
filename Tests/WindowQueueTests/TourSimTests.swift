@@ -282,6 +282,36 @@ final class TourModelTests: XCTestCase {
         wait(for: [moved], timeout: 4)
     }
 
+    func testAKeyPressedRightAfterATipIsDoneCountsForTheNextTip() throws {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.tips, scheduled: false)
+        let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "declutter" })
+        XCTAssertEqual(model.tips[index + 1].id, "capture")
+        model.showTip(index, scheduled: false)
+        model.finishDemo()
+        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
+        let pressed = expectation(description: "pressed in the pause")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            XCTAssertEqual(model.tipIndex, index, "still the done tip, the next one is on its way")
+            XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option, isRepeat: true), "a held key is swallowed")
+            XCTAssertEqual(model.tipIndex, index)
+            XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_P, flags: .option))
+            XCTAssertEqual(model.tipIndex, index + 1, "the next tip comes up at once")
+            XCTAssertFalse(model.demoPlaying, "with no preview in the way")
+            XCTAssertTrue(model.done.contains(.pictured), "and the key counts for it")
+            pressed.fulfill()
+        }
+        wait(for: [pressed], timeout: 3)
+        let later = expectation(description: "stays")
+        DispatchQueue.main.asyncAfter(deadline: .now() + TourModel.advanceDelay + 0.5) {
+            XCTAssertEqual(model.tipIndex, index + 1)
+            XCTAssertFalse(model.demoPlaying)
+            XCTAssertTrue(model.done.contains(.pictured), "nothing wipes it afterwards")
+            later.fulfill()
+        }
+        wait(for: [later], timeout: 4)
+    }
+
     func testGroupsIsTheLastTipAndCanBeDone() throws {
         let model = TourModel(store: PreferencesStore())
         XCTAssertFalse(TourPage.allCases.map(\.title).contains("Groups"), "no Groups page")

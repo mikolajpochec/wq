@@ -662,7 +662,7 @@ final class TourWindowController: NSWindowController, NSWindowDelegate {
             // Holding the super key for a shortcut is not a tap of it.
             self.taps.cancel()
             return self.model.handleKey(keyCode: Int(event.keyCode), flags: event.modifierFlags,
-                                        characters: event.charactersIgnoringModifiers) ? nil : event
+                                        characters: event.charactersIgnoringModifiers, isRepeat: event.isARepeat) ? nil : event
         }
         onKeyboardChange?(true)
     }

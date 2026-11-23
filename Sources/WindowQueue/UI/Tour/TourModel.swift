@@ -111,6 +111,8 @@ final class TourModel: ObservableObject {
     private var simWatch: AnyCancellable?
     /// The move to the next tip, a moment after the user has done this one.
     private var advanceWork: DispatchWorkItem?
+    /// The tip that move goes to.
+    private var advanceTarget: Int?
     /// The tips the user has done on the desktop, ticked in the list.
     @Published private(set) var finishedTips: Set<String> = []
 
@@ -186,9 +188,11 @@ final class TourModel: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.page == .tips else { return }
             self.advanceWork = nil
+            self.advanceTarget = nil
             self.showTip(next)
         }
         advanceWork = work
+        advanceTarget = next
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.advanceDelay, execute: work)
     }
 
@@ -204,6 +208,7 @@ final class TourModel: ObservableObject {
     private func cancelAdvance() {
         advanceWork?.cancel()
         advanceWork = nil
+        advanceTarget = nil
     }
 
     var tips: [TourTip] {
@@ -372,6 +377,15 @@ final class TourModel: ObservableObject {
     /// afresh, and the tips stay on this one.
     func takeOver() {
         awaitingUser = false
+        if let next = advanceTarget {
+            // This tip is done and the next one is about to come up: what the user does now is
+            // meant for that one. It comes up at once, without its preview, so the key counts.
+            cancelAdvance()
+            tipIndex = next
+            resetDesktop()
+            sim.clearDone()
+            return
+        }
         guard demoPlaying else { return }
         stopDemo()
         resetDesktop()
@@ -445,8 +459,10 @@ final class TourModel: ObservableObject {
 
     // MARK: - The user's turn
 
-    func handleKey(keyCode: Int, flags: NSEvent.ModifierFlags, characters: String? = nil) -> Bool {
+    func handleKey(keyCode: Int, flags: NSEvent.ModifierFlags, characters: String? = nil, isRepeat: Bool = false) -> Bool {
         guard page.isInteractive else { return false }
+        // A key still held from the tip just done is not a go at the next one.
+        if isRepeat, advanceTarget != nil { return true }
         // The user is trying it: whatever the key, the demo stops at once.
         takeOver()
         return sim.press(keyCode: keyCode, flags: flags, prefs: prefs, characters: characters)
