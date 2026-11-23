@@ -1127,16 +1127,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             follow(session)
             return
         }
-        // A window that followed a neighbour's resize a moment ago: still settling, and ours.
-        if let until = followingResize[id], Date() < until {
+        let dragging = NSEvent.pressedMouseButtons & 1 != 0
+        // A window that followed a neighbour's resize a moment ago: still settling, and ours. That
+        // drag ended with the mouse button going up, so with the button down again it is the user,
+        // grabbing this window next.
+        if let until = followingResize[id], Date() < until, !dragging {
             tiledFrames[id] = now
             return
         }
+        followingResize[id] = nil
         // Apps report a move for all sorts of reasons, focus among them; only a frame that is
         // really somewhere else means the user has taken the window out of the layout. Before its
         // resting place is read, the frame the tiler asked for stands in for it.
         let placed = tiledFrames[id] ?? WindowTiler.placedFrame(of: id) ?? now
-        let dragging = NSEvent.pressedMouseButtons & 1 != 0
         switch TiledFrameChange.between(placed, now) {
         case .unchanged:
             tiledFrames[id] = tiledFrames[id] ?? placed
