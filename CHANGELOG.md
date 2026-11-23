@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0 (2026-11-23)
+
+- **Tour tips move on when you're done.** A tip on the Tips page plays its preview once, with no countdown bar, then waits until you've used all its shortcuts. The next tip you haven't done then comes up. A shortcut pressed right after finishing a tip counts for the next one.
+- **Groups is a tip.** It is the last tip on the Tips page instead of a page of its own.
+- **Maximize and Fullscreen are separate tips.** The Fullscreen one starts with windows already tiled and asks you to go fullscreen and come back to the layout.
+
 ## 1.4.3 (2026-11-23)
 
 - The Tips page of the tour no longer moves on to the next tip by itself, neither when a tip's preview ends nor when you've tried its shortcuts. The tip stays on screen (ticked once done) until you pick another; "Watch Preview" plays it again.
