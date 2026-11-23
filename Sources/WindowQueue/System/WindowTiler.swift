@@ -363,8 +363,10 @@ enum WindowTiler {
 
     /// Sets a window's frame once, in Cocoa screen coordinates, with no checks or retries: for a
     /// window following a neighbour being resized, where the next drag step soon asks again.
-    static func nudge(_ window: ManagedWindow, to frame: NSRect) {
-        guard let element = window.element else { return }
+    /// - Returns: where it landed, in Cocoa screen coordinates.
+    @discardableResult
+    static func nudge(_ window: ManagedWindow, to frame: NSRect) -> NSRect? {
+        guard let element = window.element else { return nil }
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let target = CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
         placedFrames[window.id] = target
@@ -373,7 +375,7 @@ enum WindowTiler {
         var origin = target.origin
         guard let sizeValue = AXValueCreate(.cgSize, &size),
               let originValue = AXValueCreate(.cgPoint, &origin)
-        else { return }
+        else { return nil }
         withoutAnimation(pid: window.pid) {
             // Shrinking towards the far edge needs the size first, growing the position first;
             // setting the size on both sides covers either way in one go.
@@ -381,6 +383,8 @@ enum WindowTiler {
             element.setAttribute(kAXPositionAttribute, value: originValue)
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
         }
+        guard let landed = currentFrame(of: element) else { return nil }
+        return NSRect(x: landed.minX, y: primaryHeight - landed.maxY, width: landed.width, height: landed.height)
     }
 
     /// Brings the tiled windows forward together, so none of them is left behind another app.
@@ -505,6 +509,15 @@ enum TiledResize {
             if moved != frame { result[id] = moved }
         }
         return result
+    }
+
+    /// Where a following window goes when its app will not take the size asked (a minimum of its
+    /// own): it keeps the size it insists on and stays against its far edge, the one the drag did
+    /// not reach, instead of being pushed past it (off the screen, even).
+    static func anchor(asked: NSRect, landed size: NSSize, start: NSRect) -> NSRect {
+        let x = abs(asked.minX - start.minX) > 0.5 ? asked.maxX - size.width : asked.minX
+        let y = abs(asked.minY - start.minY) > 0.5 ? asked.maxY - size.height : asked.minY
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
     /// Where the dragged window has to stop so it does not cover a neighbour that could not give way

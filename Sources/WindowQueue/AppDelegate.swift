@@ -1197,14 +1197,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        gap: WindowTiler.Gaps(prefs: store.prefs).inner)
         var asked = session.asked
         let until = Date().addingTimeInterval(1.5)
-        for mate in model.windows where moves[mate.id] != nil {
-            let frame = moves[mate.id]!
+        for mate in model.windows {
+            // One that followed earlier in the drag but no longer has to goes back where it began.
+            guard let start = session.mates[mate.id],
+                  let frame = moves[mate.id] ?? (asked[mate.id] != nil ? start : nil)
+            else { continue }
             followingResize[mate.id] = until
             guard force || asked[mate.id] != frame else { continue }
             var mate = mate
             mate.element = mate.element ?? WindowSpaceMover.element(for: mate)
             asked[mate.id] = frame
-            WindowTiler.nudge(mate, to: frame)
+            guard let landed = WindowTiler.nudge(mate, to: frame) else { continue }
+            if abs(landed.width - frame.width) > 2 || abs(landed.height - frame.height) > 2 {
+                let anchored = TiledResize.anchor(asked: frame, landed: landed.size, start: start)
+                if anchored != landed { WindowTiler.nudge(mate, to: anchored) }
+            }
         }
         resizeSessions[group.id]?.asked = asked
     }
@@ -1258,6 +1265,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.followingResize[session.id] = Date().addingTimeInterval(1.5)
                 WindowTiler.nudge(window, to: clamped)
                 dragged = clamped
+                // The windows lined up along the same divider come back with it.
+                var held = session
+                held.latest = clamped
+                self.resizeSessions[groupID] = held
+                self.follow(held, force: true)
+                self.resizeSessions[groupID] = nil
+                for member in members where self.model.tiledIDs.contains(member.id) {
+                    if let frame = WindowTiler.frame(of: member) { self.tiledFrames[member.id] = frame }
+                }
             }
             self.tiledFrames[session.id] = dragged
             landed.insert("\(session.id)=\(dragged)\(clamped != session.latest ? " (held back)" : "")", at: 0)

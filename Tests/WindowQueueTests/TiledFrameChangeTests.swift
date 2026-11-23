@@ -114,3 +114,20 @@ final class TiledResizeClampTests: XCTestCase {
         XCTAssertEqual(TiledResize.clamp(dragged, start: start, mates: [right], gap: 10), dragged)
     }
 }
+
+final class TiledResizeAnchorTests: XCTestCase {
+    func testAWindowThatWillNotShrinkStaysAgainstItsFarEdge() {
+        // Seen live: Ideas (minimum height 692) was asked to shrink its top edge to 590 and slid
+        // off the bottom of the screen instead.
+        let start = NSRect(x: 66, y: 2, width: 865, height: 692)
+        let asked = NSRect(x: 66, y: 2, width: 865, height: 588)
+        XCTAssertEqual(TiledResize.anchor(asked: asked, landed: NSSize(width: 865, height: 692), start: start), start)
+    }
+
+    func testAWindowShrunkFromItsNearEdgeKeepsItsFarEdge() {
+        let start = NSRect(x: 510, y: 0, width: 490, height: 800)
+        let asked = NSRect(x: 700, y: 0, width: 300, height: 800)
+        XCTAssertEqual(TiledResize.anchor(asked: asked, landed: NSSize(width: 400, height: 800), start: start),
+                       NSRect(x: 600, y: 0, width: 400, height: 800))
+    }
+}
