@@ -1044,8 +1044,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for window in windows { tiledFrames[window.id] = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
+            // With the mouse button down the user may already be dragging one of them: a frame read
+            // now would be a moment of that drag, and the drag would seem to start from there. The
+            // frame the tiler asked for is where they rest.
+            let dragging = NSEvent.pressedMouseButtons & 1 != 0
             for window in windows where self.model.tiledIDs.contains(window.id) {
-                self.tiledFrames[window.id] = WindowTiler.frame(of: window)
+                if let group = self.model.tiledGroup(of: window.id), self.resizeSessions[group.id] != nil { continue }
+                self.tiledFrames[window.id] = dragging
+                    ? WindowTiler.placedFrame(of: window.id) ?? WindowTiler.frame(of: window)
+                    : WindowTiler.frame(of: window)
             }
         }
     }
@@ -1230,12 +1237,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let members = model.windows.filter { session.mates[$0.id] != nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self else { return }
-            var landed: [String] = ["\(session.id)=\(session.latest)"]
+            var landed: [String] = []
+            var followers: [(start: NSRect, now: NSRect)] = []
             for member in members where self.model.tiledIDs.contains(member.id) {
                 guard let frame = WindowTiler.frame(of: member) else { continue }
                 self.tiledFrames[member.id] = frame
                 landed.append("\(member.id)=\(frame)")
+                if moves[member.id] != nil, let start = session.mates[member.id] {
+                    followers.append((start: start, now: frame))
+                }
             }
+            // A neighbour that could not give way any further holds the dragged window back, so it
+            // does not end up lying over it.
+            var dragged = session.latest
+            let clamped = TiledResize.clamp(dragged, start: session.start, mates: followers,
+                                            gap: WindowTiler.Gaps(prefs: self.store.prefs).inner)
+            if clamped != dragged, self.model.tiledIDs.contains(session.id),
+               var window = self.model.windows.first(where: { $0.id == session.id }) {
+                window.element = window.element ?? WindowSpaceMover.element(for: window)
+                self.followingResize[session.id] = Date().addingTimeInterval(1.5)
+                WindowTiler.nudge(window, to: clamped)
+                dragged = clamped
+            }
+            self.tiledFrames[session.id] = dragged
+            landed.insert("\(session.id)=\(dragged)\(clamped != session.latest ? " (held back)" : "")", at: 0)
             Diagnostics.note("resize of tiled window \(session.id) settled: \(landed.joined(separator: " "))")
         }
     }

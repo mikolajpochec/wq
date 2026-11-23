@@ -94,3 +94,23 @@ final class TiledFrameChangeSnappingTests: XCTestCase {
         XCTAssertEqual(TiledFrameChange.between(placed, NSRect(x: 900, y: 0, width: 880, height: 800)), .moved)
     }
 }
+
+final class TiledResizeClampTests: XCTestCase {
+    func testTheDraggedWindowStopsAtANeighbourThatCouldNotShrink() {
+        // Seen live: the top row's bottom edge dragged down, the bottom row stopped at 120 pt.
+        let start = NSRect(x: 933, y: 696, width: 865, height: 431)
+        let dragged = NSRect(x: 933, y: 2, width: 865, height: 1125)
+        let below = (start: NSRect(x: 1222, y: 2, width: 576, height: 692),
+                     now: NSRect(x: 1222, y: 2, width: 576, height: 120))
+        let clamped = TiledResize.clamp(dragged, start: start, mates: [below], gap: 2)
+        XCTAssertEqual(clamped, NSRect(x: 933, y: 124, width: 865, height: 1003))
+    }
+
+    func testANeighbourThatGaveWayHoldsNothingBack() {
+        let start = NSRect(x: 0, y: 0, width: 500, height: 800)
+        let dragged = NSRect(x: 0, y: 0, width: 600, height: 800)
+        let right = (start: NSRect(x: 510, y: 0, width: 490, height: 800),
+                     now: NSRect(x: 610, y: 0, width: 390, height: 800))
+        XCTAssertEqual(TiledResize.clamp(dragged, start: start, mates: [right], gap: 10), dragged)
+    }
+}

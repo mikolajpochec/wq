@@ -506,4 +506,24 @@ enum TiledResize {
         }
         return result
     }
+
+    /// Where the dragged window has to stop so it does not cover a neighbour that could not give way
+    /// any further (our smallest side, or the app's own minimum).
+    /// - Parameters:
+    ///   - mates: each following window's frame when the drag began and where it is now.
+    static func clamp(_ dragged: NSRect, start: NSRect, mates: [(start: NSRect, now: NSRect)],
+                      gap: CGFloat, tolerance: CGFloat = 24) -> NSRect {
+        func faces(_ edge: CGFloat, _ at: CGFloat, ahead: Bool) -> Bool {
+            let distance = ahead ? edge - at : at - edge
+            return distance >= -tolerance && distance <= gap + tolerance
+        }
+        var minX = dragged.minX, maxX = dragged.maxX, minY = dragged.minY, maxY = dragged.maxY
+        for mate in mates {
+            if faces(mate.start.minX, start.maxX, ahead: true) { maxX = min(maxX, mate.now.minX - gap) }
+            if faces(mate.start.maxX, start.minX, ahead: false) { minX = max(minX, mate.now.maxX + gap) }
+            if faces(mate.start.minY, start.maxY, ahead: true) { maxY = min(maxY, mate.now.minY - gap) }
+            if faces(mate.start.maxY, start.minY, ahead: false) { minY = max(minY, mate.now.maxY + gap) }
+        }
+        return NSRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
+    }
 }
