@@ -435,13 +435,19 @@ enum WindowTiler {
 enum TiledFrameChange: Equatable {
     case unchanged, resized, moved
 
+    /// How far the edge held still in a resize may slip with an app rounding its size.
+    static let snapTolerance: CGFloat = 32
+
     static func between(_ placed: NSRect, _ now: NSRect, tolerance: CGFloat = 4) -> TiledFrameChange {
         func same(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
         let sameSize = same(now.width, placed.width) && same(now.height, placed.height)
         if sameSize && same(now.minX, placed.minX) && same(now.minY, placed.minY) { return .unchanged }
         if sameSize { return .moved }
-        let keepsHorizontalEdge = same(now.minX, placed.minX) || same(now.maxX, placed.maxX)
-        let keepsVerticalEdge = same(now.minY, placed.minY) || same(now.maxY, placed.maxY)
+        // An app that keeps to a grid (a terminal's rows and columns of text) rounds its size as it
+        // is resized, and the edge being held can slip by a character or two with it.
+        func kept(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= snapTolerance }
+        let keepsHorizontalEdge = kept(now.minX, placed.minX) || kept(now.maxX, placed.maxX)
+        let keepsVerticalEdge = kept(now.minY, placed.minY) || kept(now.maxY, placed.maxY)
         return keepsHorizontalEdge && keepsVerticalEdge ? .resized : .moved
     }
 }

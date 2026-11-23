@@ -81,3 +81,16 @@ final class TiledResizeSnappingTests: XCTestCase {
         XCTAssertEqual(moves[2], NSRect(x: 510, y: 310, width: 490, height: 490))
     }
 }
+
+final class TiledFrameChangeSnappingTests: XCTestCase {
+    func testATerminalRoundingItsWidthIsStillAResize() {
+        // Seen live: Ghostty's left edge dragged 20 pt in, its right edge slipped 24 pt with the rounding.
+        let placed = NSRect(x: 648, y: 442, width: 1150, height: 685)
+        XCTAssertEqual(TiledFrameChange.between(placed, NSRect(x: 668, y: 442, width: 1106, height: 685)), .resized)
+    }
+
+    func testJumpingToTheOtherHalfIsAMove() {
+        let placed = NSRect(x: 0, y: 0, width: 900, height: 800)
+        XCTAssertEqual(TiledFrameChange.between(placed, NSRect(x: 900, y: 0, width: 880, height: 800)), .moved)
+    }
+}
