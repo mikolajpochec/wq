@@ -104,15 +104,12 @@ final class TourModel: ObservableObject {
     /// The desktop is the user's and they haven't done anything yet: it says it's their turn, so it
     /// is not mistaken for something predefined.
     @Published private(set) var awaitingUser = false
-    /// The tip on show, and whether the tips go on to the next by themselves.
+    /// The tip on show. Tips never move on by themselves; the user picks the next one.
     @Published private(set) var tipIndex = 0
-    @Published private(set) var tipsPlaying = true
     let sim = TourSim()
     let store: PreferencesStore
     private var demoWork: [DispatchWorkItem] = []
     private var simWatch: AnyCancellable?
-    /// A finished tip is about to hand on to the next.
-    private var advancing = false
     /// The tips the user has done on the desktop, ticked in the list.
     @Published private(set) var finishedTips: Set<String> = []
 
@@ -121,7 +118,7 @@ final class TourModel: ObservableObject {
         sim.reset(TourPage.welcome.windows)
         // `objectWillChange` fires before the change lands; look on the next turn.
         simWatch = sim.objectWillChange.sink { [weak self] in
-            DispatchQueue.main.async { self?.advanceIfTipDone() }
+            DispatchQueue.main.async { self?.markTipIfDone() }
         }
     }
 
@@ -135,7 +132,6 @@ final class TourModel: ObservableObject {
         self.page = page
         sim.clearDone()
         if page == .tips {
-            tipsPlaying = true
             showTip(0, scheduled: scheduled)
             return
         }
@@ -164,48 +160,23 @@ final class TourModel: ObservableObject {
 
     var currentTip: TourTip? { page == .tips ? tips[safe: tipIndex] : nil }
 
-    /// Previews a tip; with the tips playing, the next one follows when it ends.
+    /// Previews a tip; when it ends the desktop is the user's, still on this tip.
     func showTip(_ index: Int, scheduled: Bool = true) {
         guard tips.indices.contains(index) else { return }
         tipIndex = index
         playDemo(scheduled: scheduled)
     }
 
-    /// The user picked a tip from the list: its preview plays, and the tips go on from there.
+    /// The user picked a tip from the list: its preview plays once.
     func pickTip(_ index: Int) {
-        tipsPlaying = true
         showTip(index)
     }
 
-    func resumeTips() {
-        tipsPlaying = true
-        showTip(tipIndex)
-    }
-
-    /// The user has used every one of the tip's shortcuts: a second to see the last one happen,
-    /// then on to the next tip not done yet — or, with every tip done, to the last page.
-    private func advanceIfTipDone() {
-        guard page == .tips, !demoPlaying, !advancing, let tip = currentTip, tip.isDone(sim.done) else { return }
-        advancing = true
-        finishedTips.insert(tip.id)
-        let index = tipIndex
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self else { return }
-            self.advancing = false
-            guard self.page == .tips, self.tipIndex == index, !self.demoPlaying else { return }
-            guard let next = Self.nextTip(after: index, of: self.tips.map(\.id), finished: self.finishedTips) else {
-                self.show(.done)
-                return
-            }
-            self.tipsPlaying = true
-            self.showTip(next)
-        }
-    }
-
-    /// The next tip after `index` not done yet, going round the list; nil once all are done.
-    static func nextTip(after index: Int, of ids: [String], finished: Set<String>) -> Int? {
-        guard !ids.isEmpty else { return nil }
-        return (1...ids.count).map { (index + $0) % ids.count }.first { !finished.contains(ids[$0]) }
+    /// The user has used every one of the tip's shortcuts: it is ticked in the list. The tips
+    /// stay on it; the user moves on when they want.
+    private func markTipIfDone() {
+        guard page == .tips, !demoPlaying, let tip = currentTip, tip.isDone(sim.done) else { return }
+        if !finishedTips.contains(tip.id) { finishedTips.insert(tip.id) }
     }
 
     var tips: [TourTip] {
@@ -330,31 +301,25 @@ final class TourModel: ObservableObject {
             lastStep = at
         }
         demoStarted = Date()
-        // A tip hands on to the next as soon as its last step has had a moment to show.
+        // A tip's preview ends as soon as its last step has had a moment to show.
         demoLength = page == .tips ? lastStep + 1.2 : at + 0.6
         let end = DispatchWorkItem { [weak self] in self?.demoEnded() }
         demoWork.append(end)
         DispatchQueue.main.asyncAfter(deadline: .now() + demoLength, execute: end)
     }
 
-    /// The Welcome demo loops; a tip's preview hands on to the next tip, or to the user once the
-    /// tips are paused.
+    /// The Welcome demo loops; a tip's preview hands the desktop to the user, on the same tip.
     private func demoEnded() {
         guard page == .tips else {
             playDemo()
             return
         }
-        if tipsPlaying {
-            showTip((tipIndex + 1) % max(tips.count, 1))
-        } else {
-            finishDemo()
-        }
+        finishDemo()
     }
 
     /// Ends the demo and gives the desktop, back as it started, to the user.
     func finishDemo() {
         stopDemo()
-        if page == .tips { tipsPlaying = false }
         resetDesktop()
         sim.clearDone()
         awaitingUser = page.isInteractive
@@ -372,7 +337,6 @@ final class TourModel: ObservableObject {
         awaitingUser = false
         guard demoPlaying else { return }
         stopDemo()
-        if page == .tips { tipsPlaying = false }
         resetDesktop()
         sim.clearDone()
     }

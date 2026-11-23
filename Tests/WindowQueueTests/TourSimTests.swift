@@ -259,28 +259,33 @@ final class TourModelTests: XCTestCase {
         XCTAssertTrue(model.done.contains(.cycled))
     }
 
-    func testTipsSkipThoseDoneAndEndWhenAllAre() {
-        let ids = ["a", "b", "c", "d"]
-        XCTAssertEqual(TourModel.nextTip(after: 0, of: ids, finished: ["a"]), 1)
-        XCTAssertEqual(TourModel.nextTip(after: 1, of: ids, finished: ["a", "b", "c"]), 3)
-        XCTAssertEqual(TourModel.nextTip(after: 3, of: ids, finished: ["b", "c", "d"]), 0, "goes round to one left earlier")
-        XCTAssertNil(TourModel.nextTip(after: 2, of: ids, finished: Set(ids)), "all done: on to the last page")
-    }
-
-    func testDoingATipMovesOnToTheNext() throws {
+    func testDoingATipStaysOnIt() throws {
         let model = TourModel(store: PreferencesStore())
         model.show(.tips, scheduled: false)
         let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "declutter" })
         model.showTip(index, scheduled: false)
         XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_D, flags: .option))
-        XCTAssertEqual(model.tipIndex, index, "it stays a beat, to see what happened")
-        let moved = expectation(description: "next tip")
+        let stayed = expectation(description: "same tip")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            XCTAssertEqual(model.tipIndex, index + 1)
-            XCTAssertTrue(model.demoPlaying)
-            model.stop()
-            moved.fulfill()
+            XCTAssertEqual(model.tipIndex, index, "no moving on by itself")
+            XCTAssertEqual(model.page, .tips)
+            XCTAssertFalse(model.demoPlaying)
+            XCTAssertTrue(model.finishedTips.contains("declutter"), "ticked in the list")
+            stayed.fulfill()
         }
-        wait(for: [moved], timeout: 3)
+        wait(for: [stayed], timeout: 3)
+    }
+
+    func testATipsPreviewEndsOnTheSameTip() {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.tips)
+        let ended = expectation(description: "preview over")
+        DispatchQueue.main.asyncAfter(deadline: .now() + model.demoLength + 0.5) {
+            XCTAssertEqual(model.tipIndex, 0, "no moving on by itself")
+            XCTAssertFalse(model.demoPlaying)
+            XCTAssertTrue(model.awaitingUser)
+            ended.fulfill()
+        }
+        wait(for: [ended], timeout: 30)
     }
 }

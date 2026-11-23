@@ -226,10 +226,10 @@ struct TourView: View {
                 Spacer()
                 if model.page == .tips {
                     if model.demoPlaying {
-                        Button("Pause Previews") { model.finishDemo() }
+                        Button("Stop Preview") { model.finishDemo() }
                             .controlSize(.small)
                     } else {
-                        Button("Play Previews") { model.resumeTips() }
+                        Button("Watch Preview") { model.playDemo() }
                             .controlSize(.small)
                     }
                 } else if model.demoPlaying {
