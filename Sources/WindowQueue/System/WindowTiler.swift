@@ -354,6 +354,13 @@ enum WindowTiler {
         setFrame(target, of: element, window: window)
     }
 
+    /// The frame WindowQueue last asked of the window, in Cocoa screen coordinates.
+    static func placedFrame(of id: CGWindowID) -> NSRect? {
+        guard let frame = placedFrames[id] else { return nil }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+
     /// Sets a window's frame once, in Cocoa screen coordinates, with no checks or retries: for a
     /// window following a neighbour being resized, where the next drag step soon asks again.
     static func nudge(_ window: ManagedWindow, to frame: NSRect) {
