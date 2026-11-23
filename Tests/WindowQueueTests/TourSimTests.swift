@@ -312,6 +312,29 @@ final class TourModelTests: XCTestCase {
         wait(for: [later], timeout: 4)
     }
 
+    func testFullscreenTipStartsTiledAndComesBackToTheLayout() throws {
+        let model = TourModel(store: PreferencesStore())
+        model.show(.tips, scheduled: false)
+        let index = try XCTUnwrap(model.tips.firstIndex { $0.id == "fullscreen" })
+        XCTAssertEqual(model.tips[index - 1].id, "maximize")
+        XCTAssertEqual(model.tips[index - 1].goals.map(\.event), [.maximized], "M has a tip to itself")
+        model.showTip(index, scheduled: false)
+        model.finishDemo()
+        let sim = model.sim
+        XCTAssertEqual(sim.tiled.count, 3, "the desktop starts with a layout")
+        let area = CGRect(x: 0, y: 0, width: 600, height: 400)
+        let before = sim.frames(in: area)
+        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_F, flags: .option))
+        XCTAssertEqual(sim.fullscreen, sim.selected)
+        XCTAssertEqual(sim.tiled.count, 3, "fullscreen keeps the layout")
+        XCTAssertEqual(model.done, [.fullscreened])
+        XCTAssertNotEqual(sim.frames(in: area), before)
+        XCTAssertTrue(model.handleKey(keyCode: kVK_ANSI_F, flags: .option))
+        XCTAssertNil(sim.fullscreen)
+        XCTAssertEqual(sim.frames(in: area), before, "back exactly where it was")
+        XCTAssertTrue(model.tips[index].isDone(model.done))
+    }
+
     func testGroupsIsTheLastTipAndCanBeDone() throws {
         let model = TourModel(store: PreferencesStore())
         XCTAssertFalse(TourPage.allCases.map(\.title).contains("Groups"), "no Groups page")

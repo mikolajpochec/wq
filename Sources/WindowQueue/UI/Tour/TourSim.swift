@@ -55,6 +55,8 @@ struct SimSetup {
     var monitors: [Int: Int] = [:]
     var spaceCount = 1
     var monitorCount = 1
+    /// Window ids that start out tiled together, in their first layout.
+    var tiled: [Int] = []
 }
 
 /// The tour's pretend desktop: a queue of pictogram windows that answers the same keys WindowQueue
@@ -171,8 +173,9 @@ final class TourSim: ObservableObject {
             aiming = false
             insideGroup = nil
             menuFocused = false
-            tiled = []
+            tiled = setup.tiled
             tiledLayout = nil
+            if !tiled.isEmpty { raiseTiled() }
             maximized = []
             fullscreen = nil
             groups = []
