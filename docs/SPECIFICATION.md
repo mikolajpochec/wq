@@ -63,7 +63,7 @@ Terms used throughout the specification (code names in parentheses):
 | **run** (run) | A contiguous range of adjacent windows covered by the aim, from the **anchor** (`aimAnchorID`) to the aim. |
 | **pinned** (`aimPinnedIDs`) | Windows added to the target one by one (Shift+click), not necessarily adjacent. |
 | **group** (`WindowGroup`) | A set of windows shown on the strip as a single entry; entering the group opens a **group panel** beside it — a second strip with its windows. The queue does not change. |
-| **tiled group** (`TiledGroup`) | Windows arranged together into a layout (e.g. side by side). It holds the layout; changing their order in the queue re-lays them out; manually moving/resizing any of them dissolves it. |
+| **tiled group** (`TiledGroup`) | Windows arranged together into a layout (e.g. side by side). It holds the layout; changing their order in the queue re-lays them out; manually moving any of them dissolves it (resizing by an edge or corner does not). |
 | **fullscreen / focus mode** (`maximizedID`, "focus") | A window enlarged with the fullscreen shortcut becomes first on its workspace, the other windows of that workspace are **covered**: dimmed in blue or collapsed into a **stack tile**, and skipped when cycling. Pressing the shortcut again restores size and order. This is not the system's full screen. |
 | **stack tile** (hidden stack) | A single strip element replacing the window in fullscreen mode and all the windows it covers: a cascade of icons with a "+N" counter. |
 | **toast / name popup** | A small bubble next to an icon on the strip with the window title and application name; a variant centered on the screen for actions on multiple windows. |
@@ -677,7 +677,7 @@ Examples:
 - `[1,2,3]`, `setTiled([1,2,3], "Main and stack")` → number 1; selected 3, `move(by: −2)` → order in the layout `[3,2,1]`; 2 vanishes → `ids = [1,3]`; 1 vanishes → no group.
 - `[1,2 (10), 3,4 (20)]`: `setTiled([1,2])` → 1, `setTiled([3,4])` → 2; `clearTiled(containing: 3)` → `[1]` remains; `setTiled([3,4])` → 2 again; `setTiled([2,3])` → both old groups drop to 1 window and disappear, the new one gets number 1, the only group `ids = [2,3]`.
 
-Application context: after every change of `windows` the application compares each group's `tiledWindowsInQueueOrder` with the last laid-out order and on a difference lays it out again (skipping a group containing the window in focus — then it only remembers the new order). A manual move/resize by the user of a window from the layout → `clearTiled(containing:)`.
+Application context: after every change of `windows` the application compares each group's `tiledWindowsInQueueOrder` with the last laid-out order and on a difference lays it out again (skipping a group containing the window in focus — then it only remembers the new order). A manual move by the user of a window from the layout → `clearTiled(containing:)`.
 
 ---
 
@@ -2346,7 +2346,9 @@ This is the fastest way to change the “main” window: move it in the queue to
 a focus change):
 - ignored if 2 s have not passed since the last tiling (`tilingSettledAt`), if the window is not
   in a tiled group, or if its frame differs from the saved one by ≤ 4 pt in every coordinate;
-- otherwise the whole group ceases to exist; the windows stay exactly where they are.
+- a resize (`TiledFrameChange.resized`: the size changed but at least one horizontal and one
+  vertical edge stayed within 4 pt) keeps the group and saves the new frame as the window's place;
+- otherwise (a move: the same size elsewhere, or every edge on an axis shifted) the whole group ceases to exist; the windows stay exactly where they are.
 Note: `maximizeWindow` on a window from a group causes a frame change after the protection period → releases the group.
 Re-tiling via “groups that lost windows” does not refresh the saved frames — a reimplementation
 should refresh them after 2 s, so that an accidental notification does not release the group.

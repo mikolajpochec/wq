@@ -474,7 +474,7 @@ struct StripView: View {
         .padding(.vertical, 1)
         .background(Capsule().fill(Color.black.opacity(0.55)))
         .offset(x: -1, y: -1)
-        .help("Tiled group \(group.id) — moving or resizing a window frees it")
+        .help("Tiled group \(group.id), moving a window frees it")
     }
 
     /// A dashed, hatched outline the size of an icon: a place a window could go.

@@ -263,7 +263,7 @@ struct GroupPanelView: View {
         .padding(.vertical, 1)
         .background(Capsule().fill(Color.black.opacity(0.55)))
         .offset(x: -1, y: -1)
-        .help("Tiled group \(number) — moving or resizing a window frees it")
+        .help("Tiled group \(number), moving a window frees it")
     }
 
     @ViewBuilder

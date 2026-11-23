@@ -1099,8 +1099,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A window was resized or moved. If it was holding a layout and the change was not ours, the
-    /// group is broken: the windows stay exactly where they are, they are simply free again.
+    /// A window was resized or moved. If it was holding a layout and the user moved it, the group
+    /// is broken: the windows stay exactly where they are, they are simply free again. Resizing a
+    /// tiled window by an edge or corner keeps it in its layout.
     private func windowFrameChanged(_ element: AXUIElement) {
         guard Date() > tilingSettledAt, let id = AXPrivate.windowID(of: element),
               let group = model.tiledGroup(of: id),
@@ -1108,12 +1109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { return }
         // Apps report a move for all sorts of reasons, focus among them; only a frame that is
         // really somewhere else means the user has taken the window out of the layout.
-        if let placed = tiledFrames[id], let now = WindowTiler.frame(of: window),
-           abs(now.minX - placed.minX) <= 4, abs(now.minY - placed.minY) <= 4,
-           abs(now.width - placed.width) <= 4, abs(now.height - placed.height) <= 4 {
-            return
+        if let placed = tiledFrames[id], let now = WindowTiler.frame(of: window) {
+            switch TiledFrameChange.between(placed, now) {
+            case .unchanged:
+                return
+            case .resized:
+                // Remembered as its new place, so a later move is measured from where it is now.
+                tiledFrames[id] = now
+                return
+            case .moved:
+                break
+            }
         }
-        Diagnostics.note("tiling broken by a change to window \(id)")
+        Diagnostics.note("tiling broken by moving window \(id)")
         breakTiling(group)
     }
 

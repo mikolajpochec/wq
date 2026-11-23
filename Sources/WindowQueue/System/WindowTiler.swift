@@ -399,3 +399,20 @@ enum WindowTiler {
         return covered
     }
 }
+
+/// How a tiled window's frame changed since it was placed. Resizing a window by an edge or corner
+/// keeps the opposite edges where they were; moving it shifts every edge. Only a move takes the
+/// window out of its layout.
+enum TiledFrameChange: Equatable {
+    case unchanged, resized, moved
+
+    static func between(_ placed: NSRect, _ now: NSRect, tolerance: CGFloat = 4) -> TiledFrameChange {
+        func same(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= tolerance }
+        let sameSize = same(now.width, placed.width) && same(now.height, placed.height)
+        if sameSize && same(now.minX, placed.minX) && same(now.minY, placed.minY) { return .unchanged }
+        if sameSize { return .moved }
+        let keepsHorizontalEdge = same(now.minX, placed.minX) || same(now.maxX, placed.maxX)
+        let keepsVerticalEdge = same(now.minY, placed.minY) || same(now.maxY, placed.maxY)
+        return keepsHorizontalEdge && keepsVerticalEdge ? .resized : .moved
+    }
+}
