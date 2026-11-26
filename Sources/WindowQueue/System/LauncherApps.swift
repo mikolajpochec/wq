@@ -86,18 +86,71 @@ enum SystemLaunchers {
         }
     }
 
-    /// Spotlight has neither a URL scheme nor an app to open: its own shortcut is the only door,
-    /// so that key press is posted. Whatever the user has bound it to, `⌘Space` is what Spotlight
-    /// ships with, and a changed binding is why the setting offers the other launchers.
+    /// Spotlight has neither a URL scheme nor an app to open: its own system shortcut ("Show
+    /// Spotlight search", symbolic hot key 64) is the only door, so that key press is posted, with
+    /// whatever combination the user gave it. When Raycast or Alfred took over `⌘Space`, that
+    /// shortcut is switched off and the same press would open them instead; so it is switched on
+    /// just for the press and off again right after, which reaches Spotlight and nothing else.
     private static func openSpotlight() {
-        guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-        let key = CGKeyCode(kVK_Space)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
+        let hotKey = SymbolicHotKeys.spotlight
+        let (keyCode, flags) = SymbolicHotKeys.value(of: hotKey)
+            ?? (CGKeyCode(kVK_Space), CGEventFlags.maskCommand)
+        guard let source = CGEventSource(stateID: .combinedSessionState),
+              let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         else { return }
-        down.flags = .maskCommand
-        up.flags = .maskCommand
+        down.flags = flags
+        up.flags = flags
+        let wasOff = SymbolicHotKeys.isEnabled(hotKey) == false
+        if wasOff {
+            guard SymbolicHotKeys.setEnabled(hotKey, true) else {
+                Diagnostics.note("Spotlight's shortcut is off and could not be switched on, not posting it")
+                return
+            }
+            Diagnostics.note("Spotlight's shortcut is off, switching it on for one press")
+        }
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
+        if wasOff {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                SymbolicHotKeys.setEnabled(hotKey, false)
+            }
+        }
+    }
+}
+
+/// The system keyboard shortcuts (System Settings › Keyboard › Keyboard Shortcuts), read and
+/// toggled through the private CoreGraphics calls that settings pane uses.
+enum SymbolicHotKeys {
+    static let spotlight: Int32 = 64
+
+    private typealias IsEnabledFn = @convention(c) (Int32) -> Bool
+    private typealias SetEnabledFn = @convention(c) (Int32, Bool) -> Int32
+    private typealias GetValueFn = @convention(c) (Int32, UnsafeMutablePointer<UInt16>,
+                                                   UnsafeMutablePointer<UInt16>, UnsafeMutablePointer<UInt32>) -> Int32
+
+    private static let coreGraphics = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW)
+    private static let isEnabledFn: IsEnabledFn? = coreGraphics
+        .flatMap { dlsym($0, "CGSIsSymbolicHotKeyEnabled") }.map { unsafeBitCast($0, to: IsEnabledFn.self) }
+    private static let setEnabledFn: SetEnabledFn? = coreGraphics
+        .flatMap { dlsym($0, "CGSSetSymbolicHotKeyEnabled") }.map { unsafeBitCast($0, to: SetEnabledFn.self) }
+    private static let getValueFn: GetValueFn? = coreGraphics
+        .flatMap { dlsym($0, "CGSGetSymbolicHotKeyValue") }.map { unsafeBitCast($0, to: GetValueFn.self) }
+
+    /// nil when the call is missing.
+    static func isEnabled(_ hotKey: Int32) -> Bool? { isEnabledFn?(hotKey) }
+
+    @discardableResult
+    static func setEnabled(_ hotKey: Int32, _ enabled: Bool) -> Bool {
+        setEnabledFn?(hotKey, enabled) == 0
+    }
+
+    /// The key and modifiers bound to it (the modifiers share `CGEventFlags`' bits), or nil when
+    /// unknown or bound to no key.
+    static func value(of hotKey: Int32) -> (CGKeyCode, CGEventFlags)? {
+        var character: UInt16 = 0, keyCode: UInt16 = 0, modifiers: UInt32 = 0
+        guard let getValueFn, getValueFn(hotKey, &character, &keyCode, &modifiers) == 0,
+              keyCode != 0xFFFF else { return nil }
+        return (CGKeyCode(keyCode), CGEventFlags(rawValue: UInt64(modifiers)))
     }
 }
