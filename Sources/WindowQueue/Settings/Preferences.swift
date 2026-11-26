@@ -238,8 +238,10 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case moveToSpace1, moveToSpace2, moveToSpace3, moveToSpace4, moveToSpace5
     case moveToSpace6, moveToSpace7, moveToSpace8, moveToSpace9
     case focusNextMonitor
+    case nextMonitor, previousMonitor
     case focusMonitor1, focusMonitor2, focusMonitor3, focusMonitor4
     case moveToNextMonitor
+    case sendToNextMonitor, sendToPreviousMonitor
     case moveToMonitor1, moveToMonitor2, moveToMonitor3, moveToMonitor4
 
     var id: String { rawValue }
@@ -276,6 +278,10 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .jumpToKey: return "Jump to a bound window or app (then press its key)"
         case .focusNextMonitor: return "Toggle monitor"
         case .moveToNextMonitor: return "Move window to the next monitor"
+        case .nextMonitor: return "Go to the monitor on the right (going round)"
+        case .previousMonitor: return "Go to the monitor on the left (going round)"
+        case .sendToNextMonitor: return "Move window to the monitor on the right (going round)"
+        case .sendToPreviousMonitor: return "Move window to the monitor on the left (going round)"
         default:
             if let index = focusMonitorIndex { return "Focus monitor \(index)" }
             if let index = moveMonitorIndex { return "Move window to monitor \(index)" }
@@ -313,10 +319,18 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     }
 
     /// Sends windows to another monitor rather than just going there.
-    var isMoveToMonitor: Bool { self == .moveToNextMonitor || moveMonitorIndex != nil }
+    var isMoveToMonitor: Bool {
+        self == .moveToNextMonitor || self == .sendToNextMonitor || self == .sendToPreviousMonitor || moveMonitorIndex != nil
+    }
+
+    /// How many monitors on (left to right, going round) a relative monitor action goes: 1 for the
+    /// next ones, -1 for the previous ones. Numbered ones ignore it.
+    var monitorStep: Int { self == .previousMonitor || self == .sendToPreviousMonitor ? -1 : 1 }
 
     /// Only in multi-monitor mode.
-    var isMonitorAction: Bool { isMoveToMonitor || self == .focusNextMonitor || focusMonitorIndex != nil }
+    var isMonitorAction: Bool {
+        isMoveToMonitor || self == .focusNextMonitor || self == .nextMonitor || self == .previousMonitor || focusMonitorIndex != nil
+    }
 
     static var monitorActions: [HotkeyAction] {
         allCases.filter(\.isMonitorAction)
@@ -386,6 +400,12 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         // super-Control-Space on to the next one; with Shift they take the window along.
         case .focusNextMonitor: return KeyCombo(keyCode: kVK_Space, modifiers: superMask | UInt32(controlKey))
         case .moveToNextMonitor: return KeyCombo(keyCode: kVK_Space, modifiers: superMask | UInt32(controlKey) | shift)
+        // Like [ and ] along the queue: super-Control-[ / ] step to the monitor on the left or the
+        // right, with Shift taking the window along.
+        case .previousMonitor: return KeyCombo(keyCode: kVK_ANSI_LeftBracket, modifiers: superMask | UInt32(controlKey))
+        case .nextMonitor: return KeyCombo(keyCode: kVK_ANSI_RightBracket, modifiers: superMask | UInt32(controlKey))
+        case .sendToPreviousMonitor: return KeyCombo(keyCode: kVK_ANSI_LeftBracket, modifiers: superMask | UInt32(controlKey) | shift)
+        case .sendToNextMonitor: return KeyCombo(keyCode: kVK_ANSI_RightBracket, modifiers: superMask | UInt32(controlKey) | shift)
         default:
             let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
                           kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
@@ -542,6 +562,11 @@ struct Preferences: Codable, Equatable {
     /// tour opens on first launch; settings saved before the tour existed count as having seen it.
     var onboardingCompleted: Bool = false
 
+    /// Which new features (`ShowcasedFeature` raw values) have had their "What's new" showcase.
+    /// A fresh install has them all, so only people updating from an older version see one; a
+    /// stored blob without the key, or without a newer feature's key, has not seen it.
+    var seenNewFeatures: [String: Bool] = ShowcasedFeature.allSeen
+
     /// Looks for a newer release on GitHub at launch and once a day, and says so; never installs.
     var checkForUpdates: Bool = true
 
@@ -619,6 +644,8 @@ struct Preferences: Codable, Equatable {
         superDoubleTapAction = (try? container.decodeIfPresent(HotkeyAction.self, forKey: .superDoubleTapAction)) ?? nil
         // Not `defaults`: someone already using WindowQueue is not a new user.
         onboardingCompleted = value(.onboardingCompleted, true)
+        // Not `defaults` either: settings saved before a feature existed have not seen it.
+        seenNewFeatures = value(.seenNewFeatures, [:])
         checkForUpdates = value(.checkForUpdates, defaults.checkForUpdates)
         cycleWrapsAround = value(.cycleWrapsAround, defaults.cycleWrapsAround)
         tabCycling = value(.tabCycling, defaults.tabCycling)

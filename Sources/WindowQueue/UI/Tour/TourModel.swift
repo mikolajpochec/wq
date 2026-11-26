@@ -116,8 +116,12 @@ final class TourModel: ObservableObject {
     /// The tips the user has done on the desktop, ticked in the list.
     @Published private(set) var finishedTips: Set<String> = []
 
-    init(store: PreferencesStore) {
+    /// Tips other than the tour's own, for a showcase built on the same desktop (What's New).
+    private let tipSource: ((TourModel) -> [TourTip])?
+
+    init(store: PreferencesStore, tips tipSource: ((TourModel) -> [TourTip])? = nil) {
         self.store = store
+        self.tipSource = tipSource
         sim.reset(TourPage.welcome.windows)
         // `objectWillChange` fires before the change lands; look on the next turn.
         simWatch = sim.objectWillChange.sink { [weak self] in
@@ -212,6 +216,7 @@ final class TourModel: ObservableObject {
     }
 
     var tips: [TourTip] {
+        if let tipSource { return tipSource(self) }
         let superKey = superSymbol
         let launcher = prefs.launcher.title
         var tips = [

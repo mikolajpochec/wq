@@ -39,6 +39,8 @@ enum TourEvent: Hashable {
     case grouped, enteredGroup, locked, cycledLocked
     case switchedSpace, movedToSpace, wentToEmptySpace
     case switchedMonitor, movedToMonitor
+    /// The left/right monitor shortcuts, each counted on its own.
+    case wentToNextMonitor, wentToPreviousMonitor, sentToNextMonitor, sentToPreviousMonitor
     case searched, launched, doubleTapped, maximized, fullscreened, restored, decluttered
     case pictured, recorded, videoSaved, hidStrip, stripBack, peekedStrip, dragged, dropped
     case closed, closedWhileAiming
@@ -583,6 +585,10 @@ final class TourSim: ObservableObject {
             case .moveToEmptySpace: goToEmptySpace(carrying: true)
             case .focusNextMonitor: focusMonitor((focusedMonitor + 1) % max(monitorCount, 1))
             case .moveToNextMonitor: moveTarget(toMonitor: (focusedMonitor + 1) % max(monitorCount, 1))
+            case .nextMonitor: if focusMonitor(monitorStep(1)) { done.insert(.wentToNextMonitor) }
+            case .previousMonitor: if focusMonitor(monitorStep(-1)) { done.insert(.wentToPreviousMonitor) }
+            case .sendToNextMonitor: if moveTarget(toMonitor: monitorStep(1)) { done.insert(.sentToNextMonitor) }
+            case .sendToPreviousMonitor: if moveTarget(toMonitor: monitorStep(-1)) { done.insert(.sentToPreviousMonitor) }
             case .search: openSearch()
             case .openLauncher, .openRaycastCommand: openLauncher()
             case .declutter: declutter()
@@ -910,15 +916,22 @@ final class TourSim: ObservableObject {
         done = before.union([.wentToEmptySpace])
     }
 
-    private func focusMonitor(_ index: Int) {
+    /// The monitor `step` places on from the focused one, going round.
+    private func monitorStep(_ step: Int) -> Int {
+        let count = max(monitorCount, 1)
+        return ((focusedMonitor + step) % count + count) % count
+    }
+
+    @discardableResult
+    private func focusMonitor(_ index: Int) -> Bool {
         if aiming { endAiming() }
         guard monitorCount > 1 else {
             flash(.note, "Only one monitor — there is no other to go to")
-            return
+            return false
         }
         guard index < monitorCount else {
             flash(.note, "No monitor \(index + 1)")
-            return
+            return false
         }
         activeMonitor = index
         if let top = zOrder.last(where: { monitor(of: $0) == index && isOnShow($0) }) {
@@ -928,20 +941,23 @@ final class TourSim: ObservableObject {
         }
         flashMonitor(index)
         done.insert(.switchedMonitor)
+        return true
     }
 
-    private func moveTarget(toMonitor index: Int) {
+    @discardableResult
+    private func moveTarget(toMonitor index: Int) -> Bool {
         guard monitorCount > 1 else {
             flash(.note, "Only one monitor — there is nowhere else to move the window")
-            return
+            return false
         }
-        guard let target = takeTarget(), index < monitorCount, monitor(of: target) != index else { return }
+        guard let target = takeTarget(), index < monitorCount, monitor(of: target) != index else { return false }
         monitorOf[target] = index
         spaceOf[target] = shownSpace[index]
         tiled.removeAll { $0 == target }
         select(target)
         flashMonitor(index)
         done.insert(.movedToMonitor)
+        return true
     }
 
     private func openSearch() {

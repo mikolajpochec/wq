@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import XCTest
 @testable import WindowQueue
 
@@ -18,6 +19,28 @@ final class MonitorPlannerTests: XCTestCase {
             display(5, 1800, 0, 900, 700),
         ])
         XCTAssertEqual(ordered.map(\.id), [3, 1, 2, 5, 4])
+    }
+
+    func testThePreviousMonitorGoesLeftAndRound() {
+        XCTAssertEqual(MonitorPlanner.target(number: nil, after: 2, count: 3, step: -1), .index(1))
+        XCTAssertEqual(MonitorPlanner.target(number: nil, after: 0, count: 3, step: -1), .index(2), "from the leftmost round to the last")
+        XCTAssertEqual(MonitorPlanner.target(number: nil, after: 1, count: 2, step: -1), .index(0))
+        XCTAssertEqual(MonitorPlanner.target(number: 2, after: 0, count: 3, step: -1), .index(1), "a numbered monitor ignores the step")
+    }
+
+    func testTheMonitorBracketShortcutsStepEachWay() {
+        XCTAssertEqual(HotkeyAction.nextMonitor.monitorStep, 1)
+        XCTAssertEqual(HotkeyAction.previousMonitor.monitorStep, -1)
+        XCTAssertEqual(HotkeyAction.sendToNextMonitor.monitorStep, 1)
+        XCTAssertEqual(HotkeyAction.sendToPreviousMonitor.monitorStep, -1)
+        XCTAssertTrue(HotkeyAction.sendToPreviousMonitor.isMoveToMonitor)
+        XCTAssertFalse(HotkeyAction.previousMonitor.isMoveToMonitor)
+        XCTAssertTrue(HotkeyAction.previousMonitor.isMonitorAction)
+        let option = UInt32(optionKey), control = UInt32(controlKey), shift = UInt32(shiftKey)
+        XCTAssertEqual(HotkeyAction.previousMonitor.defaultCombo(superMask: option),
+                       KeyCombo(keyCode: UInt32(kVK_ANSI_LeftBracket), modifiers: option | control))
+        XCTAssertEqual(HotkeyAction.sendToNextMonitor.defaultCombo(superMask: option),
+                       KeyCombo(keyCode: UInt32(kVK_ANSI_RightBracket), modifiers: option | control | shift))
     }
 
     func testTheNextMonitorGoesRoundAllOfThemNotJustTwo() {

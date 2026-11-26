@@ -47,15 +47,16 @@ enum MonitorPlanner {
         case index(Int)
     }
 
-    /// Monitor `number` (counted from 1, left to right), or with nil the one after `current`,
-    /// going round all of them (never just between two).
-    static func target(number: Int?, after current: Int?, count: Int) -> Target {
+    /// Monitor `number` (counted from 1, left to right), or with nil the one `step` places on from
+    /// `current` (1 the next one to the right, -1 the previous one to the left), going round all of
+    /// them (never just between two).
+    static func target(number: Int?, after current: Int?, count: Int, step: Int = 1) -> Target {
         guard count > 1 else { return .onlyOne }
         if let number {
             return (1...count).contains(number) ? .index(number - 1) : .missing(number: number, count: count)
         }
         let from = current.map { min(max($0, 0), count - 1) } ?? 0
-        return .index((from + 1) % count)
+        return .index(((from + step) % count + count) % count)
     }
 
     // MARK: - Where a window lands
@@ -149,9 +150,10 @@ enum MonitorPlanner {
         case move(target: Int, lead: Int, moves: [Move])
     }
 
-    /// Sends windows (the first leads) to monitor `number`, or with nil to the one after the lead's.
+    /// Sends windows (the first leads) to monitor `number`, or with nil to the one `step` places on
+    /// from the lead's (1 next, -1 previous).
     /// Frames are Cocoa coordinates, nil for a window that cannot be measured; displays ordered.
-    static func planMove(_ windows: [(id: CGWindowID, frame: NSRect?)], toMonitor number: Int?,
+    static func planMove(_ windows: [(id: CGWindowID, frame: NSRect?)], toMonitor number: Int?, step: Int = 1,
                          displays: [Display], gaps: WindowTiler.Gaps) -> MovePlan {
         guard displays.count > 1 else { return .onlyOne }
         if let number, !(1...displays.count).contains(number) {
@@ -162,7 +164,7 @@ enum MonitorPlanner {
             return (window.id, frame, source)
         }
         guard let lead = measured.first,
-              case .index(let target) = self.target(number: number, after: lead.source, count: displays.count)
+              case .index(let target) = self.target(number: number, after: lead.source, count: displays.count, step: step)
         else { return .nothing }
         let moves = measured.filter { $0.source != target }.map {
             Move(id: $0.id, from: $0.source,

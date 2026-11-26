@@ -217,6 +217,37 @@ final class TourSimTests: XCTestCase {
         XCTAssertTrue(older.onboardingCompleted)
     }
 
+    func testNewFeaturesShowOnlyToPeopleUpdating() throws {
+        XCTAssertTrue(ShowcasedFeature.unseen(in: Preferences().seenNewFeatures).isEmpty, "a fresh install has seen them all")
+        let older = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+        XCTAssertEqual(ShowcasedFeature.unseen(in: older.seenNewFeatures), ShowcasedFeature.allCases)
+        var seen = older
+        seen.seenNewFeatures[ShowcasedFeature.monitorBrackets.rawValue] = true
+        let again = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(seen))
+        XCTAssertTrue(ShowcasedFeature.unseen(in: again.seenNewFeatures).isEmpty, "the flag survives a save")
+    }
+
+    func testMonitorBracketsStepLeftAndRightAndCarryTheWindow() {
+        let sim = TourSim()
+        sim.animated = false
+        sim.reset(SimSetup(windows: [.safari, .notes, .terminal, .mail], monitors: [3: 1, 4: 2], monitorCount: 3))
+        XCTAssertEqual(sim.focusedMonitor, 0)
+        press(sim, kVK_ANSI_LeftBracket, [.option, .control])
+        XCTAssertEqual(sim.focusedMonitor, 2, "left of the first comes round to the last")
+        XCTAssertTrue(sim.done.contains(.wentToPreviousMonitor))
+        press(sim, kVK_ANSI_RightBracket, [.option, .control])
+        XCTAssertEqual(sim.focusedMonitor, 0)
+        XCTAssertTrue(sim.done.contains(.wentToNextMonitor))
+        let moved = sim.selected
+        press(sim, kVK_ANSI_RightBracket, [.option, .control, .shift])
+        XCTAssertEqual(sim.focusedMonitor, 1)
+        XCTAssertEqual(sim.selected, moved, "the window came along")
+        XCTAssertTrue(sim.done.contains(.sentToNextMonitor))
+        press(sim, kVK_ANSI_LeftBracket, [.option, .control, .shift])
+        XCTAssertEqual(sim.focusedMonitor, 0)
+        XCTAssertTrue(sim.done.contains(.sentToPreviousMonitor))
+    }
+
     func testQuickMarkBindsAWindowToAKeyAndJumpsBack() {
         let sim = sim([.safari, .notes, .terminal])
         press(sim, kVK_ANSI_J, .option)

@@ -129,7 +129,7 @@ final class MonitorScopeTests: XCTestCase {
     func testMonitorActions() {
         XCTAssertEqual(HotkeyAction.moveToMonitor2.moveMonitorIndex, 2)
         XCTAssertNil(HotkeyAction.moveToNextMonitor.moveMonitorIndex)
-        XCTAssertEqual(HotkeyAction.monitorActions.count, 10)
+        XCTAssertEqual(HotkeyAction.monitorActions.count, 14)
         XCTAssertEqual(HotkeyAction.focusMonitor3.focusMonitorIndex, 3)
         XCTAssertFalse(HotkeyAction.focusNextMonitor.isMoveToMonitor)
         XCTAssertTrue(HotkeyAction.moveToNextMonitor.isMoveToMonitor)

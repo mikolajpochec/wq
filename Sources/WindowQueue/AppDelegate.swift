@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let spaceMover = WindowSpaceMover()
     private var settingsWindow: SettingsWindowController?
     private var tour: TourWindowController?
+    /// The "What's new" showcase, for features added since the user's last version.
+    private var whatsNew: WhatsNewWindowController?
     /// The tour's window has the keyboard: the shortcuts and the super key tap go to its pretend
     /// desktop rather than to the real windows.
     private var tourHasKeyboard = false
@@ -390,9 +392,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] note in
                 guard let self, let window = note.object as? NSWindow,
                       window === self.settingsWindow?.window || window === self.tour?.window
-                      || window === self.updateWindow?.window else { return }
+                      || window === self.updateWindow?.window || window === self.whatsNew?.window else { return }
                 // Back to living in the menu bar once none of our windows is left open.
-                let others = [self.settingsWindow?.window, self.tour?.window, self.updateWindow?.window].compactMap { $0 }
+                let others = [self.settingsWindow?.window, self.tour?.window, self.updateWindow?.window,
+                              self.whatsNew?.window].compactMap { $0 }
                     .filter { $0 !== window && $0.isVisible }
                 if others.isEmpty { NSApp.setActivationPolicy(.accessory) }
                 self.enumerator?.refresh()
@@ -402,7 +405,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A new user meets the tour, which asks for Accessibility in its own words; the system's
         // prompt on top of it would only be a second dialog saying less.
         let firstRun = !store.prefs.onboardingCompleted
-        if firstRun { showTour() }
+        if firstRun {
+            showTour()
+        } else if !ShowcasedFeature.unseen(in: store.prefs.seenNewFeatures).isEmpty {
+            // Someone updating from an older version: the new features they haven't seen yet.
+            showWhatsNew(ShowcasedFeature.unseen(in: store.prefs.seenNewFeatures))
+        }
         permissions.requestAndWait(prompt: !firstRun) { [weak self] in
             guard let self else { return }
             Diagnostics.note("accessibility granted, starting enumeration")
@@ -1390,12 +1398,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if action.isMoveToMonitor {
-            moveWindows(toMonitor: action.moveMonitorIndex)
+            moveWindows(toMonitor: action.moveMonitorIndex, step: action.monitorStep)
             return
         }
 
         if action.isMonitorAction {
-            focusMonitor(action.focusMonitorIndex)
+            focusMonitor(action.focusMonitorIndex, step: action.monitorStep)
             return
         }
 
@@ -2444,7 +2452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// right), or with nil to the monitor after the one it is on, going round all of them. Each
     /// keeps its place and size relative to the room the screen has, so a half stays a half and a
     /// maximized window fills the other screen; focus follows it there.
-    private func moveWindows(toMonitor number: Int?) {
+    private func moveWindows(toMonitor number: Int?, step: Int = 1) {
         let windows = model.aimingID != nil ? model.aimedWindows : model.selectedWindow.map { [$0] } ?? []
         if model.aimingID != nil { endAiming(commit: false) }
         guard store.prefs.multiMonitorMode, !windows.isEmpty, !WindowDragMover.isCarrying else { return }
@@ -2458,7 +2466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             measured.append((window.id, window.element == nil ? nil
                 : WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id)))
         }
-        let plan = MonitorPlanner.planMove(measured, toMonitor: number, displays: displays,
+        let plan = MonitorPlanner.planMove(measured, toMonitor: number, step: step, displays: displays,
                                            gaps: WindowTiler.Gaps(prefs: store.prefs))
         let targetIndex: Int
         let moves: [MonitorPlanner.Move]
@@ -2568,7 +2576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Goes to monitor `number` (counted left to right), or with nil to the one after the focused
     /// one: focus lands on the window on top there, so that monitor's strip is the one worked on.
     /// A monitor with nothing on show gets the pointer instead.
-    private func focusMonitor(_ number: Int?) {
+    private func focusMonitor(_ number: Int?, step: Int = 1) {
         guard store.prefs.multiMonitorMode else { return }
         let screens = Monitors.orderedScreens
         // Landing on an empty monitor only moves the pointer, so until the selection changes
@@ -2577,7 +2585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentDisplay = workedOnDisplay()
         let current = screens.firstIndex { Monitors.displayID(of: $0) == currentDisplay } ?? 0
         let targetIndex: Int
-        switch MonitorPlanner.target(number: number, after: current, count: screens.count) {
+        switch MonitorPlanner.target(number: number, after: current, count: screens.count, step: step) {
         case .onlyOne:
             toast?.showCentred(title: "Only one monitor", subtitle: "There is no other monitor to go to")
             return
@@ -2867,6 +2875,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugCommands.writeState(model)
         case "tour":
             showTour()
+        case "whats-new":
+            // Every showcased feature, seen or not, for trying the window out.
+            showWhatsNew(ShowcasedFeature.allCases)
+        case "reset-whats-new":
+            // As if updating from a version before these features: the window comes at next launch.
+            store.prefs.seenNewFeatures = [:]
         case "install-update":
             // Installs the release the last check found, without the window.
             if let release = updates.available { updater.install(release) }
@@ -2894,6 +2908,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
             .target = self
         menu.addItem(withTitle: "Show the Tour…", action: #selector(showTour), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "What's New…", action: #selector(showAllWhatsNew), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Sort queue by workspace", action: #selector(sortByWorkspace),
                      keyEquivalent: "s")
@@ -2952,6 +2968,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.tour = tour
         }
         tour?.present()
+    }
+
+    @objc private func showAllWhatsNew() {
+        showWhatsNew(ShowcasedFeature.allCases)
+    }
+
+    /// The new features, one at a time on the tour's pretend desktop. Closing it counts them as seen.
+    private func showWhatsNew(_ features: [ShowcasedFeature]) {
+        guard !features.isEmpty else { return }
+        if let open = whatsNew, open.features != features {
+            open.close()
+            whatsNew = nil
+        }
+        if whatsNew == nil {
+            let controller = WhatsNewWindowController(store: store, features: features)
+            controller.onKeyboardChange = { [weak self] hasKeyboard in
+                guard let self else { return }
+                self.tourHasKeyboard = hasKeyboard
+                if hasKeyboard { self.endAiming(commit: false) }
+                self.syncHotkeys()
+            }
+            controller.onClose = { [weak self] shown in
+                guard let self else { return }
+                for feature in shown { self.store.prefs.seenNewFeatures[feature.rawValue] = true }
+                Diagnostics.note("whats new: seen \(shown.map(\.rawValue))")
+            }
+            whatsNew = controller
+        }
+        Diagnostics.note("whats new: showing \(features.map(\.rawValue))")
+        whatsNew?.present()
     }
 
     /// The standard panel: icon, version and copyright come from Info.plist. Living in the menu bar,

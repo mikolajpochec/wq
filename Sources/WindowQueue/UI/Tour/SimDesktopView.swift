@@ -33,9 +33,11 @@ struct SimDesktopView: View {
         SimScreenView(sim: sim, prefs: prefs, monitor: monitor, onClick: onClick, onDragStart: onDragStart)
     }
 
-    /// Two monitors on a desk, each its own screen at a smaller scale.
+    /// Two or three monitors on a desk, each its own screen at a smaller scale.
     private var monitors: some View {
-        let scale = Self.pairScale
+        // Two keep the old size; more are shrunk to fit side by side (bezel 8, gaps 14).
+        let count = CGFloat(sim.monitorCount)
+        let scale = min(Self.pairScale, ((Self.size.width - 14 * (count - 1)) / count - 12) / Self.size.width)
         return ZStack {
             LinearGradient(colors: [Color(white: 0.2), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
             HStack(alignment: .bottom, spacing: 14) {
