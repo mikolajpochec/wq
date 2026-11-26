@@ -1656,26 +1656,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if wasAiming, model.aimingID != nil, picked {
                 // The selection stays where it was; nothing is focused.
                 endAiming(commit: false)
+            } else if wasAiming, model.aimingID != nil, renaming {
+                // The name prompt opens next and takes the keyboard; it resumes aiming itself.
             } else if wasAiming, model.aimingID != nil {
                 if pausedAiming, !aimingKeys.isActive { aimingKeys.begin() }
                 aimChanged()
                 if layoutFocused { tilingMenu.state.isFocused = true }
             }
         }
-        if let view, let point {
+        // Beside the window's icon, on the side of the strip facing the screen: the strip floats
+        // above menus, so a menu opened over it (at the click, or pushed back by the screen edge)
+        // is partly hidden behind it.
+        let anchor = groupPanel.rowFrame(for: first.id)?.frame ?? strip?.rowFrame(for: first.id)
+        if let view, let point, anchor == nil {
             MenuKeyMapper(prefs: store.prefs).whileOpen {
                 menu.popUp(positioning: nil, at: point, in: view)
             }
             return
         }
-        // From the keyboard: beside the window's icon, or mid-screen when the strip is hidden.
-        let anchor = groupPanel.rowFrame(for: first.id)?.frame ?? strip?.rowFrame(for: first.id)
         let screenPoint: NSPoint
         if let anchor {
-            screenPoint = NSPoint(x: anchor.maxX, y: anchor.maxY)
+            screenPoint = Self.markMenuOrigin(beside: anchor, side: store.prefs.stripSide, menuSize: menu.size)
         } else {
             let frame = NSScreen.main?.visibleFrame ?? .zero
             screenPoint = NSPoint(x: frame.midX, y: frame.midY)
+        }
+        if view != nil {
+            // A right-click: WindowQueue is in front already as far as the menu needs.
+            MenuKeyMapper(prefs: store.prefs).whileOpen {
+                menu.popUp(positioning: nil, at: screenPoint, in: nil)
+            }
+            return
         }
         // A menu opened from the keyboard takes keys only while WindowQueue is active; whatever was
         // in front gets the keyboard back once it closes.
@@ -1685,6 +1696,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.popUp(positioning: nil, at: screenPoint, in: nil)
         }
         if !renaming, let previous, previous.processIdentifier != getpid() { previous.activate() }
+    }
+
+    /// Top-left corner (screen coordinates, as `NSMenu.popUp(…in: nil)` takes it) of a menu of
+    /// `menuSize` set just off a strip row on `side`, level with the row.
+    static func markMenuOrigin(beside row: NSRect, side: StripSide, menuSize: NSSize) -> NSPoint {
+        let gap: CGFloat = 4
+        switch side {
+        case .left: return NSPoint(x: row.maxX + gap, y: row.maxY)
+        case .right: return NSPoint(x: row.minX - gap - menuSize.width, y: row.maxY)
+        case .top: return NSPoint(x: row.minX, y: row.minY - gap)
+        case .bottom: return NSPoint(x: row.minX, y: row.maxY + gap + menuSize.height)
+        }
     }
 
     /// "None" and the colours, ticked at `current` (nil: no tick, mixed selection).
@@ -1752,16 +1775,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.window.initialFirstResponder = field
         // The alert needs the keyboard: aiming's grab is paused meanwhile, and the app in front
         // gets the keyboard back after.
-        let pausedAiming = model.aimingID != nil && aimingKeys.isActive
-        if pausedAiming { aimingKeys.end() }
+        // (Coming from the mark menu, aiming's grab is already paused and stays so until here.)
+        let pausedAiming = model.aimingID != nil
+        if aimingKeys.isActive { aimingKeys.end() }
         if model.aimingID != nil {
             tilingMenu.hide()
             actionPanel.hide()
             toast?.hideNow()
         }
         let previous = NSWorkspace.shared.frontmostApplication
-        NSApp.activate()
         alert.window.level = .floating
+        OwnWindows.presentModal(alert.window, focusing: field)
         let saved = alert.runModal() == .alertFirstButtonReturn
         if saved {
             marks.setName(field.stringValue, for: window.id)

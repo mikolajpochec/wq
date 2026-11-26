@@ -31,6 +31,35 @@ enum OwnWindows {
         }
     }
 
+    /// The same for a modal alert about to `runModal()`, which blocks: the checks run on timers in
+    /// the modal run loop mode. The app stays an accessory (no Dock icon for a small prompt), so
+    /// the activation is often declined while another app is in front (always so while aiming,
+    /// whose keys come through an event tap rather than as events of ours), and the alert then
+    /// opens without the keyboard; the WindowServer path makes it key, with the caret in `field`.
+    static func presentModal(_ window: NSWindow, focusing field: NSView?) {
+        presentedAt = Date()
+        pointerAtPresent = NSEvent.mouseLocation
+        NSApp.activate(ignoringOtherApps: true)
+        for delay in [0.05, 0.2, 0.45] {
+            let timer = Timer(timeInterval: delay, repeats: false) { _ in
+                guard window.isVisible else { return }
+                if !NSApp.isActive || !window.isKeyWindow {
+                    Diagnostics.note("alert \(window.windowNumber) not key after \(delay)s; fronting it")
+                    _ = WindowFocuser.bringToFront(pid: getpid(), windowID: CGWindowID(window.windowNumber))
+                    NSApp.activate(ignoringOtherApps: true)
+                    window.makeKeyAndOrderFront(nil)
+                }
+                // While a text field is edited, the window's first responder is its field editor.
+                let editing = (window.firstResponder as? NSText)?.delegate as AnyObject?
+                if let field, window.firstResponder !== field, editing !== field {
+                    window.makeFirstResponder(field)
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            RunLoop.main.add(timer, forMode: .modalPanel)
+        }
+    }
+
     /// One of our windows has just opened and the pointer hasn't gone anywhere since: whatever is
     /// under it was not chosen, so hover focus leaves the new window be.
     static var justPresented: Bool {
