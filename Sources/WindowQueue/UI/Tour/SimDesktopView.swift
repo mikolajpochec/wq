@@ -13,6 +13,9 @@ struct SimDesktopView: View {
     var cornerRadius: CGFloat = 12
 
     static let size = CGSize(width: 600, height: 400)
+    /// The frame drawn in: by default `size`; a wider, lower one suits a desk of several monitors
+    /// (each screen is still drawn at `size` and scaled down to fit).
+    var frameSize: CGSize = SimDesktopView.size
     private static let pairScale: CGFloat = 0.465
 
     var body: some View {
@@ -24,7 +27,7 @@ struct SimDesktopView: View {
             }
             flashes
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: frameSize.width, height: frameSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(Color.primary.opacity(0.15)))
     }
@@ -37,7 +40,7 @@ struct SimDesktopView: View {
     private var monitors: some View {
         // Two keep the old size; more are shrunk to fit side by side (bezel 8, gaps 14).
         let count = CGFloat(sim.monitorCount)
-        let scale = min(Self.pairScale, ((Self.size.width - 14 * (count - 1)) / count - 12) / Self.size.width)
+        let scale = min(Self.pairScale, ((frameSize.width - 14 * (count - 1)) / count - 12) / Self.size.width)
         return ZStack {
             LinearGradient(colors: [Color(white: 0.2), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
             HStack(alignment: .bottom, spacing: 14) {
@@ -82,7 +85,7 @@ struct SimDesktopView: View {
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: frameSize.width, height: frameSize.height)
         .allowsHitTesting(false)
     }
 }
@@ -175,12 +178,12 @@ struct SimScreenView: View {
             if sim.monitorFrame?.target == monitor {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(Color.accentColor, lineWidth: 10)
-                    .frame(width: Self.size.width, height: Self.size.height)
+                    .frame(width: SimDesktopView.size.width, height: SimDesktopView.size.height)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: SimDesktopView.size.width, height: SimDesktopView.size.height)
         .clipped()
         .coordinateSpace(name: "screen")
         .overlayPreferenceValue(IconAnchors.self) { anchors in

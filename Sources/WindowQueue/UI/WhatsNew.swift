@@ -55,7 +55,11 @@ struct WhatsNewView: View {
     let features: [ShowcasedFeature]
     var close: () -> Void = {}
 
-    static let size = NSSize(width: 680, height: 760)
+    /// The width; the height follows the content (`fittingSize`), so nothing is left empty.
+    static let width: CGFloat = 760
+    private static let margin: CGFloat = 32
+    /// The pretend desk: the column's full width, only as tall as a row of monitors needs.
+    static let deskSize = CGSize(width: width - 2 * margin, height: 330)
 
     init(model: TourModel, features: [ShowcasedFeature], close: @escaping () -> Void = {}) {
         self.model = model
@@ -69,13 +73,13 @@ struct WhatsNewView: View {
     /// One column: what's new and how it works on top, the pretend desktop to try it on below.
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 details
                 desktop
             }
-            .padding(.horizontal, 40)
-            .padding(.vertical, 28)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, Self.margin)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
             Divider()
             HStack {
                 Text("Reopen this any time from the menu bar icon.")
@@ -89,7 +93,8 @@ struct WhatsNewView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.width)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -151,7 +156,8 @@ struct WhatsNewView: View {
 
     private var desktop: some View {
         VStack(spacing: 8) {
-            SimDesktopView(sim: sim, prefs: model.prefs, onClick: { model.click($0) }, onDragStart: { model.takeOver() })
+            SimDesktopView(sim: sim, prefs: model.prefs, onClick: { model.click($0) }, onDragStart: { model.takeOver() },
+                           frameSize: Self.deskSize)
                 .overlay(alignment: .topLeading) {
                     if model.demoPlaying {
                         Label("PREVIEW", systemImage: "play.fill")
@@ -197,7 +203,7 @@ struct WhatsNewView: View {
                     Button("Watch Preview") { model.playDemo() }.controlSize(.small)
                 }
             }
-            .frame(width: SimDesktopView.size.width)
+            .frame(width: Self.deskSize.width)
         }
     }
 }
@@ -217,15 +223,18 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
     init(store: PreferencesStore, features: [ShowcasedFeature]) {
         self.features = features
         model = Self.makeModel(store: store, features: features)
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: WhatsNewView.size),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: WhatsNewView.width, height: 600),
                               styleMask: [.titled, .closable, .miniaturizable],
                               backing: .buffered, defer: false)
         window.title = "What's New in WindowQueue"
         window.isReleasedWhenClosed = false
         super.init(window: window)
-        window.contentView = NSHostingView(rootView: WhatsNewView(model: model, features: features) { [weak window] in
+        let host = NSHostingView(rootView: WhatsNewView(model: model, features: features) { [weak window] in
             window?.performClose(nil)
         })
+        window.contentView = host
+        // As tall as the content, no taller.
+        window.setContentSize(host.fittingSize)
         window.center()
         window.delegate = self
         taps.onTap = { [weak self] in self?.model.superTap() }
@@ -276,8 +285,8 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
         let model = makeModel(store: store, features: features)
         model.sim.animated = false
         let host = NSHostingView(rootView: WhatsNewView(model: model, features: features))
-        host.frame = NSRect(origin: .zero, size: WhatsNewView.size)
-        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: WhatsNewView.size.width, height: WhatsNewView.size.height),
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: host.fittingSize),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
