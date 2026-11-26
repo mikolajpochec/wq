@@ -36,6 +36,8 @@ struct SettingsView: View {
 
     @State private var showsAdvanced = SettingsView.opensAdvanced
     @State private var newAimAction: HotkeyAction = .toggleRecording
+    /// The custom launcher command being typed, or nil while it is only shown.
+    @State private var commandDraft: String?
 
     var body: some View {
         Group {
@@ -277,6 +279,49 @@ struct SettingsView: View {
 
     // MARK: - Aiming
 
+    /// The launcher command is shown, not typed into, so a stored deeplink is easy to spot (it
+    /// takes over the double tap and its shortcut from the launcher picked above). Edit opens it
+    /// for typing; Clear hands those shortcuts back to that launcher.
+    @ViewBuilder
+    private var customCommandRow: some View {
+        if let draft = commandDraft {
+            LabeledContent("Custom command") {
+                HStack(spacing: 8) {
+                    TextField("Custom command", text: Binding(get: { draft }, set: { commandDraft = $0 }),
+                              prompt: Text("A link to open"))
+                        .labelsHidden()
+                        .onSubmit(saveCommandDraft)
+                    Button("Cancel") { commandDraft = nil }
+                    Button("Save", action: saveCommandDraft)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        } else {
+            let command = store.prefs.raycastCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            LabeledContent("Custom command") {
+                HStack(spacing: 8) {
+                    Text(command.isEmpty ? "None, opens \(store.prefs.launcher.title)" : command)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(command)
+                    Button(command.isEmpty ? "Set…" : "Edit…") { commandDraft = store.prefs.raycastCommand }
+                    if !command.isEmpty {
+                        Button("Clear") { store.prefs.raycastCommand = "" }
+                    }
+                }
+            }
+        }
+    }
+
+    private func saveCommandDraft() {
+        if let draft = commandDraft {
+            store.prefs.raycastCommand = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        commandDraft = nil
+    }
+
     private var aiming: some View {
         Form {
             Section("Aiming mode") {
@@ -316,10 +361,10 @@ struct SettingsView: View {
                                 .tag(launcher)
                         }
                     }
-                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. A launcher that is not installed falls back to Spotlight.")
+                    caption("What the launcher shortcut opens, in aiming mode as well as outside it. A launcher that is not installed falls back to Spotlight. While a custom command is set, \"Run a launcher command\" and a double tap bound to it run that command instead.")
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField("Custom command", text: $store.prefs.raycastCommand, prompt: Text("A link to open"))
+                    customCommandRow
                     caption("The link that \"Run a launcher command\" opens, from its shortcut or the double tap above. Any link an installed app handles works, such as a Raycast deeplink (Copy Deeplink, ⌘⇧C on a command), an Alfred trigger (alfred://runtrigger/…) or a Shortcut (shortcuts://run-shortcut?name=…). Left empty, it opens the launcher chosen above.")
                 }
             }
