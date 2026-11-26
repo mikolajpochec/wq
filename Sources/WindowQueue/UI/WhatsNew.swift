@@ -55,7 +55,7 @@ struct WhatsNewView: View {
     let features: [ShowcasedFeature]
     var close: () -> Void = {}
 
-    static let size = NSSize(width: 980, height: 560)
+    static let size = NSSize(width: 680, height: 760)
 
     init(model: TourModel, features: [ShowcasedFeature], close: @escaping () -> Void = {}) {
         self.model = model
@@ -66,14 +66,16 @@ struct WhatsNewView: View {
 
     private var feature: ShowcasedFeature? { features[safe: model.tipIndex] }
 
+    /// One column: what's new and how it works on top, the pretend desktop to try it on below.
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 24) {
-                details.frame(width: 300)
+            VStack(alignment: .leading, spacing: 18) {
+                details
                 desktop
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             Divider()
             HStack {
                 Text("Reopen this any time from the menu bar icon.")
@@ -95,44 +97,53 @@ struct WhatsNewView: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("NEW IN WINDOWQUEUE", systemImage: "sparkles")
-                .font(.system(size: 10, weight: .bold))
+            Label("New in WindowQueue", systemImage: "sparkles")
+                .font(.system(size: 26, weight: .heavy))
                 .foregroundStyle(Color.accentColor)
-            if let feature, let tip = model.currentTip {
-                HStack(spacing: 8) {
-                    Image(systemName: feature.symbol).font(.system(size: 20)).foregroundStyle(Color.accentColor)
-                    Text(feature.title).font(.system(size: 24, weight: .bold))
-                }
-                ForEach(Array(feature.description(model).enumerated()), id: \.offset) { _, text in
-                    Text(text).font(.system(size: 13)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text("TRY IT").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary).padding(.top, 4)
-                // Each shortcut turns green once the user has used it on the desktop.
-                FlowCaps(goals: tip.goals, done: model.done)
-                if model.finishedTips.contains(feature.rawValue) {
-                    Label("You've got it", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.green)
-                        .transition(.opacity)
-                }
-            }
-            Spacer(minLength: 0)
             if features.count > 1 {
-                VStack(alignment: .leading, spacing: 4) {
+                // Several new features: one chip each, ticked once tried.
+                HStack(spacing: 6) {
                     ForEach(Array(features.enumerated()), id: \.element) { index, item in
+                        let finished = model.finishedTips.contains(item.rawValue)
                         Button { model.pickTip(index) } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: model.finishedTips.contains(item.rawValue) ? "checkmark.circle.fill" : item.symbol)
-                                    .foregroundStyle(model.finishedTips.contains(item.rawValue) ? Color.green : .secondary)
-                                    .frame(width: 18)
-                                Text(item.title).font(.system(size: 12, weight: index == model.tipIndex ? .semibold : .regular))
-                            }
-                            .contentShape(Rectangle())
+                            Label(item.title, systemImage: finished ? "checkmark.circle.fill" : item.symbol)
+                                .font(.system(size: 12, weight: index == model.tipIndex ? .semibold : .regular))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Capsule().fill(index == model.tipIndex ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1)))
+                                .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
                 }
+            }
+            if let feature, let tip = model.currentTip {
+                HStack(spacing: 10) {
+                    Image(systemName: feature.symbol).font(.system(size: 20)).foregroundStyle(Color.accentColor)
+                    Text(feature.title).font(.system(size: 20, weight: .bold))
+                }
+                .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(feature.description(model).enumerated()), id: \.offset) { _, text in
+                        Text(text).font(.system(size: 13)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // Each shortcut turns green once the user has used it on the desktop.
+                HStack(spacing: 8) {
+                    Text("TRY IT").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+                    ForEach(Array(tip.goals.enumerated()), id: \.offset) { _, goal in
+                        KeyCaps(text: goal.keys, small: true, done: model.done.contains(goal.event))
+                    }
+                    Spacer(minLength: 0)
+                    if model.finishedTips.contains(feature.rawValue) {
+                        Label("You've got it", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.green)
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.top, 2)
             }
         }
         .animation(.easeOut(duration: 0.25), value: model.finishedTips)
@@ -187,25 +198,6 @@ struct WhatsNewView: View {
                 }
             }
             .frame(width: SimDesktopView.size.width)
-        }
-    }
-}
-
-/// A tip's shortcuts as small keycaps, two to a row so four of them fit the column.
-private struct FlowCaps: View {
-    let goals: [TourTip.Goal]
-    let done: Set<TourEvent>
-
-    var body: some View {
-        let rows = stride(from: 0, to: goals.count, by: 2).map { Array(goals[$0..<min($0 + 2, goals.count)]) }
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 6) {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, goal in
-                        KeyCaps(text: goal.keys, small: true, done: done.contains(goal.event))
-                    }
-                }
-            }
         }
     }
 }
