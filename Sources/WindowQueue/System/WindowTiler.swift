@@ -131,8 +131,11 @@ enum WindowTiler {
                     member.element.setAttribute(kAXMinimizedAttribute, value: kCFBooleanFalse)
                 }
                 let asked = planned.frames[index].size
+                // A window just taken to another display is clamped to the old one for a moment:
+                // that is not the window's limit, and the checks set its size again.
                 guard let landed = setFrame(planned.frames[index], of: member.element, window: member.window),
-                      respectsSizeLimits, !landed.size.approximatelyEquals(asked)
+                      respectsSizeLimits, !landed.size.approximatelyEquals(asked),
+                      !isCrossingDisplays(member.window.id)
                 else { continue }
                 if WindowSizeLimits.canProbe(member.window) {
                     refused.append(index)
@@ -209,9 +212,37 @@ enum WindowTiler {
     @discardableResult
     private static func setFrame(_ frame: CGRect, of element: AXUIElement, window: ManagedWindow) -> CGRect? {
         lastRequest += 1
+        if let previous = currentRequest[window.id] { crossingRequests.remove(previous) }
         currentRequest[window.id] = lastRequest
         placedFrames[window.id] = frame
+        if let from = currentFrame(of: element), let source = screenIndex(ofAX: from),
+           let target = screenIndex(ofAX: frame), source != target {
+            crossingRequests.insert(lastRequest)
+        }
         return apply(frame, of: element, window: window, request: lastRequest, check: 0)
+    }
+
+    /// Requests that take a window over to another display. An app learns which display its
+    /// window is on only a moment after it gets there, and until then clamps a new size to the old
+    /// one (Chrome does): a size refused then says nothing about the window's limits, and the size
+    /// has to be asked again once the app has caught up.
+    private static var crossingRequests: Set<Int> = []
+
+    /// Whether the window's latest frame request takes it to another display.
+    static func isCrossingDisplays(_ id: CGWindowID) -> Bool {
+        currentRequest[id].map(crossingRequests.contains) ?? false
+    }
+
+    /// The screen holding most of a rect in accessibility coordinates, by its place in `NSScreen.screens`.
+    private static func screenIndex(ofAX rect: CGRect) -> Int? {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let cocoa = NSRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+        let overlaps = NSScreen.screens.map { screen -> CGFloat in
+            let common = screen.frame.intersection(cocoa)
+            return common.isNull ? 0 : common.width * common.height
+        }
+        guard let best = overlaps.indices.max(by: { overlaps[$0] < overlaps[$1] }), overlaps[best] > 0 else { return nil }
+        return best
     }
 
     @discardableResult
@@ -236,6 +267,19 @@ enum WindowTiler {
             element.setAttribute(kAXPositionAttribute, value: originValue)
             element.setAttribute(kAXSizeAttribute, value: sizeValue)
             landed = currentFrame(of: element)
+        }
+        if crossingRequests.contains(request), let first = landed, !matches(first, frame) {
+            // Arrived on another display with the size clamped to the old one: ask again as soon as
+            // the app has noticed where its window went, well before the regular checks.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                guard currentRequest[window.id] == request,
+                      let current = currentFrame(of: element), !matches(current, frame) else { return }
+                withoutAnimation(pid: window.pid) {
+                    element.setAttribute(kAXSizeAttribute, value: sizeValue)
+                    element.setAttribute(kAXPositionAttribute, value: originValue)
+                    element.setAttribute(kAXSizeAttribute, value: sizeValue)
+                }
+            }
         }
 
         scheduleCheck(frame, of: element, window: window, request: request, check: check, seen: nil,
@@ -293,7 +337,8 @@ enum WindowTiler {
             }
             // Twice at the same wrong size, set again in between: that is the size it takes. An app
             // that resizes late cannot be probed, so this is where its limits are learnt.
-            if respectsSizeLimits, let refusal, current.size.approximatelyEquals(refusal),
+            if respectsSizeLimits, !crossingRequests.contains(request), let refusal,
+               current.size.approximatelyEquals(refusal),
                NSEvent.pressedMouseButtons == 0,
                WindowSizeLimits.learn(window, asked: frame.size, landed: current.size) {
                 onLateRefusal?(window.id)

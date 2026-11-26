@@ -135,7 +135,7 @@ final class DockReservation {
     /// tiled windows, would count the strip's own width twice — the strip would drift further from
     /// the edge every time the value was picked up.
     static func unreservedFrame(of screen: NSScreen, prefs: Preferences) -> NSRect {
-        var frame = screen.visibleFrame
+        var frame = Monitors.usableFrame(of: screen)
         guard let reservation = shared, reservation.isInstalled,
               screen == NSScreen.screens.first
         else { return frame }
