@@ -24,14 +24,33 @@ enum Diagnostics {
     /// Always-on breadcrumb so a launch that stalls on permissions leaves a trace.
     static func note(_ message: String) {
         let line = "[\(Date())] \(message)\n"
+        // The file is written on a queue of its own: a note is made from the main thread on every
+        // switch, and opening, writing and closing a file there can stall it whenever the disk is
+        // busy. One serial queue also keeps notes from several threads from interleaving.
+        noteQueue.async { append(line) }
+    }
+
+    private static let noteQueue = DispatchQueue(label: "WindowQueue.events", qos: .utility)
+    /// Kept open between notes; only touched on `noteQueue`.
+    private static var eventsHandle: FileHandle?
+
+    private static func append(_ line: String) {
         let url = eventsURL
         rotateIfLarge(url)
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
+        if eventsHandle == nil {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            eventsHandle = try? FileHandle(forWritingTo: url)
+        }
+        guard let handle = eventsHandle else { return }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(line.utf8))
+        } catch {
+            // The file was moved or deleted under us: start a new one with the next note.
             try? handle.close()
-        } else {
-            try? line.write(to: url, atomically: true, encoding: .utf8)
+            eventsHandle = nil
         }
     }
 
@@ -46,6 +65,8 @@ enum Diagnostics {
         notesSinceSizeCheck = 0
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         guard size > maxEventsSize else { return }
+        try? eventsHandle?.close()
+        eventsHandle = nil
         let old = url.deletingLastPathComponent().appendingPathComponent("events.1.log")
         try? FileManager.default.removeItem(at: old)
         try? FileManager.default.moveItem(at: url, to: old)
@@ -78,10 +99,11 @@ enum Diagnostics {
                                 window.appName, window.title))
         }
 
-        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-            .map { (pid: $0.processIdentifier, name: $0.localizedName ?? "?") }
         let url = logURL
         dumpQueue.async {
+            // Off the main thread: every running app's properties are a LaunchServices round trip.
+            let apps = RunningApps.windowOwners().filter { RunningApps.policy(of: $0.app) == .regular }
+                .map { (pid: $0.pid, name: $0.app.localizedName ?? "?") }
             lines.append("--- WindowServer real windows (all spaces) ---")
             lines.append(contentsOf: windowServerList())
             lines.append("--- accessibility, per application ---")

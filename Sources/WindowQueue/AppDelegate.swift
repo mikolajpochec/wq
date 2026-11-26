@@ -65,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debugCommands: DebugCommands?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AXPrivate.boundAllCalls()
+        HangWatchdog.start()
         DockReservation.shared = dockReservation
         dockReservation.start()
         restoreDockOnSignals()
@@ -2886,6 +2888,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard words.count >= 3, let id = CGWindowID(words[1]) else { return }
             WindowMarks.shared.setTint(WindowTint(rawValue: String(words[2])), for: id)
             WindowMarks.shared.setName(words.dropFirst(3).joined(separator: " "), for: id)
+        case "stall":
+            // `stall <seconds>`: blocks the main thread on purpose, to check `HangWatchdog`.
+            Thread.sleep(forTimeInterval: min(Double(words.dropFirst().first ?? "") ?? 2, 10))
         case "marks":
             let marks = WindowMarks.shared
             Diagnostics.note("marks tints=\(marks.windowTints.mapValues(\.rawValue)) groups=\(marks.groupTints.mapValues(\.rawValue)) names=\(marks.names)")

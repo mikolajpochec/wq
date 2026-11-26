@@ -21,6 +21,20 @@ enum AXPrivate {
     /// enough that one busy application stalls whatever thread asked it something.
     static let messagingTimeout: Float = 0.25
 
+    /// Ceiling for every other accessibility call in the process. Window elements copied out of an
+    /// application (its window list, its focused window) do not inherit the application's timeout:
+    /// each got the system default of about six seconds, and a busy or hung app (Chrome under
+    /// memory pressure, an Electron app mid-reload) froze the main thread that long per call when a
+    /// window of it was raised, moved or resized. Looser than `messagingTimeout`, since moving and
+    /// resizing a window can legitimately take a busy app a moment.
+    static let globalMessagingTimeout: Float = 1.0
+
+    /// Sets `globalMessagingTimeout`: on the system-wide element it applies to every element that
+    /// has no timeout of its own. Call once at launch.
+    static func boundAllCalls() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), globalMessagingTimeout)
+    }
+
     /// Application element with a bounded messaging timeout. Always prefer this over
     /// `AXUIElementCreateApplication` directly.
     static func application(_ pid: pid_t) -> AXUIElement {

@@ -97,12 +97,7 @@ final class WindowEnumerator {
     /// Paired with each app's real process id (`RunningApps.pid(of:)`): the iOS Simulator in Xcode 27
     /// is listed with -1, and its windows would otherwise never match an app.
     private func candidateApplications() -> [(pid: pid_t, app: NSRunningApplication)] {
-        NSWorkspace.shared.runningApplications.compactMap { app in
-            guard app.activationPolicy == .regular || app.activationPolicy == .accessory,
-                  let pid = RunningApps.pid(of: app)
-            else { return nil }
-            return (pid, app)
-        }
+        RunningApps.windowOwners()
     }
 
     /// Rebuilds the window set.
@@ -123,32 +118,36 @@ final class WindowEnumerator {
         refreshSpaceState()
         let currentSpaceID = model.currentSpaceID
 
-        // Snapshot what the main thread owns, then do the slow accessibility work off it.
-        let candidates = candidateApplications()
-        // An app missed at launch (its process id was not known yet) gets its observer here, and
-        // one whose quit went unnoticed (it was known only by -1 then) loses it.
-        for (pid, _) in candidates { registerObserver(for: pid) }
-        for pid in observers.keys where NSRunningApplication(processIdentifier: pid) == nil {
-            unregisterObserver(for: pid)
-        }
-        let names = Dictionary(candidates.map {
-            ($0.pid, AppInfo(name: $0.app.localizedName ?? "Unknown", bundleID: $0.app.bundleIdentifier))
-        }, uniquingKeysWith: { first, _ in first })
-        let needsAccessibility = names.keys.filter { !accessibilityEnabledPIDs.contains($0) }
-        accessibilityEnabledPIDs.formUnion(needsAccessibility)
-        let needsEscalation = names.keys.filter { !accessibilityEscalatedPIDs.contains($0) }
+        // Snapshot what the main thread owns, then do the slow work off it: listing the running
+        // applications too, since every property of every one of them is a round trip to
+        // LaunchServices (NSWorkspace and NSRunningApplication may be used from any thread).
+        let enabled = accessibilityEnabledPIDs
+        let escalatedBefore = accessibilityEscalatedPIDs
         let everListed = everListedPIDs
+        let observed = Set(observers.keys)
 
         enumerationQueue.async { [weak self] in
             guard let self else { return }
+            let candidates = self.candidateApplications()
+            let names = Dictionary(candidates.map {
+                ($0.pid, AppInfo(name: $0.app.localizedName ?? "Unknown", bundleID: $0.app.bundleIdentifier))
+            }, uniquingKeysWith: { first, _ in first })
+            // One whose quit went unnoticed (it was known only by -1 then) loses its observer. Only
+            // the ones no longer listed are looked up: each lookup asks LaunchServices.
+            let gone = observed.filter { !names.keys.contains($0) && NSRunningApplication(processIdentifier: $0) == nil }
+            let needsAccessibility = Set(names.keys.filter { !enabled.contains($0) })
             let result = self.enumerate(names: names,
-                                        enable: Set(needsAccessibility),
-                                        mayEscalate: Set(needsEscalation),
+                                        enable: needsAccessibility,
+                                        mayEscalate: Set(names.keys.filter { !escalatedBefore.contains($0) }),
                                         currentSpaceID: currentSpaceID,
                                         everListed: everListed)
 
             DispatchQueue.main.async {
                 self.isRefreshing = false
+                // An app missed at launch (its process id was not known yet) gets its observer here.
+                for pid in names.keys { self.registerObserver(for: pid) }
+                for pid in gone { self.unregisterObserver(for: pid) }
+                self.accessibilityEnabledPIDs.formUnion(needsAccessibility)
                 self.accessibilityEscalatedPIDs.formUnion(result.escalated)
                 self.everListedPIDs.formUnion(result.listed)
                 self.model.reconcile(with: result.windows)
@@ -317,10 +316,16 @@ final class WindowEnumerator {
         for window in discovered.values where window.spaceID == current && window.element == nil {
             offenders.insert(window.pid)
         }
+        // Said once per change, not on every refresh: the same few apps filled the log otherwise.
+        guard offenders != lastUnreadablePIDs else { return }
+        lastUnreadablePIDs = offenders
         for pid in offenders {
             Diagnostics.note("AX blind on active space: \(names[pid]?.name ?? "?") pid=\(pid)")
         }
     }
+
+    /// Apps last reported as unreadable; only touched on `enumerationQueue`.
+    private var lastUnreadablePIDs: Set<pid_t> = []
 
     /// Windows that sit almost entirely inside a much larger window of the same application.
     ///
@@ -589,9 +594,9 @@ final class WindowEnumerator {
     // MARK: - Workspace notifications
 
     @objc private func appLaunched(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              app.activationPolicy == .regular
-        else { return }
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        RunningApps.forgetPolicy(of: app)
+        guard app.activationPolicy == .regular else { return }
         scheduleRefresh()
         guard let pid = RunningApps.pid(of: app) else { return }
         registerObserver(for: pid)
