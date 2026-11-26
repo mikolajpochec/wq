@@ -1277,22 +1277,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let prefs = store.prefs
         // The room the strip keeps is taken off here, so the screen has to be measured without the
         // reservation that keeps it — otherwise it is subtracted twice.
-        var area = screen.map { DockReservation.unreservedFrame(of: $0, prefs: prefs) } ?? .zero
-        guard prefs.stripDisplay != .hidden, prefs.reserveScreenSpace else { return area }
-        let gap = CGFloat(StripMetrics.reservedWidth(for: prefs))
-        switch prefs.stripSide {
-        case .left:
-            area.origin.x += gap
-            area.size.width -= gap
-        case .right:
-            area.size.width -= gap
-        case .top:
-            area.size.height -= gap
-        case .bottom:
-            area.origin.y += gap
-            area.size.height -= gap
-        }
-        return area
+        let area = screen.map { DockReservation.unreservedFrame(of: $0, prefs: prefs) } ?? .zero
+        return MonitorPlanner.stripReduced(area, prefs: prefs)
     }
 
     private func perform(_ action: HotkeyAction) {
@@ -2192,15 +2178,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let current = WindowTiler.frame(of: window)
         Diagnostics.note("fullscreen \(window.appName) id=\(window.id) element=\(window.element != nil) frame=\(current.map { "\($0)" } ?? "nil") area=\(area) stored=\(framesBeforeMaximize[window.id].map { "\($0)" } ?? "none")")
 
-        if var previous = framesBeforeMaximize[window.id],
-           let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {
+        if let stored = framesBeforeMaximize[window.id],
+           let frame = WindowTiler.frame(of: window), fills(frame, area) {
             framesBeforeMaximize[window.id] = nil
             // Kept from before the window went to another monitor (dragged there, say): restore it
             // at the same place on the screen it is on now, never back on the old one.
-            if let old = Monitors.screen(containing: previous), let now = Monitors.screen(containing: frame),
-               old != now {
-                previous = Self.map(previous, from: tilingArea(on: old), to: area)
-            }
+            let previous = MonitorPlanner.restoreFrame(stored, current: frame, area: area, displays: orderedDisplays())
             WindowTiler.restore(window, to: previous)
             model.endFocus()
             return
@@ -2211,11 +2194,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if store.prefs.focusMaximizedWindow { model.beginFocus(on: window.id) }
     }
 
-    /// Near enough to the maximized frame to count as maximized; apps round and snap to their own
-    /// grids, so an exact match would leave the shortcut one-way.
-    private static func fills(_ frame: NSRect, _ area: NSRect) -> Bool {
-        abs(frame.minX - area.minX) <= 12 && abs(frame.minY - area.minY) <= 12
-            && abs(frame.width - area.width) <= 24 && abs(frame.height - area.height) <= 24
+    /// Near enough to the maximized frame to count as maximized (`MonitorPlanner.fills`, outer gap
+    /// included).
+    private func fills(_ frame: NSRect, _ area: NSRect) -> Bool {
+        MonitorPlanner.fills(frame, area, gaps: WindowTiler.Gaps(prefs: store.prefs))
+    }
+
+    /// The connected screens left to right, as `MonitorPlanner` takes them, each with its room.
+    private func orderedDisplays() -> [MonitorPlanner.Display] {
+        Monitors.orderedScreens.compactMap { screen in
+            Monitors.displayID(of: screen).map {
+                MonitorPlanner.Display(id: $0, frame: screen.frame, area: tilingArea(on: screen))
+            }
+        }
     }
 
     private func closeSelectedWindow() {
@@ -2458,46 +2449,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.aimingID != nil { endAiming(commit: false) }
         guard store.prefs.multiMonitorMode, !windows.isEmpty, !WindowDragMover.isCarrying else { return }
         let screens = Monitors.orderedScreens
-        guard screens.count > 1 else {
-            toast?.showCentred(title: "Only one monitor", subtitle: "There is nowhere else to move the window")
-            return
-        }
-        if let number, !screens.indices.contains(number - 1) {
-            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
-            return
-        }
-
-        var windowsWithFrames: [(window: ManagedWindow, frame: NSRect, source: NSScreen)] = []
+        let displays = orderedDisplays()
+        var measured: [(id: CGWindowID, frame: NSRect?)] = []
+        var byID: [CGWindowID: ManagedWindow] = [:]
         for var window in windows {
             window.element = window.element ?? WindowSpaceMover.element(for: window)
-            guard window.element != nil,
-                  let frame = WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id),
-                  let source = Monitors.screen(containing: frame)
-            else { continue }
-            windowsWithFrames.append((window, frame, source))
+            byID[window.id] = window
+            measured.append((window.id, window.element == nil ? nil
+                : WindowTiler.frame(of: window) ?? WindowTiler.serverFrame(of: window.id)))
         }
-        guard let lead = windowsWithFrames.first else { return }
+        let plan = MonitorPlanner.planMove(measured, toMonitor: number, displays: displays,
+                                           gaps: WindowTiler.Gaps(prefs: store.prefs))
         let targetIndex: Int
-        if let number {
-            targetIndex = number - 1
-        } else {
-            let from = screens.firstIndex(of: lead.source) ?? 0
-            targetIndex = (from + 1) % screens.count
+        let moves: [MonitorPlanner.Move]
+        switch plan {
+        case .onlyOne:
+            toast?.showCentred(title: "Only one monitor", subtitle: "There is nowhere else to move the window")
+            return
+        case .missing(let number, let count):
+            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(count)")
+            return
+        case .nothing:
+            return
+        case .alreadyThere(let target):
+            Diagnostics.note("moved 0 window(s) to monitor \(target + 1)")
+            toast?.showCentred(title: "Already on monitor \(target + 1)", subtitle: windows[0].displayTitle)
+            return
+        case .move(let target, let lead, let planned):
+            targetIndex = target
+            moves = planned
+            if displays[target].id != displays[lead].id, screens.indices.contains(target) { markMonitor(screens[target]) }
         }
-        let target = screens[targetIndex]
-        let targetArea = tilingArea(on: target)
-
+        let targetArea = displays[targetIndex].area
         var moved: [ManagedWindow] = []
-        for (window, frame, source) in windowsWithFrames where source != target {
-            relocate(window, frame: frame, from: source, toArea: targetArea)
+        for move in moves {
+            guard let window = byID[move.id] else { continue }
+            relocate(window, move.landing, from: displays[move.from].area, toArea: targetArea)
             moved.append(window)
         }
         Diagnostics.note("moved \(moved.count) window(s) to monitor \(targetIndex + 1)")
-        guard let first = moved.first else {
-            toast?.showCentred(title: "Already on monitor \(targetIndex + 1)", subtitle: lead.window.displayTitle)
-            return
-        }
-        if Monitors.displayID(of: target) != Monitors.displayID(of: lead.source) { markMonitor(target) }
+        guard let first = moved.first else { return }
         model.select(id: first.id, announce: false)
         focus(first)
         toast?.show(title: moved.count == 1 ? first.displayTitle : "\(moved.count) windows",
@@ -2507,19 +2498,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Puts a window at the same place relative to another screen's room; one filling its screen
-    /// fills the other.
-    private func relocate(_ window: ManagedWindow, frame: NSRect, from source: NSScreen, toArea targetArea: NSRect) {
-        let sourceArea = tilingArea(on: source)
+    /// Puts a window where `MonitorPlanner.relocate` lands it on another screen's room.
+    private func relocate(_ window: ManagedWindow, _ landing: MonitorPlanner.Landing,
+                          from sourceArea: NSRect, toArea targetArea: NSRect) {
         // The frame the fullscreen shortcut puts back moves along, or undoing a maximize on the
         // new screen would carry the window back to the old one.
-        if let previous = framesBeforeMaximize[window.id] {
-            framesBeforeMaximize[window.id] = Self.map(previous, from: sourceArea, to: targetArea)
+        if let carried = MonitorPlanner.carried(framesBeforeMaximize[window.id], from: sourceArea, to: targetArea) {
+            framesBeforeMaximize[window.id] = carried
         }
-        if Self.fills(frame, sourceArea) {
+        if landing.fills {
             WindowTiler.fill(window, in: targetArea, gaps: WindowTiler.Gaps(prefs: store.prefs))
         } else {
-            WindowTiler.restore(window, to: Self.map(frame, from: sourceArea, to: targetArea))
+            WindowTiler.restore(window, to: landing.frame)
         }
     }
 
@@ -2566,7 +2556,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard source != screen else { return }
         Diagnostics.note("launched \(window.appName) id=\(window.id) opened on \(source.localizedName), "
                          + "moving to \(screen.localizedName)")
-        relocate(window, frame: frame, from: source, toArea: tilingArea(on: screen))
+        let sourceArea = tilingArea(on: source), targetArea = tilingArea(on: screen)
+        relocate(window, MonitorPlanner.relocate(frame, from: sourceArea, to: targetArea,
+                                                 gaps: WindowTiler.Gaps(prefs: store.prefs)),
+                 from: sourceArea, toArea: targetArea)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.enumerator?.refresh()
         }
@@ -2578,21 +2571,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func focusMonitor(_ number: Int?) {
         guard store.prefs.multiMonitorMode else { return }
         let screens = Monitors.orderedScreens
-        guard screens.count > 1 else {
-            toast?.showCentred(title: "Only one monitor", subtitle: "There is no other monitor to go to")
-            return
-        }
-        if let number, !screens.indices.contains(number - 1) {
-            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(screens.count)")
-            return
-        }
         // Landing on an empty monitor only moves the pointer, so until the selection changes
         // "next" goes on from there, or it would land there again.
         let selectedID = model.selectedID
         let currentDisplay = workedOnDisplay()
-        pointerOnlyMonitor = nil
         let current = screens.firstIndex { Monitors.displayID(of: $0) == currentDisplay } ?? 0
-        let targetIndex = number.map { $0 - 1 } ?? (current + 1) % screens.count
+        let targetIndex: Int
+        switch MonitorPlanner.target(number: number, after: current, count: screens.count) {
+        case .onlyOne:
+            toast?.showCentred(title: "Only one monitor", subtitle: "There is no other monitor to go to")
+            return
+        case .missing(let number, let count):
+            toast?.showCentred(title: "No monitor \(number)", subtitle: "Monitors are counted left to right; there are \(count)")
+            return
+        case .index(let index):
+            targetIndex = index
+        }
+        pointerOnlyMonitor = nil
         let target = screens[targetIndex]
         guard let display = Monitors.displayID(of: target) else { return }
         if display != currentDisplay { markMonitor(target) }
@@ -2604,11 +2599,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Front to back, so the window last on top there is the one landed on.
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                               kCGNullWindowID) as? [[String: Any]] ?? []
-        let topmost = list.lazy
-            .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
-            .compactMap { id in windows.first { $0.id == id } }
-            .first
-        if let window = topmost ?? windows.first {
+        let frontToBack = list.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+        if let landed = MonitorPlanner.landing(among: windows.map(\.id), frontToBack: frontToBack),
+           let window = windows.first(where: { $0.id == landed }) {
             Diagnostics.note("monitor \(targetIndex + 1): focusing \(window.appName) id=\(window.id)")
             model.select(id: window.id, announce: true)
             focus(window)
@@ -2616,7 +2609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Diagnostics.note("monitor \(targetIndex + 1): nothing on show, pointer to \(target.localizedName)")
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        CGWarpMouseCursorPosition(CGPoint(x: target.frame.midX, y: primaryHeight - target.frame.midY))
+        CGWarpMouseCursorPosition(MonitorPlanner.warpPoint(for: target.frame, primaryHeight: primaryHeight))
         pointerOnlyMonitor = (display, selectedID)
     }
 
@@ -2629,15 +2622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// A frame at the same place relative to another area, scaled to it and kept inside it.
     static func map(_ frame: NSRect, from source: NSRect, to target: NSRect) -> NSRect {
-        let scaleX = source.width > 0 ? target.width / source.width : 1
-        let scaleY = source.height > 0 ? target.height / source.height : 1
-        var result = NSRect(x: target.minX + (frame.minX - source.minX) * scaleX,
-                            y: target.minY + (frame.minY - source.minY) * scaleY,
-                            width: min(frame.width * scaleX, target.width),
-                            height: min(frame.height * scaleY, target.height))
-        result.origin.x = min(max(result.minX, target.minX), target.maxX - result.width)
-        result.origin.y = min(max(result.minY, target.minY), target.maxY - result.height)
-        return result
+        MonitorPlanner.map(frame, from: source, to: target)
     }
 
     /// Goes to the empty workspace nearest the one in view on this monitor, the way `⌥N` goes to
