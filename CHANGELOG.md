@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.1 (2026-11-26)
+
+- **Step between monitors.** ⌃⌥[ and ⌃⌥] go to the monitor on the left or the right, coming round at the ends. Add Shift (⌃⌥⇧[ and ⌃⌥⇧]) to take the window along. All four can be changed in Settings › Shortcuts.
+- **What's New.** After an update, a window shows the new features you haven't seen yet, each previewed on a pretend desktop and then yours to try; with several, one page each. Reopen it any time from the menu bar icon (**What's New…**).
+- **Fewer freezes.** Listing the running apps no longer runs on the main thread on every refresh, so a busy LaunchServices no longer stalls WindowQueue (a refresh now costs about 1–2 ms instead of 15–30 ms). Typing in other apps can't freeze while aiming or a quick-mark prompt is up, and an unresponsive app holds WindowQueue up for at most a second instead of about six.
+- **Super key taps.** Tapping the super key to open aiming mode and again to leave it no longer sets off the double tap (for example opening Spotlight) when WindowQueue was briefly busy. Switching monitors with ⌃⌥Space no longer opens aiming mode when Option is let go.
+- **Windows on other monitors.** A window moved to another monitor and maximized stays there when the fullscreen shortcut restores it. Chrome windows sent to another monitor fill it properly, and a secondary display's menu bar is kept out of the tiling area. Maximized windows sent across fill the new monitor even with an outer gap over 12 pt, and leaving fullscreen after the remembered monitor was unplugged keeps the window on screen.
+- **Naming windows.** The name field takes the keyboard straight away, also while aiming, and the name and colour menu opens beside the strip on whichever side it sits.
+- **Launcher.** Spotlight opens even when Raycast or Alfred has taken over ⌘Space. Settings › Aiming › Launcher shows a custom command with Edit and Clear buttons.
+- **Tour.** On the Tips page, Q while aiming at several windows closes all of them, as in the app.
+- **Diagnostics.** Main-thread stalls of 0.5 s or more are noted in events.log; with diagnostics on, a longer one also saves a sample of the app to ~/Library/Logs/WindowQueue.
+
 ## 1.6.0 (2026-11-23)
 
 - **Resize tiled windows without breaking the layout.** Drag the edge or corner of a tiled window and the windows next to it follow the edge as you drag, for as long as you hold the button; dividers that line up (the rows of a grid, the windows of a stack) move together. A window that can't get any smaller stops the drag instead of being pushed off screen, and terminals that size themselves to whole rows and columns of text keep up too. Moving a window by its title bar still frees the layout.
