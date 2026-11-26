@@ -2192,9 +2192,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let current = WindowTiler.frame(of: window)
         Diagnostics.note("fullscreen \(window.appName) id=\(window.id) element=\(window.element != nil) frame=\(current.map { "\($0)" } ?? "nil") area=\(area) stored=\(framesBeforeMaximize[window.id].map { "\($0)" } ?? "none")")
 
-        if let previous = framesBeforeMaximize[window.id],
+        if var previous = framesBeforeMaximize[window.id],
            let frame = WindowTiler.frame(of: window), Self.fills(frame, area) {
             framesBeforeMaximize[window.id] = nil
+            // Kept from before the window went to another monitor (dragged there, say): restore it
+            // at the same place on the screen it is on now, never back on the old one.
+            if let old = Monitors.screen(containing: previous), let now = Monitors.screen(containing: frame),
+               old != now {
+                previous = Self.map(previous, from: tilingArea(on: old), to: area)
+            }
             WindowTiler.restore(window, to: previous)
             model.endFocus()
             return
@@ -2505,8 +2511,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fills the other.
     private func relocate(_ window: ManagedWindow, frame: NSRect, from source: NSScreen, toArea targetArea: NSRect) {
         let sourceArea = tilingArea(on: source)
+        // The frame the fullscreen shortcut puts back moves along, or undoing a maximize on the
+        // new screen would carry the window back to the old one.
+        if let previous = framesBeforeMaximize[window.id] {
+            framesBeforeMaximize[window.id] = Self.map(previous, from: sourceArea, to: targetArea)
+        }
         if Self.fills(frame, sourceArea) {
-            framesBeforeMaximize[window.id] = nil
             WindowTiler.fill(window, in: targetArea, gaps: WindowTiler.Gaps(prefs: store.prefs))
         } else {
             WindowTiler.restore(window, to: Self.map(frame, from: sourceArea, to: targetArea))
