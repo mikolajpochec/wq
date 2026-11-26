@@ -82,13 +82,29 @@ struct WhatsNewView: View {
             .padding(.bottom, 16)
             Divider()
             HStack {
-                Text("Reopen this any time from the menu bar icon.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                if isPaged && !isLastPage {
+                    Button("Skip") { close() }.buttonStyle(.link)
+                } else {
+                    Text("Reopen this any time from the menu bar icon.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button(allDone ? "Got It" : "Close") { close() }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
+                if isPaged && model.tipIndex > 0 {
+                    Button("Back") { model.pickTip(model.tipIndex - 1) }
+                        .keyboardShortcut(.leftArrow, modifiers: [.command])
+                        .controlSize(.large)
+                }
+                if isPaged && !isLastPage {
+                    Button("Next") { model.pickTip(model.tipIndex + 1) }
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.large)
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button(allDone ? "Got It" : "Close") { close() }
+                        .keyboardShortcut(.defaultAction)
+                        .controlSize(.large)
+                        .buttonStyle(.borderedProminent)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -98,29 +114,20 @@ struct WhatsNewView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    /// Several new features: one page each, with Back and Next, instead of all on one.
+    private var isPaged: Bool { features.count > 1 }
+    private var isLastPage: Bool { model.tipIndex >= features.count - 1 }
+
     private var allDone: Bool { features.allSatisfy { model.finishedTips.contains($0.rawValue) } }
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("New in WindowQueue", systemImage: "sparkles")
-                .font(.system(size: 26, weight: .heavy))
-                .foregroundStyle(Color.accentColor)
-            if features.count > 1 {
-                // Several new features: one chip each, ticked once tried.
-                HStack(spacing: 6) {
-                    ForEach(Array(features.enumerated()), id: \.element) { index, item in
-                        let finished = model.finishedTips.contains(item.rawValue)
-                        Button { model.pickTip(index) } label: {
-                            Label(item.title, systemImage: finished ? "checkmark.circle.fill" : item.symbol)
-                                .font(.system(size: 12, weight: index == model.tipIndex ? .semibold : .regular))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Capsule().fill(index == model.tipIndex ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1)))
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            HStack(alignment: .firstTextBaseline) {
+                Label("New in WindowQueue", systemImage: "sparkles")
+                    .font(.system(size: 26, weight: .heavy))
+                    .foregroundStyle(Color.accentColor)
+                Spacer()
+                if isPaged { pageIndicator }
             }
             if let feature, let tip = model.currentTip {
                 HStack(spacing: 10) {
@@ -152,6 +159,30 @@ struct WhatsNewView: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: model.finishedTips)
+    }
+
+    /// Where the user is among the pages: a dot each (ticked green once tried, clickable) and "2 of 3".
+    private var pageIndicator: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(features.indices, id: \.self) { index in
+                    Button { model.pickTip(index) } label: {
+                        Circle()
+                            .fill(index == model.tipIndex ? Color.accentColor
+                                  : model.finishedTips.contains(features[index].rawValue) ? Color.green.opacity(0.8)
+                                  : Color.secondary.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                            .padding(2)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(features[index].title)
+                }
+            }
+            Text("\(model.tipIndex + 1) of \(features.count)")
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var desktop: some View {
@@ -244,7 +275,10 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
     private static func makeModel(store: PreferencesStore, features: [ShowcasedFeature]) -> TourModel {
-        TourModel(store: store) { model in features.map { $0.tip(model) } }
+        let model = TourModel(store: store) { model in features.map { $0.tip(model) } }
+        // The user turns the pages; a tried feature doesn't flip to the next one by itself.
+        model.autoAdvance = false
+        return model
     }
 
     func present() {
@@ -315,6 +349,32 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
                 model.run(.action(goal))
             }
             snap("\(index)-\(feature.rawValue)-tried")
+        }
+        window.close()
+        renderPaged(store: store, to: directory)
+    }
+
+    /// The paged look, with the one feature standing in for three, since there may be only one yet.
+    private static func renderPaged(store: PreferencesStore, to directory: URL) {
+        guard let first = ShowcasedFeature.allCases.first else { return }
+        let features = [first, first, first]
+        let model = makeModel(store: store, features: features)
+        model.sim.animated = false
+        let host = NSHostingView(rootView: WhatsNewView(model: model, features: features))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: host.fittingSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        model.show(.tips, scheduled: false)
+        for page in features.indices {
+            model.showTip(page, scheduled: false)
+            model.finishDemo()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+            host.layoutSubtreeIfNeeded()
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("paged-\(page + 1).png"))
         }
         window.close()
     }

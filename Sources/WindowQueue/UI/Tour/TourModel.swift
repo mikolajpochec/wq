@@ -118,6 +118,8 @@ final class TourModel: ObservableObject {
 
     /// Tips other than the tour's own, for a showcase built on the same desktop (What's New).
     private let tipSource: ((TourModel) -> [TourTip])?
+    /// A done tip brings up the next one by itself. Off where the user turns the pages (What's New).
+    var autoAdvance = true
 
     init(store: PreferencesStore, tips tipSource: ((TourModel) -> [TourTip])? = nil) {
         self.store = store
@@ -188,7 +190,7 @@ final class TourModel: ObservableObject {
     private func markTipIfDone() {
         guard page == .tips, !demoPlaying, advanceWork == nil, let tip = currentTip, tip.isDone(sim.done) else { return }
         if !finishedTips.contains(tip.id) { finishedTips.insert(tip.id) }
-        guard let next = nextTipIndex(after: tipIndex) else { return }
+        guard autoAdvance, let next = nextTipIndex(after: tipIndex) else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.page == .tips else { return }
             self.advanceWork = nil
