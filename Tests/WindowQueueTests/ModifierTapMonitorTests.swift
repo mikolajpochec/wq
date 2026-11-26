@@ -25,6 +25,15 @@ final class ModifierTapMonitorTests: XCTestCase {
         XCTAssertEqual(count(), 1)
     }
 
+    /// The tap is dated by its release, not by when it got handled.
+    func testTapIsDatedByItsRelease() {
+        let (taps, _) = monitor()
+        let start = Date(timeIntervalSinceNow: -5)
+        taps.handle(flags: .option, at: start)
+        taps.handle(flags: [], at: start + 0.1)
+        XCTAssertEqual(taps.lastTapAt.timeIntervalSince(start), 0.1, accuracy: 0.001)
+    }
+
     func testLongHoldIsNoTap() {
         let (taps, count) = monitor()
         play(taps, [.option, []], step: 0.6)

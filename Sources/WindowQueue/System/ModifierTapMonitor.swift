@@ -10,6 +10,10 @@ import AppKit
 /// the hotkey dispatcher calls `cancel()` as well.
 final class ModifierTapMonitor {
     var onTap: (() -> Void)?
+    /// When the tap that `onTap` is reporting was released, by the event's own clock. The main
+    /// thread can be busy for a while before it gets to the events, so the time they are handled
+    /// says little about how far apart two taps really were.
+    private(set) var lastTapAt = Date.distantPast
     /// The modifier combination that counts as the super key.
     var modifiers: NSEvent.ModifierFlags = .option
 
@@ -68,7 +72,9 @@ final class ModifierTapMonitor {
     }
 
     private func handle(_ event: NSEvent) {
-        handle(flags: event.modifierFlags)
+        // `timestamp` is uptime; carried over to a wall-clock date so it compares with `Date()`.
+        let at = Date(timeIntervalSinceNow: event.timestamp - ProcessInfo.processInfo.systemUptime)
+        handle(flags: event.modifierFlags, at: at)
     }
 
     /// One `flagsChanged`: the modifiers held from now on.
@@ -87,7 +93,10 @@ final class ModifierTapMonitor {
             invalidated = false
             climbing = false
             pressedAt = nil
-            if wasTap { onTap?() }
+            if wasTap {
+                lastTapAt = now
+                onTap?()
+            }
             return
         }
 

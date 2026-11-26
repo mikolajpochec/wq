@@ -313,7 +313,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modifierTaps.onTap = { [weak self] in
             // The tour watches its own window for the tap.
             guard self?.tourHasKeyboard == false else { return }
-            self?.toggleAiming()
+            guard let self else { return }
+            self.toggleAiming(at: self.modifierTaps.lastTapAt)
         }
 
         // Hover focus never moves the pointer: the pointer is already where the user wants it.
@@ -480,14 +481,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Aiming
 
     /// Aiming mode: move a highlight around the strip without focusing anything, then confirm.
-    private func toggleAiming() {
+    /// `time` is when the tap happened, which can be well before it is handled here when the main
+    /// thread was busy; measuring the double tap by handling time made two unhurried taps (open,
+    /// then leave) queued up behind a stall count as one double tap.
+    private func toggleAiming(at time: Date = Date()) {
         // The finder has the keyboard; a second grab on top of it would leave it deaf to typing.
         guard store.prefs.aimingEnabled, search?.isOpen != true else { return }
         if model.aimingID != nil {
             // A second tap right on the heels of the first is a double tap, which can be bound to
             // an action of its own; later on it is the plain confirm, and a switch is one key twice.
             if let action = store.prefs.superDoubleTapAction,
-               Date().timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
+               time.timeIntervalSince(aimingOpenedAt) < Self.doubleTapInterval {
                 endAiming(commit: false)
                 // Nothing of the mode should linger behind the action the double tap asked for.
                 toast?.hideNow()
@@ -496,14 +500,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             endAiming(commit: true)
         } else if let action = store.prefs.superDoubleTapAction, model.visibleWindows.isEmpty,
-                  Date().timeIntervalSince(emptyTapAt) < Self.doubleTapInterval {
+                  time.timeIntervalSince(emptyTapAt) < Self.doubleTapInterval {
             // With nothing on the workspace the first tap opened no mode, but two quick taps are
             // still the double tap.
             emptyTapAt = .distantPast
             perform(action)
         } else {
-            if model.visibleWindows.isEmpty { emptyTapAt = Date() }
-            beginAiming()
+            if model.visibleWindows.isEmpty { emptyTapAt = time }
+            beginAiming(at: time)
         }
     }
 
@@ -528,8 +532,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// How long after opening aiming mode a second tap of the super key still counts as a double tap.
     private static let doubleTapInterval: TimeInterval = 0.4
 
-    private func beginAiming(fromPointer: Bool = false) {
-        aimingOpenedAt = Date()
+    private func beginAiming(fromPointer: Bool = false, at time: Date = Date()) {
+        aimingOpenedAt = time
         aimStartedWithPointer = fromPointer
         guard !model.visibleWindows.isEmpty else {
             Diagnostics.note("aiming: nothing to aim at")
@@ -591,6 +595,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the queue. Once two or more are aimed, a menu of layouts sits beside them: Return or the arrow
     /// pointing into the screen enters it, and Return there tiles the windows.
     private func handleAimingPress(_ press: AimingKeyCapture.Press) {
+        // Once the mode is in use, the next tap of the super key leaves it; it is no double tap.
+        aimingOpenedAt = .distantPast
         if tilingMenu.state.isFocused {
             handleTilingMenuPress(press)
             return
