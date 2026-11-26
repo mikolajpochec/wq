@@ -1009,14 +1009,18 @@ final class TourSim: ObservableObject {
 
     private func closeTarget() {
         let wasAiming = aiming
-        guard let target = takeTarget() else { return }
+        // As in the app: a run of aimed windows closes as a whole, not just its first window.
+        let targets = aiming ? aimedIDs : selected.map { [$0] } ?? []
+        if aiming { endAiming() }
+        guard let first = targets.first else { return }
         done.insert(wasAiming ? .closedWhileAiming : .closed)
-        closed.insert(target)
-        tiled.removeAll { $0 == target }
-        if selected == target {
-            selected = zOrder.last { $0 != target && monitor(of: $0) == monitor(of: target) && isOnShow($0) }
+        closed.formUnion(targets)
+        tiled.removeAll(where: targets.contains)
+        if let selected, targets.contains(selected) {
+            self.selected = zOrder.last { !targets.contains($0) && monitor(of: $0) == monitor(of: first) && isOnShow($0) }
         }
-        flash(.note, "\(window(target)?.name ?? "Window") closed")
+        let name = targets.count == 1 ? "\(window(first)?.name ?? "Window") closed" : "\(targets.count) windows closed"
+        flash(.note, name)
     }
 
     // MARK: - Quick marks
