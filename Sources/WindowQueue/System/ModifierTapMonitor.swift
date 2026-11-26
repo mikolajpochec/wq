@@ -21,6 +21,11 @@ final class ModifierTapMonitor {
     private var armed = false
     /// Something during this press ruled it out as a tap. Cleared only by releasing everything.
     private var invalidated = false
+    /// The modifiers held as of the last `flagsChanged`.
+    private var lastFlags: NSEvent.ModifierFlags = []
+    /// Since everything was last released, only keys of the super combination went down and none
+    /// came up: a press from nothing, as opposed to the tail of some other combination.
+    private var climbing = false
 
     /// With `includingOtherApps` off only WindowQueue's own windows are watched — what the tour
     /// needs, and all that works before Accessibility is granted.
@@ -63,31 +68,44 @@ final class ModifierTapMonitor {
     }
 
     private func handle(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        handle(flags: event.modifierFlags)
+    }
+
+    /// One `flagsChanged`: the modifiers held from now on.
+    func handle(flags rawFlags: NSEvent.ModifierFlags, at now: Date = Date()) {
+        // Caps Lock is a state, not a key held down: left on, it must not rule out every tap.
+        let flags = rawFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+        let previous = lastFlags
+        lastFlags = flags
+        if previous.isEmpty { climbing = true }
+        if !flags.isSubset(of: modifiers) || !previous.isSubset(of: flags) { climbing = false }
 
         if flags.isEmpty {
-            let held = pressedAt.map { Date().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+            let held = pressedAt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
             let wasTap = armed && !invalidated && held <= Self.maxHold
             armed = false
             invalidated = false
+            climbing = false
             pressedAt = nil
             if wasTap { onTap?() }
             return
         }
 
         // Arming happens only on the way up from nothing. Letting a return to the bare super key
-        // re-arm would turn the tail of every combination into a tap: releasing Shift while Option
-        // is still down for `⌥⇧]` leaves exactly the super key held, and the release that follows
-        // would look identical to a deliberate tap.
-        if flags == modifiers, !armed {
+        // arm would turn the tail of every combination into a tap: releasing Control first after
+        // `⌃⌥Space` (next monitor) leaves exactly the super key held, and the release that follows
+        // would look identical to a deliberate tap. That holds even when the super key went down
+        // last, so `armed` alone is not enough: the press must climb straight up from nothing.
+        if flags == modifiers, climbing, !armed {
             armed = true
             invalidated = false
-            pressedAt = Date()
+            pressedAt = now
             return
         }
 
-        if flags != modifiers {
-            // Another modifier joined in: this is a combination, not a tap.
+        if !flags.isSubset(of: modifiers) {
+            // Another modifier joined in: this is a combination, not a tap. Letting go of the
+            // super keys one at a time (⌃⌥ as super) is still the tap.
             invalidated = true
         }
     }
